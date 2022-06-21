@@ -19,7 +19,7 @@ import astropy.constants as const
 from petitRADTRANS import Radtrans
 
 from collections import OrderedDict
-import petitradtrans as prt
+import starships.petitradtrans_utils as prt
 from petitRADTRANS import nat_cst as nc
 # import numpy as np
 
@@ -531,7 +531,7 @@ def plot_best_mod(params, atmos_obj, alpha_vis=0.5, alpha=0.7, color=None, label
 
 
 
-def calc_best_mod_any(params, planet, atmos_obj, P0=10e-3, 
+def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3, 
                       scatt=True, gamma_scat=-1.7, kappa_factor=0.36,
                       kappa_IR=-3, gamma=-1.5, radius_param=2, cloud_param=1,
                       scale=1., haze=None, nb_mols=None, kind_res='low', \
@@ -590,6 +590,8 @@ def calc_best_mod_any(params, planet, atmos_obj, P0=10e-3,
 
 #     print(nb_mols, params)
     T_equ =  params[nb_mols+0]
+    temp_params['T_eq'] = T_equ
+    
     if cloud_param is not None:
         cloud = 10**(params[nb_mols+cloud_param])
     else:
@@ -597,9 +599,19 @@ def calc_best_mod_any(params, planet, atmos_obj, P0=10e-3,
     radius = params[nb_mols+radius_param] * const.R_jup
 
     gravity = (const.G * planet.M_pl / (radius)**2).cgs.value
-    temperature = nc.guillot_global(pressures, 10**kappa_IR, 10**gamma, gravity, T_int, T_equ)
+    temp_params['gravity'] = gravity
+    
+
+#     temperature = nc.guillot_global(pressures, 10**kappa_IR, 10**gamma, gravity, T_int, T_equ)
     if iso :
         temperature = T_equ*np.ones_like(pressures)
+    else:
+        temperature = nc.guillot_global(temp_params['pressures'], 
+                                     temp_params['kappa_IR'], 
+                                     temp_params['gamma'], 
+                                     temp_params['gravity'], 
+                                     temp_params['T_int'], 
+                                     temp_params['T_eq'])
 #     else:
 #         gravity = (const.G * planet.M_pl / (radius)**2).cgs.value
 #         temperature = nc.guillot_global(pressures, 10**kappa_IR, 10**gamma, gravity, T_int, T_equ)
@@ -613,7 +625,7 @@ def calc_best_mod_any(params, planet, atmos_obj, P0=10e-3,
 
     
     _, wave_low, model_rp_low = prt.calc_multi_full_spectrum(planet, species_all, atmos_full=atmos_obj, 
-                             pressures=pressures, T=T_equ, temperature=temperature, plot=False,
+                             pressures=temp_params['pressures'], T=T_equ, temperature=temperature, plot=False,
                              P0=P0, haze=haze, cloud=cloud, path=None, rp=radius, 
                              gamma_scat = gamma_scat, kappa_factor=kappa_factor, kind_trans=kind_trans, **kwargs )
     
@@ -976,7 +988,7 @@ def plot_ratios_corner(samps, values_compare, color='blue', add_solar=True, **kw
     return fig
 
 
-def plot_tp_profile(params, planet, errors, nb_mols, 
+def plot_tp_profile(params, planet, errors, nb_mols, pressures, 
                     kappa = -3, gamma = -1.5, T_int=500, 
                     plot_limits=False, label='', color=None, 
                     radius_param = 2, zorder=None):
