@@ -12,7 +12,7 @@ import scipy.constants as cst
 
 from molmass import Formula
 
-from spirou_exo.analysis import resamp_model
+from starships.analysis import resamp_model
 
 from astropy.table import Table
 
@@ -118,7 +118,10 @@ def update_dissociation_abundance_profile(profile, specie_name, pressures,temper
 #     if specie_name != 'H2':
 #         profile['H2'] += (A0 - profile_updt)
     if specie_name == 'H2':
-        profile['H'] += (A0 - profile_updt)*scale
+        try:
+            profile['H'] += (A0 - profile_updt)*scale
+        except KeyError:
+            print("You must add H- to your species")
     if specie_name == 'H2O_main_iso':
         profile['OH_SCARLET'] += (A0 - profile_updt)*scale
     if specie_name == 'H2O_HITEMP':
@@ -141,7 +144,7 @@ def calc_MMW3(abundances):
 
 
 def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
-                   vmrh2he = [0.85,0.15], dissociation=False, scale=1.0, plot=True): #, MMW=2.33):
+                   vmrh2he = [0.85,0.15], dissociation=False, scale=1.0, plot=False): #, MMW=2.33):
     abundances = {}
     profile={}
         
@@ -158,19 +161,22 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
         species.append('H2')
         species_list.append('H2')
         VMRs.append(VMRs_H2)
-    
+#         print(species, species_list, VMRs)
     
     if 'He' not in species_list: 
         if verbose:
             print('add He')
         if 'H2' in species_list:
             VMRs_He = (1-np.array(VMRs).sum())
+#             print('with H2', VMRs_He)
         else:
             VMRs_He = vmrh2he[1]*(1-np.array(VMRs).sum())
+#             print('with H2', VMRs_He)
 #         VMRs_He = vmrh2he[1]*(1-np.array(VMRs).sum())
         species.append('He')
         species_list.append('He')
         VMRs.append(VMRs_He)
+#         print(VMRs_He)
         profile['He'] =  VMRs_He * np.ones_like(pressures)
 
 #     if verbose is True:
@@ -188,13 +194,13 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
 
         profile[specie_name] = vmr * np.ones_like(pressures)
                                                               
-    if ('H-' in species_list) and ('H' not in species_list) and (dissociation is True):
+    if ('H-' in species_list) and ('H' not in species_list):
         print('adding H-')
         profile['H'] = 1e-99 * np.ones_like(pressures)
         species_list.append('H')
         species.append('H')
         VMRs.append(1e-99)
-    if ('H-' in species_list) and ('e-' not in species_list) and (dissociation is True):
+    if ('H-' in species_list) and ('e-' not in species_list):
         print('adding e-')
         profile['e-'] = 1e-6 * np.ones_like(pressures)
         species_list.append('e-')
@@ -401,7 +407,7 @@ def calc_MMW(species, VMRs):
 def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T=None, temperature=None,
                              P0=1, haze=None, cloud=None, contribution=False, custom_VMRs=None, #MMW=2.33,
                              path=None, rp=None, rstar=None, kind_trans='transmission', filetag='', plot=False, 
-                             kappa_zero=None, kappa_factor=None, gamma_scat=None, vmrh2he=[0.75,0.25],
+                             kappa_zero=None, kappa_factor=None, gamma_scat=None, vmrh2he=[0.85,0.15],
                             verbose=False, dissociation=False):
     
     if path is not None:
@@ -431,6 +437,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
         temp_type = 'iso'
     else:
         temp_type = 'tp'
+        
+#     plt.plot(temperature, np.log10(pressures))
     
     if rp is None:
         R_pl = planet.R_pl.cgs.value
@@ -504,7 +512,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
             atmos_full_spectrum = atmos_full.transm_rad**2/R_star**2 * 1e6  # to put in ppm
         elif kind_trans == 'emission':
             bb_mod = bb(planet.Teff)
-            atmos_full_spectrum = atmos_full.flux*R_pl**2/R_star**2/ \
+            atmos_full_spectrum = atmos_full.flux * R_pl**2/R_star**2/ \
                                 (bb_mod(wave*u.um) * np.pi *u.sr).to(u.erg/u.cm**2/u.s/u.Hz)#.value
 #             black_body(planet.Teff)  # in erg cm-2 s-1 Hz-1
         if plot is True:
@@ -776,7 +784,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                               Pcloud=cloud, 
                              gamma_scat=gamma_scat, kappa_zero=kappa_zero, 
                                **kwargs)
-        out = atmos_object.flux*R_pl**2/R_star**2/\
+        out = atmos_object.flux*(R_pl**2/R_star**2).decompose()/\
                     (bb_mod((nc.c/atmos_object.freq/1e-4)*u.um) *\
                      np.pi *u.sr).to(u.erg/u.cm**2/u.s/u.Hz)  # in erg cm-2 s-1 Hz-1
         
