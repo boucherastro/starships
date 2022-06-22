@@ -107,11 +107,39 @@ def Ad(P,T, alpha,beta,gamma):
 def A(A0,Ad):
     A = ((1/np.sqrt(A0))+(1/np.sqrt(Ad)))**(-2.)
     return A
+
+
+def association_profile(P, T, A_0, alpha, beta, gamma, A_0_ref):
+    '''
+    A_0: VMR without dissociation
+    alpha, beta, gamma free parameters
+    '''
+    # Dissociated Abundance
+    log_A_shift = np.log10(A_0 / A_0_ref)
+    A_d = 10**(log_A_shift - gamma) * P**alpha*10**(beta/T)
+
+    # Combine dissociated abundance with original abundance
+    return (A_0**2 + A_d**2)**(0.5)
+
+def diss_profile(P, T, A_0, alpha, beta, gamma, A_0_ref):
+    '''
+    A_0: VMR without dissociation
+    alpha, beta, gamma free parameters
+    '''
+    # Dissociated Abundance
+    log_A_shift = np.log10(A_0 / A_0_ref)
+    A_d = 10**(log_A_shift - gamma) * P**alpha*10**(beta/T)
+
+    # Combine dissociated abundance with original abundance
+    return ((1/A_0)**0.5 + (1/A_d)**0.5)**(-2)
+
+
 # Equation to set the dissociated abundance profile to qmol_lay and add the difference as H2
 def update_dissociation_abundance_profile(profile, specie_name, pressures,temperatures,
-                                          A0, alpha, beta, gamma, scale=1.0):
+                                          A0, alpha, beta, gamma, A0_ref, scale=1.0):
     # dissociation abundance profile
-    profile_updt = A(A0,Ad(pressures,temperatures, alpha,beta,gamma))
+#     profile_updt = A(A0,Ad(pressures,temperatures, alpha,beta,gamma))
+    profile_updt = diss_profile(pressures,temperatures, A0, alpha,beta,gamma, A0_ref)
     # set abundance profile
     profile[specie_name]=profile_updt
     # add what is removed as H2
@@ -127,8 +155,6 @@ def update_dissociation_abundance_profile(profile, specie_name, pressures,temper
     if specie_name == 'H2O_HITEMP':
         profile['OH'] += (A0 - profile_updt)*scale
 
-
-        
          
 
 def calc_MMW3(abundances):
@@ -217,34 +243,44 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
             if MolName == 'H2':
 #                 print('H2', i, VMRs[i])
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures,
-                                                      vmr,*[1.0, 2.41*1e4, 6.5])
+                                                      vmr,*[1.0, 2.41*1e4, 6.5, 10**(-0.1)])
 
             if MolName == 'H2O_main_iso' or MolName == 'H2O_HITEMP':
 #                 print('H2O', VMRs[i], i)
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
-                                                      vmr,*[2.0, 4.83*1e4, 15.9], scale=scale)    
+                                                      vmr,*[2.0, 4.83*1e4, 15.9, 10**(-3.3)], scale=scale)    
     
             elif MolName == 'TiO':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
-                                                      vmr, *[1.6, 5.94*1e4, 23.0])
+                                                      vmr, *[1.6, 5.94*1e4, 23.0, 10**(-7.1)])
             elif MolName == 'VO':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
-                                                      vmr, *[1.5, 5.40*1e4, 23.8])
+                                                      vmr, *[1.5, 5.40*1e4, 23.8, 10**(-9.2)])
             elif MolName == 'H-':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
-                                                      vmr, *[0.6, -0.14*1e4, 7.7])
+                                                      vmr, *[0.6, -0.14*1e4, 7.7, 10**(-8.3)])
             elif MolName == 'Na':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
-                                                      vmr, *[0.6, 1.89*1e4, 12.2])
+                                                      vmr, *[0.6, 1.89*1e4, 12.2, 10**(-5.5)])
             elif MolName == 'K':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
-                                                      vmr, *[0.6, 1.28*1e4, 12.7])
+                                                      vmr, *[0.6, 1.28*1e4, 12.7, 10**(-7.1)])
             elif MolName == 'e-':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
-                                                      vmr, *[-0.4,2.5*1e-4,6.5])
+                                                      vmr, *[-0.4,2.5*1e-4,6.5, 10**(-6.0)])
                 
 
     MMW = calc_MMW3(profile)
+    
+    
+    if plot:
+        plt.figure()
+        for i,key in enumerate(profile.keys()):
+#             print(key)
+            plt.plot(np.log10(profile[key]),np.log10(pressures), label=key)
+        plt.legend()
+        plt.ylim(2,-6)
+        plt.xlim(-12,1)
 
     for mol, specie_name in zip(species, species_list):
         abundances[specie_name] = mass_fraction(mol,profile[specie_name], MMW=MMW)
@@ -259,13 +295,14 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
 #         for specie in custom_VMRs.keys():
 #             abundances[specie_name] = mass_fraction(mol, custom_VMRs[mol], MMW=MMW)
 
-    if plot:
-        for i,key in enumerate(abundances.keys()):
-#             print(key)
-            plt.plot(np.log10(abundances[key]),np.log10(pressures), label=key)
-        plt.legend()
-        plt.ylim(2,-6)
-        plt.xlim(-12,1)
+#     if plot:
+#         plt.figure()
+#         for i,key in enumerate(abundances.keys()):
+# #             print(key)
+#             plt.plot(np.log10(abundances[key]),np.log10(pressures), label=key)
+#         plt.legend()
+#         plt.ylim(2,-6)
+#         plt.xlim(-12,1)
 
     return abundances, MMW            
             
