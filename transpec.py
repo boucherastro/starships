@@ -1,7 +1,8 @@
 import starships.extract as ext
 from starships import analysis as a
 from starships import homemade as hm
-from starships.extract import quick_norm, running_filter 
+from starships.extract import quick_norm, running_filter
+from starships.mask_tools import interp1d_masked
 
 import numpy as np
 import scipy.constants as cst
@@ -49,7 +50,7 @@ def mask_deep_tellu(flux, tellu=None, path=None, tellu_list='list_tellu_tr',
     
     return flux_masked
 
-from spirou_exo.utils.mask_tools import interp1d_masked
+
 def unberv(wave, flux_masked, berv, RV_sys, vr, clip=False):  #, norm=False
     
     n_spec, nord, _ = flux_masked.shape

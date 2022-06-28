@@ -1,6 +1,9 @@
 import numpy as np
 from scipy.interpolate import interp1d
-from scipy.interpolate.polyint import _Interpolator1D
+try:
+    from scipy.interpolate.polyint import _Interpolator1D
+except ImportError:
+    from scipy.interpolate._polyint import _Interpolator1D
 
 
 class interp1d_masked(interp1d):
