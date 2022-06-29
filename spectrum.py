@@ -2101,12 +2101,15 @@ class PHOENIXspectrum(Spectrum):
 
     file_frame = 'lte%05g-%1.2f-%1.1f.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits'
     model_dir = "PHOENIX_HiRes/Z-%1.1f/"
+    
 
     def __init__(self, data=None, Teff=None, logg=None,
                  metallicity=0.0, **kwargs):
 
         if data is None:
             # Read flux
+            masterDir = '/home/boucher/spirou/'
+            
             file = self.file_frame % (Teff, logg, metallicity)
             path = masterDir + self.model_dir % (metallicity)
             try:

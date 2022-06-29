@@ -445,7 +445,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
                              P0=1, haze=None, cloud=None, contribution=False, custom_VMRs=None, #MMW=2.33,
                              path=None, rp=None, rstar=None, kind_trans='transmission', filetag='', plot=False, 
                              kappa_zero=None, kappa_factor=None, gamma_scat=None, vmrh2he=[0.85,0.15],
-                            verbose=False, dissociation=False):
+                            verbose=False, dissociation=False, fct_star=None):
     
     if path is not None:
         print('Checking if path exists...')
@@ -548,10 +548,17 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
         if kind_trans == 'transmission':
             atmos_full_spectrum = atmos_full.transm_rad**2/R_star**2 * 1e6  # to put in ppm
         elif kind_trans == 'emission':
-            bb_mod = bb(planet.Teff)
-            atmos_full_spectrum = atmos_full.flux * R_pl**2/R_star**2/ \
-                                (bb_mod(wave*u.um) * np.pi *u.sr).to(u.erg/u.cm**2/u.s/u.Hz)#.value
-#             black_body(planet.Teff)  # in erg cm-2 s-1 Hz-1
+            if fct_star is None:
+                bb_mod = bb(planet.Teff)
+                # -- Converting u.erg/u.cm**2/u.s/u.Hz to u.erg/u.cm**2/u.s/u.cm
+                star_spectrum = (bb_mod(wave*u.um) * np.pi *u.sr * const.c / (wave*u.um)**2 ).to(u.erg/u.cm**2/u.s/u.cm)
+            else:
+                star_spectrum = fct_star(wave)*(u.erg/u.cm**2/u.s/u.cm)
+                
+            atmos_full_spectrum = (atmos_full.flux * (u.erg / u.cm**2 /u.s /u.Hz) *\
+                                   const.c / (wave*u.um)**2).to(u.erg/u.cm**2/u.s/u.cm) * \
+                                    R_pl**2/R_star**2 / star_spectrum
+                                
         if plot is True:
             plt.figure()
             plt.plot(wave,atmos_full_spectrum)
@@ -796,7 +803,7 @@ def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None, **kwarg
 def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures, 
                           gravity, P0, cloud, \
                           R_pl, R_star, kappa_factor=None, gamma_scat=None, 
-                          kind_trans = 'transmission', dissociation=False, **kwargs):
+                          kind_trans = 'transmission', dissociation=False, fct_star=None, **kwargs):
     
     if kappa_factor is not None:
         kappa_zero = kappa_factor * (5.31e-31*u.m**2/u.u).cgs.value
@@ -816,14 +823,25 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                              gamma_scat=gamma_scat, kappa_zero=kappa_zero, **kwargs)
         out = atmos_object.transm_rad**2/R_star**2
     elif kind_trans == "emission":
-        bb_mod = bb(planet.Teff)
+#         bb_mod = bb(planet.Teff)
         atmos_object.calc_flux(temperatures, abundances, gravity, MMW,
                               Pcloud=cloud, 
                              gamma_scat=gamma_scat, kappa_zero=kappa_zero, 
                                **kwargs)
-        out = atmos_object.flux*(R_pl**2/R_star**2).decompose()/\
-                    (bb_mod((nc.c/atmos_object.freq/1e-4)*u.um) *\
-                     np.pi *u.sr).to(u.erg/u.cm**2/u.s/u.Hz)  # in erg cm-2 s-1 Hz-1
+#         out = atmos_object.flux*(R_pl**2/R_star**2).decompose()/\
+#                     (bb_mod((nc.c/atmos_object.freq/1e-4)*u.um) *\
+#                      np.pi *u.sr).to(u.erg/u.cm**2/u.s/u.Hz)  # in erg cm-2 s-1 Hz-1
+        wave = nc.c/atmos_object.freq/1e-4
+        if fct_star is None:
+            bb_mod = bb(planet.Teff)
+            # -- Converting u.erg/u.cm**2/u.s/u.Hz to u.erg/u.cm**2/u.s/u.cm
+            star_spectrum = (bb_mod(wave*u.um) * np.pi *u.sr * const.c / (wave*u.um)**2 ).to(u.erg/u.cm**2/u.s/u.cm)
+        else:
+            star_spectrum = fct_star(wave)*(u.erg/u.cm**2/u.s/u.cm)
+
+        out = (atmos_full.flux * (u.erg / u.cm**2 /u.s /u.Hz) *\
+                               const.c / (wave*u.um)**2).to(u.erg/u.cm**2/u.s/u.cm) * \
+                                (R_pl**2/R_star**2).decompose() / star_spectrum
         
-    return nc.c/atmos_object.freq/1e-4, out
+    return nc.c/atmos_object.freq/1e-4, out.decompose()
 

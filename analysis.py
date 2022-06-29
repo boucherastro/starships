@@ -367,13 +367,14 @@ def pseudo_cont_spectrum(x,y, prominence=None, plot=False,**kwargs):
     return filter_peak
 
 
-def resamp_model(modelWave0, modelTD0, Rbf, Raf=70000, rot_ker=None, sample=None, **kwargs): #, binning=False):
+def resamp_model(modelWave0, modelTD0, Rbf, Raf=70000, pix_per_elem=2,rot_ker=None, sample=None, **kwargs): #, binning=False):
     
     if ~isinstance(modelTD0, np.ma.MaskedArray):
         modelTD0 = np.ma.masked_invalid(modelTD0)
         
     if sample is None:
         sample = modelWave0
+        
 
 #     R_more = Raf #np.ones_like(modelWave0) * Raf  # get_var_res(iOrd, x)
     modwave0, modelTD0_resamp = resampling(modelWave0, modelTD0, Raf=Raf, Rbf=Rbf, sample=sample,
@@ -384,7 +385,7 @@ def resamp_model(modelWave0, modelTD0, Rbf, Raf=70000, rot_ker=None, sample=None
 #     modelTD0_smooth = box_binning(modelTD0_oversamp, 3) #3 avec 420000
 
     try:
-        modelTD0_smooth = box_binning(modelTD0_resamp, Rbf/Raf/2) #3 avec 420000
+        modelTD0_smooth = box_binning(modelTD0_resamp, Rbf/Raf/pix_per_elem) #3 avec 420000
     except ValueError:
         modelTD0_smooth = modelTD0_resamp
 
