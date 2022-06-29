@@ -24,6 +24,8 @@ from scipy.io.idl import readsav
 import os.path
 # from .config import *
 from importlib import reload
+
+from starships.mask_tools import interp1d_masked
 # import spirou_exo.analysis as a
 
 # from scipy.interpolate import interp1d
@@ -1140,9 +1142,6 @@ def find_R(wl, ptsPerElem=1):
     # print('R is {}'.format(R))
 
     return R_all.max(), R_all.min(), np.append(R_all, R_all[-1]-1)
-
-
-from spirou_exo.utils.mask_tools import interp1d_masked
 
 
 def sample_new_R(wl, flux, R, lb_range, ptsPerElem=1, sample=None):

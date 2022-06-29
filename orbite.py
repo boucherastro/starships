@@ -12,7 +12,7 @@ from astropy import units as u
 from astropy import constants as const
 import matplotlib.pyplot as plt
 from . import observatory as observ
-from PyAstronomy import pyasl as al
+# from PyAstronomy import pyasl as al
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 from astropy.coordinates import Angle
 # from .utils import homemade as hm
@@ -341,27 +341,27 @@ def where_eclipse(Rs, Rp, sep, z=None, nu=None, r=None, vr=None, i_tperi=None, w
     return out, ecl_part, ecl_tot
 
 
-def barryc_correc(observatoire, radec, date):
+# def barryc_correc(observatoire, radec, date):
 
-    if isinstance(date, u.Quantity):
-        date = date.to(u.d).value
+#     if isinstance(date, u.Quantity):
+#         date = date.to(u.d).value
 
-    obs = observ.observ_param(observatoire)
-    lon = Angle(obs['Longitude'], unit=u.deg).deg
-    lat = Angle(obs['Latitude'], unit=u.deg).deg
-    alt = obs['Altitude']  # meters
+#     obs = observ.observ_param(observatoire)
+#     lon = Angle(obs['Longitude'], unit=u.deg).deg
+#     lat = Angle(obs['Latitude'], unit=u.deg).deg
+#     alt = obs['Altitude']  # meters
 
-    c = SkyCoord(radec[0], radec[1], frame='icrs', unit=(u.deg, u.deg))
-    # crd2 = [SkyCoord(ra[i], dec[i]) for i in range(len(ra))]  # Faster way if many objects
-    ra2000 = c.ra.deg
-    dec2000 = c.dec.deg
-    # correc, hjd = al.helcorr(lon, lat, alt, ra2000, dec2000, date)
-    print(lon, lat, alt, ra2000, dec2000, date[0])
-    corr_hjd = np.array([al.helcorr(lon, lat, alt, ra2000, dec2000, date[i]) for i in range(len(date))])
-    correc = corr_hjd[:, 0] * u.km / u.s
-    # hjd = corr_hjd[:, 1]
+#     c = SkyCoord(radec[0], radec[1], frame='icrs', unit=(u.deg, u.deg))
+#     # crd2 = [SkyCoord(ra[i], dec[i]) for i in range(len(ra))]  # Faster way if many objects
+#     ra2000 = c.ra.deg
+#     dec2000 = c.dec.deg
+#     # correc, hjd = al.helcorr(lon, lat, alt, ra2000, dec2000, date)
+#     print(lon, lat, alt, ra2000, dec2000, date[0])
+#     corr_hjd = np.array([al.helcorr(lon, lat, alt, ra2000, dec2000, date[i]) for i in range(len(date))])
+#     correc = corr_hjd[:, 0] * u.km / u.s
+#     # hjd = corr_hjd[:, 1]
 
-    return correc
+#     return correc
 
 # ---------------------------------
 # --- Orbit time calculation ---
