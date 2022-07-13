@@ -495,8 +495,8 @@ def calc_hist_max_and_err(sample, bins=50, bin_size=2, plot=True, color=None,
 
 
 
-def plot_best_mod(params, atmos_obj, alpha_vis=0.5, alpha=0.7, color=None, label='', iso=False, 
-                  wl_lim =None, back_color='royalblue', add_hst=True, ylim=[0.0092, 0.0122], **kwargs):
+def plot_best_mod(params, atmos_obj, alpha_vis=0.5, alpha=0.7, color=None, label='', 
+                  wl_lim=None, back_color='royalblue', add_hst=True, ylim=[0.0092, 0.0122], **kwargs):
     
     fig = plt.figure(figsize=(15,5))
 
@@ -535,20 +535,20 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
                       scatt=False, gamma_scat=-1.7, kappa_factor=0.36,
                       TP=False,  radius_param=2, cloud_param=1,  #kappa_IR=-3, gamma=-1.5,
                       scale=1., haze=None, nb_mols=None, kind_res='low', \
-                      list_mols=None, iso=False, kind_trans='transmission', **kwargs):
+                      list_mols=None, kind_temp='', kind_trans='transmission', **kwargs):
     
-    species_all0 = OrderedDict({})
+#     species_all0 = OrderedDict({})
+    
+    if list_mols is None:
+            list_mols=['H2O', 'CO', 'CO2', 'FeH', 
+                       'CH4', 'HCN', 'NH3', 'C2H2',\
+                       'TiO', 'VO', 'OH', 'Na', 'K']
     
     if kind_res == "low":
-        
-        if list_mols is None:
-            list_mols=['H2O_HITEMP', 'CO_all_iso_HITEMP', 'CO2', 'FeH', \
-                                   'CH4', 'HCN', 'NH3', 'C2H2','TiO_all_Plez', \
-                                   'OH', 'Na_allard', 'K_allard', 'VO']
-        
-        
-        for mol in list_mols:
-            species_all0[mol] = [1e-99]
+
+        species_all0 = prt.select_mol_list(list_mols, list_values=None, kind_res='low')
+#         for mol in list_mols:
+#             species_all0[mol] = [1e-99]
 #                             'H2O_HITEMP': [1e-99], 
 #                            'CO_all_iso_HITEMP':[1e-99],
 #                           'CO2':[1e-99],
@@ -564,14 +564,14 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 #                                 'K_allard' : [1e-99]
 #                               })
     elif kind_res == "high":
-        if list_mols is None:
-            list_mols=['H2O_main_iso', 'CO_all_iso', 'CO2_main_iso', 'FeH_main_iso', \
-                       'CH4_main_iso', 'HCN_main_iso', 'NH3_main_iso', 'C2H2_main_iso',\
-                       'TiO_all_iso', 'OH_SCARLET', 'Na', 'K', 'VO']
+#         if list_mols is None:
+#             list_mols=['H2O_main_iso', 'CO_all_iso', 'CO2_main_iso', 'FeH_main_iso', \
+#                        'CH4_main_iso', 'HCN_main_iso', 'NH3_main_iso', 'C2H2_main_iso',\
+#                        'TiO_all_iso', 'VO', 'OH_SCARLET', 'Na', 'K']
 #         species_all0 = OrderedDict({})
-        
-        for mol in list_mols:
-            species_all0[mol] = [1e-99]
+        species_all0 = prt.select_mol_list(list_mols, list_values=None, kind_res='high')
+#         for mol in list_mols:
+#             species_all0[mol] = [1e-99]
 #                         'H2O_main_iso': [1e-99], 
 #                        'CO_all_iso':[1e-99],
 #                       'CO2_main_iso':[1e-99],
@@ -592,9 +592,9 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
         
     species_all = species_all0.copy()
     
-    for i in range(nb_mols):
+    for i, mol_i in enumerate(species_all.keys()):
 #         print(list_mols[i],10**params[i])
-        species_all[list_mols[i]] = [10**params[i]]
+        species_all[mol_i] = [10**params[i]]
                         
 
 #     print(nb_mols, params)
@@ -608,16 +608,31 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 
     temp_params['gravity'] = (const.G * planet.M_pl / (radius)**2).cgs.value
     
-    if TP is True:
-        temp_params['kappa_IR'] = 10**params[-2]
-        temp_params['gamma'] = 10**params[-1]
+    
         
 #     print(temp_params['kappa_IR'], temp_params['gamma'])
 
 #     temperature = nc.guillot_global(pressures, 10**kappa_IR, 10**gamma, gravity, T_int, T_equ)
-    if iso :
+    if kind_temp == 'iso' :
         temperature = temp_params['T_eq']*np.ones_like(temp_params['pressures'])
+    elif kind_temp == 'modif':
+        if TP is True:
+            temp_params['delta'] = 10**params[-4]
+            temp_params['gamma'] = 10**params[-3]
+            temp_params['ptrans'] = 10**params[-2]
+            temp_params['alpha'] = params[-1]
+        temperature = nc.guillot_modif(temp_params['pressures'], 
+                                         temp_params['delta'], 
+                                         temp_params['gamma'], 
+                                         temp_params['T_int'], 
+                                         temp_params['T_eq'],
+                                         temp_params['ptrans'], 
+                                         temp_params['alpha'])
     else:
+        
+        if TP is True:
+            temp_params['kappa_IR'] = 10**params[-2]
+            temp_params['gamma'] = 10**params[-1]
         temperature = nc.guillot_global(temp_params['pressures'], 
                                      temp_params['kappa_IR'], 
                                      temp_params['gamma'], 
