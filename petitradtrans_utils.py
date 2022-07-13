@@ -97,7 +97,122 @@ def gen_atm_all(species_list, pressures=None, limP=[-12, 4], n_pts=150, indiv=Fa
         print("You are not getting the individual contributions of the species")
         return atmos_full, pressures
     
+
     
+def select_mol_list(list_mols, list_values=None, kind_res='low', 
+                    change_line_list=None, add_line_list=None):
+    
+    species_list = OrderedDict({})
+    
+    species_linelists = dict()
+    species_linelists['high'] = OrderedDict({
+        'H2O': 'H2O_main_iso' ,
+        'CO': 'CO_all_iso',
+        'CO2': 'CO2_main_iso',
+        'FeH': 'FeH_main_iso',
+        'C2H2': 'C2H2_main_iso',
+        'CH4': 'CH4_main_iso',
+        'HCN': 'HCN_main_iso',
+        'NH3': 'NH3_main_iso',
+        'TiO': 'TiO_all_iso',
+        'VO': 'VO',
+        'OH': 'OH_SCARLET',
+        'Na': 'Na',
+        'K': 'K',
+        'H-': 'H-',
+        'H': 'H',
+        'e-': 'e-',
+    })
+    species_linelists['low'] = OrderedDict({
+        'H2O': 'H2O_HITEMP',
+        'CO': 'CO_all_iso_HITEMP',
+        'CO2': 'CO2',
+        'FeH': 'FeH',
+        'C2H2': 'C2H2',
+        'CH4': 'CH4',
+        'HCN': 'HCN',
+        'NH3': 'NH3',
+        'TiO': 'TiO_all_Exomol',
+        'VO': 'VO',
+        'OH': 'OH',
+        'Na': 'Na_allard',
+        'K': 'K_allard',
+        'H-': 'H-',
+        'H': 'H',
+        'e-': 'e-',
+
+    })
+    
+    if add_line_list is not None:
+        for added_mol in add_line_list:
+            species_linelists[kind_res][added_mol[0]] = added_mol[1]
+            
+    if change_line_list is not None:
+        for changed_mol in change_line_list:
+            species_linelists[kind_res][changed_mol[0]] = changed_mol[1]
+    
+    for i_mol, mol in enumerate(list_mols):
+        if list_values is None:
+            species_list[species_linelists[kind_res][mol]] = [1e-99]
+        else:
+            species_list[species_linelists[kind_res][mol]] = list_values[i_mol]
+    
+    return species_list
+    
+    
+    
+# def select_mol_list(list_mols, list_values=None, kind_res='low', 
+#                     change_line_list=None, add_line_list=[]):
+    
+#     species_list = OrderedDict({})
+    
+#     if kind_res == 'high':
+#         master_list_mol = ['H2O_main_iso','CO_all_iso','CO2_main_iso','FeH_main_iso',
+#                    'C2H2_main_iso','CH4_main_iso','HCN_main_iso','NH3_main_iso',
+#                    'TiO_all_iso','VO','OH_SCARLET','Na','K','H-','H','e-']+add_line_list
+
+#     elif kind_res == 'low':
+#         master_list_mol = ['H2O_HITEMP','CO_all_iso_HITEMP','CO2','FeH',
+#                            'C2H2', 'CH4', 'HCN', 'NH3',
+#                            'TiO_all_Exomol','VO','OH','Na_allard','K_allard','H-','H','e-']+add_line_list
+        
+        
+        
+#     # If someone wants to change the default line_list:
+#     # Ex: change_line_list = ['TiO_all_Plez']
+#     if change_line_list is not None:
+#         for change_ll in change_line_list:
+#             change_mol = change_ll.split('_')[0]
+#             for mol_i, master_mol in enumerate(master_list_mol):
+#                 if np.nonzero(change_mol in master_mol)[0].size > 0:
+#                     if change_mol == master_mol:
+#                         master_list_mol[mol_i] = change_ll
+#                     else:
+#                         if np.nonzero(change_mol+'_' in master_mol)[0].size > 0:
+#                             master_list_mol[mol_i] = change_ll
+            
+
+    
+#     for i_mol, mol in enumerate(list_mols):
+#         for master_mol in master_list_mol:
+#             if np.nonzero(mol in master_mol)[0].size > 0:
+#                 if mol == master_mol:
+#                     if list_values is None:
+#                         species_list[master_mol] = [1e-99]
+#                     else:
+#                         species_list[master_mol] = list_values[i_mol]
+# #                     if mol == "H-":
+                        
+#                 else:
+#                     if np.nonzero(mol+'_' in master_mol)[0].size > 0:
+#                         if list_values is None:
+#                             species_list[master_mol] = [1e-99]
+#                         else:
+#                             species_list[master_mol] = list_values[i_mol]
+    
+#     return species_list
+
+
 ## thermal dissociation functions
 # Eq 2, Parmentier et al. 2018
 def Ad(P,T, alpha,beta,gamma):
@@ -221,7 +336,7 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
         profile[specie_name] = vmr * np.ones_like(pressures)
                                                               
     if ('H-' in species_list) and ('H' not in species_list):
-        print('adding H-')
+        print('adding H')
         profile['H'] = 1e-99 * np.ones_like(pressures)
         species_list.append('H')
         species.append('H')
@@ -236,36 +351,34 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
 #     print(species_list, VMRs)
 
     if dissociation :
-        for MolName, vmr in zip(species_list, VMRs):
+        for MolName, mol, vmr in zip(species_list, species, VMRs):
 #             print(MolName, vmr)
             # if H2O, VO, TiO, H-, Na, K, use dissociation profiles
             # values from Table 1 of Parmentier et al. 2018
-            if MolName == 'H2':
+            if mol == 'H2':
 #                 print('H2', i, VMRs[i])
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures,
                                                       vmr,*[1.0, 2.41*1e4, 6.5, 10**(-0.1)])
-
-            if MolName == 'H2O_main_iso' or MolName == 'H2O_HITEMP':
+            if mol == 'H2O':
 #                 print('H2O', VMRs[i], i)
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
                                                       vmr,*[2.0, 4.83*1e4, 15.9, 10**(-3.3)], scale=scale)    
-    
-            elif MolName == 'TiO':
+            elif mol == 'TiO' :
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
                                                       vmr, *[1.6, 5.94*1e4, 23.0, 10**(-7.1)])
-            elif MolName == 'VO':
+            elif mol == 'VO':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
                                                       vmr, *[1.5, 5.40*1e4, 23.8, 10**(-9.2)])
-            elif MolName == 'H-':
+            elif mol == 'H-':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
                                                       vmr, *[0.6, -0.14*1e4, 7.7, 10**(-8.3)])
-            elif MolName == 'Na':
+            elif mol == 'Na':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
                                                       vmr, *[0.6, 1.89*1e4, 12.2, 10**(-5.5)])
-            elif MolName == 'K':
+            elif mol == 'K' :
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
                                                       vmr, *[0.6, 1.28*1e4, 12.7, 10**(-7.1)])
-            elif MolName == 'e-':
+            elif mol == 'e-':
                 update_dissociation_abundance_profile(profile,MolName,pressures, temperatures, 
                                                       vmr, *[-0.4,2.5*1e-4,6.5, 10**(-6.0)])
                 
@@ -839,9 +952,9 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
         else:
             star_spectrum = fct_star(wave)*(u.erg/u.cm**2/u.s/u.cm)
 
-        out = (atmos_full.flux * (u.erg / u.cm**2 /u.s /u.Hz) *\
+        out = (atmos_object.flux * (u.erg / u.cm**2 /u.s /u.Hz) *\
                                const.c / (wave*u.um)**2).to(u.erg/u.cm**2/u.s/u.cm) * \
-                                (R_pl**2/R_star**2).decompose() / star_spectrum
+                                (R_pl**2/R_star**2) / star_spectrum
         
     return nc.c/atmos_object.freq/1e-4, out.decompose()
 
