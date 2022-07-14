@@ -604,7 +604,10 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
         cloud = 10**(params[nb_mols+cloud_param])
     else:
         cloud = None
-    radius = params[nb_mols+radius_param] * const.R_jup
+    if radius_param is not None:
+        radius = params[nb_mols+radius_param] * const.R_jup
+    else:
+        radius = planet.R_pl
 
     temp_params['gravity'] = (const.G * planet.M_pl / (radius)**2).cgs.value
     
@@ -1017,42 +1020,84 @@ def plot_ratios_corner(samps, values_compare, color='blue', add_solar=True, **kw
     return fig
 
 
-def plot_tp_profile(params, planet, errors, nb_mols, pressures, 
+def calc_tp_profile(params, temp_params, kind_temp='', TP=True, 
+                    T_eq=None, pressures=None):
+    
+    if pressures is None:
+        pressures = temp_params['pressures']
+    if T_eq is None:
+        T_eq = temp_params['T_eq']
+    
+    if kind_temp == 'iso' :
+        temperatures = T_eq*np.ones_like(pressures)
+    elif kind_temp == 'modif':
+        if TP is True:
+            temp_params['delta'] = 10**params[-4]
+            temp_params['gamma'] = 10**params[-3]
+            temp_params['ptrans'] = 10**params[-2]
+            temp_params['alpha'] = params[-1]
+        temperatures = nc.guillot_modif(pressures, 
+                                         temp_params['delta'], 
+                                         temp_params['gamma'], 
+                                         temp_params['T_int'], 
+                                         T_eq,
+                                         temp_params['ptrans'], 
+                                         temp_params['alpha'])
+    else:
+        if TP is True:
+            temp_params['kappa_IR'] = 10**params[-2]
+            temp_params['gamma'] = 10**params[-1]
+        temperatures = nc.guillot_global(pressures, 
+                                     temp_params['kappa_IR'], 
+                                     temp_params['gamma'], 
+                                     temp_params['gravity'], 
+                                     temp_params['T_int'], 
+                                     T_eq)
+        
+    return temperatures
+
+def plot_tp_profile(params, planet, errors, nb_mols, temp_params, 
                     kappa = -3, gamma = -1.5, T_int=500, 
                     plot_limits=False, label='', color=None, 
-                    radius_param = 2, zorder=None):
+                    radius_param = 2, TP=True, zorder=None, kind_temp=''):
 
     T_eq = params[nb_mols]
     kappa_IR = 10**(kappa)
     gamma = 10**(gamma)
+    
 #     T_int = 500.
     if planet.M_pl.ndim == 1:
         planet.M_pl = planet.M_pl[0]
-    gravity = (const.G * planet.M_pl / (params[nb_mols+radius_param]*const.R_jup)**2).cgs.value
-    print(type(gravity))
+    if radius_param is not None:
+        temp_params['gravity'] = (const.G * planet.M_pl / (params[nb_mols+radius_param]*const.R_jup)**2).cgs.value
 
-
-    temperature = guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_eq)
-    temperature_up = guillot_global(pressures, kappa_IR, gamma, gravity, T_int, errors[nb_mols][1])
-    temperature_down = guillot_global(pressures, kappa_IR, gamma, gravity, T_int, errors[nb_mols][0])
+    temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP)
+#     guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_eq)
+    temperature_up = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=errors[nb_mols][1])
+#     guillot_global(pressures, kappa_IR, gamma, gravity, T_int, errors[nb_mols][1])
+    temperature_down = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=errors[nb_mols][0])
+#     guillot_global(pressures, kappa_IR, gamma, gravity, T_int, errors[nb_mols][0])
     print(temperature[0], temperature_up[0], temperature_down[0])
 
     if plot_limits:
-        plt.plot(guillot_global(pressures, kappa_IR, gamma, gravity, T_int, 300),  
-                     np.log10(pressures), ':', alpha=0.5, color='grey', label='T-P limits')
-        plt.plot(guillot_global(pressures, kappa_IR, gamma, gravity, T_int, 1400),  
-                     np.log10(pressures), ':', alpha=0.5, color='grey')
+        plt.plot(calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=500),  
+                     np.log10(temp_params['pressures']), ':', alpha=0.5, color='grey', label='T-P limits')
+        plt.plot(calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=4000),  
+                     np.log10(temp_params['pressures']), ':', alpha=0.5, color='grey')
 
 
-    plt.plot(temperature,  np.log10(pressures), label=label, color=color)
-    plt.fill_betweenx(np.log10(pressures), temperature_down, temperature_up, alpha=0.15, color=color, zorder=zorder)
+    plt.plot(temperature,  np.log10(temp_params['pressures']), label=label, color=color)
+    plt.fill_betweenx(np.log10(temp_params['pressures']), temperature_down, temperature_up, 
+                      alpha=0.15, color=color, zorder=zorder)
 
-    t1bar = guillot_global(1, kappa_IR, gamma, gravity, T_int, T_eq)
+    t1bar = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, pressures=1)
 
 #     print(t1bar, kappa_IR, gamma, gravity, T_int, errors[nb_mols][1])
     print('T @ 1 bar = {:.0f} + {:.0f} - {:.0f} '.format(t1bar,
-                               guillot_global(1, kappa_IR, gamma, gravity, T_int, errors[nb_mols][1])-t1bar,
-                           t1bar -guillot_global(1, kappa_IR, gamma, gravity, T_int, errors[nb_mols][0]) ))
+                               calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
+                                               T_eq=errors[nb_mols][1], pressures=1)-t1bar,
+                           t1bar -calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
+                                                  T_eq=errors[nb_mols][0], pressures=1) ))
 
 
 
