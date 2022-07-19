@@ -802,6 +802,12 @@ def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob
     n_params = sample_all.shape[-1]
     maxs = []
     errors = []
+#     print(n_params)
+    if plot is True:
+        fig, ax = plt.subplots(len(labels), 2,constrained_layout=True, 
+                       figsize=(10,len(labels)), sharex='col', sharey='row',
+                      gridspec_kw={'width_ratios': [5,1]})
+    
     for i in range(n_params):
 
     #     if i == 9 :
@@ -817,9 +823,21 @@ def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob
 #             binned = spectrum.box_binning(his,bin_size)
 #             maximum = a.find_max_spline(mids, binned, binning=True)[0]
 #         maxs.append(maximum)
+#         if plot:
+#         print(i)
+        ax[i,0].plot(sample_all[:, :, i], "k", alpha=0.3)
+        ax[i,0].set_xlim(0, len(sample_all))
+        ax[i,0].set_ylabel(labels[i])
+        sample_i = sample_all[:, :, i].reshape(sample_all.shape[0]*sample_all.shape[1], 1)
+#         print(samp.shape, sample_i.shape)
+        his, edges, _ = ax[i,1].hist(sample_i,
+                                    bins=30, orientation='horizontal', 
+                                    weights = np.ones(len(sample_i)) / len(sample_i)*100,
+                                    color='k')
+            
 
-        plt.figure(figsize=(7,3))
-        his, edges,_ = plt.hist(samp, bins='auto') 
+#         plt.figure(figsize=(7,3))
+#         his, edges,_ = np.histogram(samp, bins=30, weights = np.ones(len(samp)) / len(samp)*100) 
         mids = 0.5*(edges[1:] + edges[:-1])
 #         print(i)
         if flag_id is not None :
@@ -829,40 +847,33 @@ def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob
 #                 print('i in flag')
                 binned = spectrum.box_binning(his[30:], flag[flag[:,0] == i][0][1])
                 maximum = a.find_max_spline(mids[30:], binned, binning=True)[0]
-                plt.plot(mids[30:], binned) 
+#                 if plot:
+                ax[i,1].plot(binned, mids[30:], color='darkorange') 
             else:
                 binned = spectrum.box_binning(his,bin_size)
                 maximum = a.find_max_spline(mids, binned, binning=True)[0]
-                plt.plot(mids, binned)
+#                 if plot:
+                ax[i,1].plot(binned, mids, color='darkorange')
         else:
             binned = spectrum.box_binning(his,bin_size)
             maximum = a.find_max_spline(mids, binned, binning=True)[0]
-            plt.plot(mids, binned)
+#             if plot:
+            ax[i,1].plot(binned, mids, color='darkorange')
         maxs.append(maximum)
 
         errbars2 = pymc3.stats.hdi(samp, prob)
         errors.append(errbars2)
-
-        plt.axvline(maximum, color='k')
-        plt.axvline(errbars2[0], color='k', linestyle='--')
-        plt.axvline(errbars2[1], color='k', linestyle='--')
+        
+#         if plot:
+        ax[i,1].axhline(maximum, color='dodgerblue')
+        ax[i,1].axhspan(errbars2[0], errbars2[1], alpha=0.2, color='dodgerblue')
+#         ax[i,1].axhline(errbars2[0], linestyle='--')
+#         ax[i,1].axhline(errbars2[1], linestyle='--')
         print(maximum, errbars2-maximum, errbars2)
 
-    if plot is True:
-        fig, ax = plt.subplots(len(labels), 2,constrained_layout=True, 
-                       figsize=(10,len(labels)), sharex='col', sharey='row',
-                      gridspec_kw={'width_ratios': [5,1]})
-
-        for i in range(n_params):
-
-            ax[i,0].plot(sample_all[:, :, i], "k", alpha=0.3)
-            ax[i,0].set_xlim(0, len(sample_all))
-            ax[i,0].set_ylabel(labels[i])
-            sample = sample_all[:, :, i].reshape(sample_all.shape[0]*sample_all.shape[1], 1)
-            ax[i,1].hist(sample,
-                         bins=30, orientation='horizontal', weights = np.ones(len(sample)) / len(sample)*100,
-                        color='k')
-        ax[-1,0].set_xlabel("Steps")
+    
+#     if plot:
+#         ax[-1,0].set_xlabel("Steps")
         
 #         fig, axes = plt.subplots(n_params, figsize=(10, n_params), sharex=True)
 #         for i in range(n_params):
@@ -1061,9 +1072,9 @@ def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
                     plot_limits=False, label='', color=None, 
                     radius_param = 2, TP=True, zorder=None, kind_temp=''):
 
-    T_eq = params[nb_mols]
-    kappa_IR = 10**(kappa)
-    gamma = 10**(gamma)
+#     T_eq = params[nb_mols]
+#     kappa_IR = 10**(kappa)
+#     gamma = 10**(gamma)
     
 #     T_int = 500.
     if planet.M_pl.ndim == 1:
@@ -1072,11 +1083,10 @@ def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
         temp_params['gravity'] = (const.G * planet.M_pl / (params[nb_mols+radius_param]*const.R_jup)**2).cgs.value
 
     temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP)
-#     guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_eq)
-    temperature_up = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=errors[nb_mols][1])
-#     guillot_global(pressures, kappa_IR, gamma, gravity, T_int, errors[nb_mols][1])
-    temperature_down = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=errors[nb_mols][0])
-#     guillot_global(pressures, kappa_IR, gamma, gravity, T_int, errors[nb_mols][0])
+    temperature_up = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
+                                     T_eq=errors[nb_mols][1])
+    temperature_down = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
+                                       T_eq=errors[nb_mols][0])
     print(temperature[0], temperature_up[0], temperature_down[0])
 
     if plot_limits:
