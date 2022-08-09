@@ -1391,8 +1391,9 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 #     return tresh_array, contrast, contrast_sig     
 
 
-def plot_order(tr, iord, flux=None, xaxis=None, yaxis=None, show_slice=None, length=16,
-               xlabel='', ylabel='', cbar=False, clim=[None,None], xlim=None, ylim=None, title='', **kwargs):
+def plot_order(tr, iord, flux=None, xaxis=None, yaxis=None, show_slice=None, figsize=(16,4),
+               xlabel='', ylabel='', cbar=False, clim=[None,None], xlim=None, ylim=None, 
+               fontsize=12, title='', **kwargs):
     
     if flux is None:
         flux = tr.final
@@ -1402,7 +1403,7 @@ def plot_order(tr, iord, flux=None, xaxis=None, yaxis=None, show_slice=None, len
     if yaxis is None:
         yaxis = np.arange(tr.n_spec)
     
-    fig = plt.figure(figsize=(length,4))
+    fig = plt.figure(figsize=figsize)
     
     ax = fig.add_subplot(2,1,1)
     
@@ -1428,10 +1429,10 @@ def plot_order(tr, iord, flux=None, xaxis=None, yaxis=None, show_slice=None, len
             ax2.plot(xaxis, flux[show_slice,iord], **kwargs)
 #                vmin=np.nanpercentile(t1.final[:,45].data,1), vmax=0.050
 #     return fig
-        ax2.set_xlabel(xlabel)
+        ax2.set_xlabel(xlabel, fontsize=fontsize)
     else:
-        ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
+        ax.set_xlabel(xlabel, fontsize=fontsize)
+    ax.set_ylabel(ylabel, fontsize=fontsize)
     
     
         

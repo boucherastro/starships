@@ -764,11 +764,8 @@ def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, iOut=None,
     return final_ts#, final_ts_std
 
 
-def build_trans_spectrum_mod_fast(wave, flux, master_out, pca, noise, iOut=None,
-                              plot=False, n_pca=2, n_comps=10, somme=False, verbose=False,
-                              mo_box=51, mo_gauss_box=3, norm=True, blaze=None, ratio=None, debug=False):
-
-#     flux_norm_mo = flux/np.ma.median(flux,axis=-1)[:,:,None]
+def build_trans_spectrum_mod_fast(wave, flux, master_out, pca, noise, 
+                                  plot=False, n_pca=2, n_comps=10, somme=False, ):
 
     if n_pca > 0:
 

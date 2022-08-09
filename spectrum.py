@@ -871,7 +871,7 @@ class RotKerTransitCloudy:
         omega = self.omega
         z_h = self.z_h
         r_p = self.r_p 
-        print(res_elem,omega,z_h,r_p)
+#         print(res_elem,omega,z_h,r_p)
 
         ker_h_len = (r_p + z_h) * omega.max()
         v_max = ker_h_len + pad * res_elem
