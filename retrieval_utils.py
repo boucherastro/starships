@@ -187,7 +187,8 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
 #         fig = plt.figure()
 #         plt.hist(samp_c_sur_o,)
         fig = plt.figure()
-        maximum, errbars2 = calc_hist_max_and_err(samp_c_sur_o, bins=np.arange(0,3.0,0.05), bin_size=2, plot=True, prob=prob)
+        maximum, errbars2 = calc_hist_max_and_err(samp_c_sur_o, bins=np.arange(0,3.0,0.05), 
+                                                  bin_size=2, plot=True, prob=prob)
 #         plt.title('C/O = {:.4f} + {:.4f} - {:.4f}\n {:.2f} - {:.2f}'.format(maximum,
 #                                                                             errbars2[1]-maximum,
 #                                                                             maximum-errbars2[0],
@@ -339,15 +340,18 @@ def plot_c_sur_o(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=0,
                                sol_values=None, stellar_values=None, errors=None, H2=0.75, N2=10**(-4.5),
                               list_mols=['H2O','CO','CO2','FeH','CH4','HCN','NH3','C2H2','TiO',\
                                         'OH','Na','K'], fig_name='', prob=0.68, 
-                 color=None, label='', pos=(0.1,0.75), add_infos=True, plot=True, **kwargs):
+                 color=None, label='', pos=(0.1,0.75), add_infos=True, plot=True,  bins=None, **kwargs):
     if nb_mols is None:
         nb_mols = len(list_mols)
+        
+        
+    if bins is None:
+        bins=np.arange(0,3.0,0.02)
         
     values = []
     samp_values = []
     samp_values_err = []
-    
-    bins = np.arange(-7,-1,0.2)
+
     
     if sol_values is None:
         sol_values = [0.54, 8.46 - 12, 8.69 - 12, 7.83 - 12]
@@ -381,7 +385,7 @@ def plot_c_sur_o(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=0,
 
 #         fig = plt.figure()
 
-        maximum, errbars2 = calc_hist_max_and_err(samp_c_sur_o, bins=np.arange(0,3.0,0.1), bin_size=2, 
+        maximum, errbars2 = calc_hist_max_and_err(samp_c_sur_o, bins=bins, bin_size=2, 
                                                   prob=prob, color=color, label=label, plot=plot, **kwargs
                                                  )
         if plot is True:
@@ -567,7 +571,7 @@ def calc_hist_max_and_err(sample, bins=50, bin_size=2, plot=True, color=None,
 
 
 
-def plot_best_mod(params, atmos_obj, alpha_vis=0.5, alpha=0.7, color=None, label='', 
+def plot_best_mod(params, planet, atmos_obj, temp_params, alpha_vis=0.5, alpha=0.7, color=None, label='', 
                   wl_lim=None, back_color='royalblue', add_hst=True, ylim=[0.0092, 0.0122], **kwargs):
     
     fig = plt.figure(figsize=(15,5))
@@ -580,7 +584,7 @@ def plot_best_mod(params, atmos_obj, alpha_vis=0.5, alpha=0.7, color=None, label
         plt.errorbar(sp_wave, sp_data, sp_data_err, color='k',marker='.',linestyle='none')
     
     if wl_lim is not None:
-        x,y = calc_best_mod_any(params, atmos_obj, **kwargs)
+        x,y = calc_best_mod_any(params, planet, atmos_obj, temp_params, **kwargs)
         plt.plot(x[x>wl_lim],y[x>wl_lim], alpha=alpha, label=label, color=color)
     else:
         plt.plot(*calc_best_mod_any(params, atmos_obj, **kwargs), alpha=alpha, label=label, color=color)
@@ -824,10 +828,10 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 #     return wave_low, np.array(model_rp_low)[0]/1e6*scale
 
 
-def downgrade_mod(wlen, flux_lambda, down_wave, Raf=75):
+def downgrade_mod(wlen, flux_lambda, down_wave,Rbf=1000, Raf=75):
     
-    _, resamp_prt = spectrum.resampling(wlen, flux_lambda, Raf=Raf, Rbf=1000, sample=wlen)
-    binned_prt_hst = spectrum.box_binning(resamp_prt, 1000/Raf)
+    _, resamp_prt = spectrum.resampling(wlen, flux_lambda, Raf=Raf, Rbf=Rbf, sample=wlen)
+    binned_prt_hst = spectrum.box_binning(resamp_prt, Rbf/Raf)
     fct_prt= interp1d(wlen, binned_prt_hst)
 
     return fct_prt(down_wave)

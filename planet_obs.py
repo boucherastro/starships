@@ -620,7 +620,7 @@ class Observations():
     
     def build_trans_spec(self, flux=None, params=None, n_comps=None, 
                          change_ratio=False, change_noise=False, ratio_recon=False, 
-                         clip_ts=None, clip_ratio=None, fast=False, **kwargs):
+                         clip_ts=None, clip_ratio=None, fast=False, poly_time=None, **kwargs):
         
         """
         Compute the transmission/emission spectrum of the planet
@@ -640,7 +640,7 @@ class Observations():
         self.spec_trans, self.full_ts, self.chose, \
         self.final, self.final_std, self.rebuilt, \
         self.pca, self.fl_Sref, self.fl_masked, \
-        ratio, last_mask = ts.build_trans_spectrum4(self.wave, flux, 
+        ratio, last_mask, self.recon_time = ts.build_trans_spectrum4(self.wave, flux, 
                                      self.light_curve, self.berv, self.planet.RV_sys, 
                                      self.vr, self.vrp, self.iIn, self.iOut, 
                                      path=self.path, tellu=self.tellu, noise=noise, 
@@ -650,7 +650,8 @@ class Observations():
                                     tresh=params[6], tresh_lim=params[7],
                                     tresh2=params[8], tresh_lim2=params[9], 
                                     n_comps=self.n_comps,
-                                    clip_ts=clip_ts, clip_ratio=clip_ratio, **kwargs)
+                                    clip_ts=clip_ts, clip_ratio=clip_ratio, 
+                                    poly_time=poly_time, **kwargs)
         
 #         self.n_comps = n_comps
 #         self.reconstructed = (self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None] * \
@@ -670,6 +671,10 @@ class Observations():
             self.ratio_recon = False
         if ratio_recon is True:
             self.reconstructed *= self.ratio
+        if poly_time is not None:
+#             self.recon_time = recon_time
+            self.reconstructed *= self.recon_time
+            self.ratio *= self.recon_time
 
         self.params = params
         self.clip_ts = clip_ts
