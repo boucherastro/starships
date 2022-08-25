@@ -570,6 +570,9 @@ def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, i
     
     rebuilt=np.ma.empty_like(flux)
     ratio=np.ma.empty_like(flux)
+    
+    n_spec, nord, npix = flux.shape
+    
     if cbp is False:
         if flux_norm is None:
             hm.print_static('Normalizing by median. \n')
@@ -638,17 +641,20 @@ def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, i
         spec_trans = flux_norm_mo/master_out
         print('spec-trans all nan : {}'.format(spec_trans.mask.all()))
     if poly_time is not None:
-#         for iOrd in range(49):
+        if noise is None:
+            noise = np.tile(np.sqrt(np.ma.median(np.clip(flux,0,None),axis=-1)[:,:,None]),(1,1,npix))
+            #np.std(spec_trans, axis=0)**2
+#         for iOrd in range(nord):
 #             spec_trans[:,iOrd] = ext.col_remove(spec_trans[:,iOrd])
         # --- Polynomial fit on time --- #
         hm.print_static('Removing 2nd ord polynome in time \n')
         recon_time = np.ones_like(spec_trans)*np.nan
         x = poly_time
-        z_t = np.zeros((49, 4088, 3))
+        z_t = np.zeros((nord, npix, 3))
 
-        for iord in range(49):
+        for iord in range(nord):
 
-            for col in range(4088):
+            for col in range(npix):
 
                 y = spec_trans[:,iord, col]
 
@@ -658,12 +664,14 @@ def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, i
                 idx = np.isfinite(x) & np.isfinite(y)
 
                 # Poly.fit(x[idx], y[idx], 2)
-                z_t[iord,col] = np.polyfit(x[idx], y[idx], 2)
+                z_t[iord,col] = np.polyfit(x[idx], y[idx], 2, w=1/noise[:,iord,col][idx])
 
                 recon_time[idx, iord, col] = np.poly1d(z_t[iord,col])(x[idx])
 
         recon_time = np.ma.masked_invalid(recon_time)
         spec_trans = spec_trans/recon_time
+    else:
+        recon_time = np.ones_like(spec_trans)
 
     if full_ts is None:
         hm.print_static('Removing the static noise with PCA and sigma cliping \n')
@@ -696,14 +704,15 @@ def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, i
 
     else:
         final_ts = full_ts/np.ma.mean(full_ts, axis=-1)[:,:,None]
- 
-    if noise is None:
-        final_ts_std = final_ts/np.std(final_ts, axis=0)**2
-    else:
-        final_ts_std = final_ts/noise**2
+
+#     if noise is None:
+#         final_ts_std = final_ts/np.std(final_ts, axis=0)**2
+#     else:
+#         final_ts_std = final_ts/noise**2
         
     return flux_norm, flux_norm_mo, master_out, spec_trans, full_ts, chose, \
-           final_ts, final_ts_std, rebuilt, pca, flux_Sref, flux_masked, ratio, new_mask  #, flux_BARYref, flux_SYSref, flux_Sref
+           final_ts, final_ts, rebuilt, pca, flux_Sref, flux_masked, ratio, new_mask, recon_time 
+#, flux_BARYref, flux_SYSref, flux_Sref
 
 
 
@@ -764,11 +773,8 @@ def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, iOut=None,
     return final_ts#, final_ts_std
 
 
-def build_trans_spectrum_mod_fast(wave, flux, master_out, pca, noise, iOut=None,
-                              plot=False, n_pca=2, n_comps=10, somme=False, verbose=False,
-                              mo_box=51, mo_gauss_box=3, norm=True, blaze=None, ratio=None, debug=False):
-
-#     flux_norm_mo = flux/np.ma.median(flux,axis=-1)[:,:,None]
+def build_trans_spectrum_mod_fast(wave, flux, master_out, pca, noise, 
+                                  plot=False, n_pca=2, n_comps=10, somme=False, ):
 
     if n_pca > 0:
 
@@ -803,7 +809,7 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
 #     x = np.nanmedian(flux, axis=0)#[iord]
 #     idx_x = np.isfinite(x)
 
-#     for iord in range(49):
+#     for iord in range(nord):
 #         hm.print_static('{}/10  - {}  '.format(6, iord))
 
 #         for n in range(tr.n_spec):
@@ -836,7 +842,7 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
     recon_time = np.ones_like(uncorr_nostar)*np.nan
     x = tr.t.value
     idx = np.isfinite(x)
-    for iord in range(49):
+    for iord in range(nord):
         hm.print_static('{}/10  - {}  '.format(7, iord))
 #         for col in range(tr.npix):
 #             idx &= np.isfinite(uncorr_nostar[:,iord,col])
@@ -856,7 +862,7 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
 
 #     x = np.nanmedian(uncorr_lp,axis=0)
 #     idx_x = np.isfinite(x)
-#     for iord in range(49):
+#     for iord in range(nord):
 
 #         if idx_x[iord].sum()==0:
 #             continue
@@ -890,7 +896,7 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
 #     x = tr.t.value
 #     z_t = np.zeros((tr.nord, tr.npix, 3))
 
-#     for iord in range(49):
+#     for iord in range(nord):
 
 #         for col in range(tr.npix):
 

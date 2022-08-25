@@ -47,12 +47,13 @@ def get_corr_in_out_trail(index, corrRV, ccf, tr, \
 #         print(idx_in)
         if (i == 0) and (verbose is True):
             print(idx_in)
-            print(corrRV[idx_in])
+#             print(corrRV[idx_in])
         try:
             in_ccf += list(ccf[i,idx_in].squeeze())
         except TypeError: 
-            print(vrp[i]+wind+speed_limit, vrp[i]+wind-speed_limit, vrp[i],wind,speed_limit)
-            print(idx_in, len(idx_in))
+            pass
+#             print(vrp[i]+wind+speed_limit, vrp[i]+wind-speed_limit, vrp[i],wind,speed_limit)
+#             print(idx_in, len(idx_in))
         
         if both_side is True:
             idx_out = np.where((corrRV > vrp[i]+wind+limit_out) | \
@@ -218,7 +219,7 @@ def get_t_test_values(index, corrRV, ccf, vrp, \
                           (corrRV >= vrp[index[i]]+RV-speed_limit))
         if i ==0:
             print(idx_in)
-            print(corrRV[idx_in])
+#             print(corrRV[idx_in])
         in_ccf += list(ccf[i,idx_in].squeeze())
 
         if both_side is True:

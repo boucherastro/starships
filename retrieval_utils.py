@@ -130,7 +130,7 @@ def add_contrib_mol(atom, nb_mols, list_mols, abunds, abund0 = 0., samples=None)
 
 
 def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=0,
-                               sol_values=None, stellar_values=None, errors=None, H2=0.75, N2=10**(-4.5),
+                               sol_values=None, stellar_values=None, errors=None, H2=0.85, N2=10**(-4.5),
                               list_mols=['H2O','CO','CO2','FeH','CH4','HCN','NH3','C2H2','TiO',\
                                         'OH','Na','K'], fig_name='', prob=0.68):
     if nb_mols is None:
@@ -184,9 +184,11 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
     if samples is not None:
         samp_c_sur_o = samp_c / samp_o 
 
+#         fig = plt.figure()
+#         plt.hist(samp_c_sur_o,)
         fig = plt.figure()
-
-        maximum, errbars2 = calc_hist_max_and_err(samp_c_sur_o, bins=50, bin_size=2, plot=True, prob=prob)
+        maximum, errbars2 = calc_hist_max_and_err(samp_c_sur_o, bins=np.arange(0,3.0,0.05), 
+                                                  bin_size=2, plot=True, prob=prob)
 #         plt.title('C/O = {:.4f} + {:.4f} - {:.4f}\n {:.2f} - {:.2f}'.format(maximum,
 #                                                                             errbars2[1]-maximum,
 #                                                                             maximum-errbars2[0],
@@ -201,7 +203,7 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
         plt.axvline(0.54, label='Solar', linestyle='--', color='k')
         if stellar_values is not None:
             plt.axvline(stellar_values[0], label='Stellar', linestyle=':', color='red')
-        plt.xlim(0,1.0)
+        plt.xlim(0,1.5)
         plt.legend()
         samp_values.append(maximum)
         samp_values_err.append(errbars2)
@@ -332,6 +334,80 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
         return values, samp_values, samp_values_err, [samp_c, samp_o, samp_h], median_values
     else:
         return values
+    
+    
+def plot_c_sur_o(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=0,
+                               sol_values=None, stellar_values=None, errors=None, H2=0.75, N2=10**(-4.5),
+                              list_mols=['H2O','CO','CO2','FeH','CH4','HCN','NH3','C2H2','TiO',\
+                                        'OH','Na','K'], fig_name='', prob=0.68, 
+                 color=None, label='', pos=(0.1,0.75), add_infos=True, plot=True,  bins=None, **kwargs):
+    if nb_mols is None:
+        nb_mols = len(list_mols)
+        
+        
+    if bins is None:
+        bins=np.arange(0,3.0,0.02)
+        
+    values = []
+    samp_values = []
+    samp_values_err = []
+
+    
+    if sol_values is None:
+        sol_values = [0.54, 8.46 - 12, 8.69 - 12, 7.83 - 12]
+
+    if stellar_values is None:
+        stellar_values = [0.54] + list(np.array(sol_values[1:]) + fe_sur_h)
+
+    abunds = 10**(np.array(params[:nb_mols]))
+
+    print('')
+
+    if samples is not None:
+        samps = 10**(np.array(samples[:,:nb_mols]))
+    else:
+        samps = None
+            
+    abund_c, samp_c = add_contrib_mol('C', nb_mols, list_mols, abunds, samples=samps)
+    abund_o, samp_o = add_contrib_mol('O', nb_mols, list_mols, abunds, samples=samps)
+#     abund_n, samp_n = add_contrib_mol('N', nb_mols, list_mols, abunds, samples=samps,)
+#                                       abund0 = 2*(1-np.sum(abunds))*N2)
+    abund_h, samp_h = add_contrib_mol('H', nb_mols, list_mols, abunds, samples=samps, 
+                                      abund0 = 2*(1-np.sum(abunds))*H2)
+#     print(abund_h)
+#     stellar_n_sur_h = np.log10(10**(stellar_n_sur_h) - 2*N2/abund_h)
+    c_sur_o = abund_c / abund_o 
+    
+    values.append(c_sur_o)
+    
+    if samples is not None:
+        samp_c_sur_o = samp_c / samp_o 
+
+#         fig = plt.figure()
+
+        maximum, errbars2 = calc_hist_max_and_err(samp_c_sur_o, bins=bins, bin_size=2, 
+                                                  prob=prob, color=color, label=label, plot=plot, **kwargs
+                                                 )
+        if plot is True:
+            plt.annotate(r'C/O = {:.2f}$^{{+{}}}_{{-{}}}$'.format(maximum, 
+                                                              '{:.2f}'.format(errbars2[1]-maximum),
+                                                              '{:.2f}'.format(maximum-errbars2[0])
+                                                             ), \
+                     xy=pos, xycoords='axes fraction', fontsize=16, color=color)
+        plt.ylabel('% Occurence', fontsize=16)
+        plt.xlabel('C/O', fontsize=16)
+        
+        if add_infos :
+            plt.axvline(0.54, label='Solar', linestyle='--', color='k')
+            if stellar_values is not None:
+                plt.axvline(stellar_values[0], label='Stellar', linestyle=':', color='red')
+            plt.xlim(0,1.0)
+        plt.legend(fontsize=14)
+        
+        samp_values.append(maximum)
+        samp_values_err.append(errbars2)
+        
+    return values, samp_values, samp_values_err
    
 
     
@@ -495,7 +571,7 @@ def calc_hist_max_and_err(sample, bins=50, bin_size=2, plot=True, color=None,
 
 
 
-def plot_best_mod(params, atmos_obj, alpha_vis=0.5, alpha=0.7, color=None, label='', 
+def plot_best_mod(params, planet, atmos_obj, temp_params, alpha_vis=0.5, alpha=0.7, color=None, label='', 
                   wl_lim=None, back_color='royalblue', add_hst=True, ylim=[0.0092, 0.0122], **kwargs):
     
     fig = plt.figure(figsize=(15,5))
@@ -508,7 +584,7 @@ def plot_best_mod(params, atmos_obj, alpha_vis=0.5, alpha=0.7, color=None, label
         plt.errorbar(sp_wave, sp_data, sp_data_err, color='k',marker='.',linestyle='none')
     
     if wl_lim is not None:
-        x,y = calc_best_mod_any(params, atmos_obj, **kwargs)
+        x,y = calc_best_mod_any(params, planet, atmos_obj, temp_params, **kwargs)
         plt.plot(x[x>wl_lim],y[x>wl_lim], alpha=alpha, label=label, color=color)
     else:
         plt.plot(*calc_best_mod_any(params, atmos_obj, **kwargs), alpha=alpha, label=label, color=color)
@@ -535,7 +611,8 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
                       scatt=False, gamma_scat=-1.7, kappa_factor=0.36,
                       TP=False,  radius_param=2, cloud_param=1,  #kappa_IR=-3, gamma=-1.5,
                       scale=1., haze=None, nb_mols=None, kind_res='low', \
-                      list_mols=None, kind_temp='', kind_trans='transmission', **kwargs):
+                      list_mols=None, kind_temp='', kind_trans='transmission', 
+                      plot_abundance=False, **kwargs):
     
 #     species_all0 = OrderedDict({})
     
@@ -659,7 +736,8 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
                              pressures=temp_params['pressures'], T=temp_params['T_eq'], 
                                                      temperature=temperature, plot=False,
                              P0=P0, haze=haze, cloud=cloud, path=None, rp=radius, 
-                             gamma_scat = gamma_scat, kappa_factor=kappa_factor, kind_trans=kind_trans, **kwargs )
+                             gamma_scat = gamma_scat, kappa_factor=kappa_factor, 
+                                                     kind_trans=kind_trans, plot_abundance=plot_abundance, **kwargs )
     
     if kind_trans =='transmission':
         out = np.array(model_rp)[0]/1e6*scale
@@ -750,10 +828,10 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 #     return wave_low, np.array(model_rp_low)[0]/1e6*scale
 
 
-def downgrade_mod(wlen, flux_lambda, down_wave, Raf=75):
+def downgrade_mod(wlen, flux_lambda, down_wave,Rbf=1000, Raf=75):
     
-    _, resamp_prt = spectrum.resampling(wlen, flux_lambda, Raf=Raf, Rbf=1000, sample=wlen)
-    binned_prt_hst = spectrum.box_binning(resamp_prt, 1000/Raf)
+    _, resamp_prt = spectrum.resampling(wlen, flux_lambda, Raf=Raf, Rbf=Rbf, sample=wlen)
+    binned_prt_hst = spectrum.box_binning(resamp_prt, Rbf/Raf)
     fct_prt= interp1d(wlen, binned_prt_hst)
 
     return fct_prt(down_wave)
@@ -802,6 +880,12 @@ def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob
     n_params = sample_all.shape[-1]
     maxs = []
     errors = []
+#     print(n_params)
+    if plot is True:
+        fig, ax = plt.subplots(len(labels), 2,constrained_layout=True, 
+                       figsize=(10,len(labels)), sharex='col', sharey='row',
+                      gridspec_kw={'width_ratios': [5,1]})
+    
     for i in range(n_params):
 
     #     if i == 9 :
@@ -817,9 +901,21 @@ def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob
 #             binned = spectrum.box_binning(his,bin_size)
 #             maximum = a.find_max_spline(mids, binned, binning=True)[0]
 #         maxs.append(maximum)
+#         if plot:
+#         print(i)
+        ax[i,0].plot(sample_all[:, :, i], "k", alpha=0.3)
+        ax[i,0].set_xlim(0, len(sample_all))
+        ax[i,0].set_ylabel(labels[i])
+        sample_i = sample_all[:, :, i].reshape(sample_all.shape[0]*sample_all.shape[1], 1)
+#         print(samp.shape, sample_i.shape)
+        his, edges, _ = ax[i,1].hist(sample_i,
+                                    bins=30, orientation='horizontal', 
+                                    weights = np.ones(len(sample_i)) / len(sample_i)*100,
+                                    color='k')
+            
 
-        plt.figure(figsize=(7,3))
-        his, edges,_ = plt.hist(samp, bins='auto') 
+#         plt.figure(figsize=(7,3))
+#         his, edges,_ = np.histogram(samp, bins=30, weights = np.ones(len(samp)) / len(samp)*100) 
         mids = 0.5*(edges[1:] + edges[:-1])
 #         print(i)
         if flag_id is not None :
@@ -829,40 +925,33 @@ def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob
 #                 print('i in flag')
                 binned = spectrum.box_binning(his[30:], flag[flag[:,0] == i][0][1])
                 maximum = a.find_max_spline(mids[30:], binned, binning=True)[0]
-                plt.plot(mids[30:], binned) 
+#                 if plot:
+                ax[i,1].plot(binned, mids[30:], color='darkorange') 
             else:
                 binned = spectrum.box_binning(his,bin_size)
                 maximum = a.find_max_spline(mids, binned, binning=True)[0]
-                plt.plot(mids, binned)
+#                 if plot:
+                ax[i,1].plot(binned, mids, color='darkorange')
         else:
             binned = spectrum.box_binning(his,bin_size)
             maximum = a.find_max_spline(mids, binned, binning=True)[0]
-            plt.plot(mids, binned)
+#             if plot:
+            ax[i,1].plot(binned, mids, color='darkorange')
         maxs.append(maximum)
 
         errbars2 = pymc3.stats.hdi(samp, prob)
         errors.append(errbars2)
-
-        plt.axvline(maximum, color='k')
-        plt.axvline(errbars2[0], color='k', linestyle='--')
-        plt.axvline(errbars2[1], color='k', linestyle='--')
+        
+#         if plot:
+        ax[i,1].axhline(maximum, color='dodgerblue')
+        ax[i,1].axhspan(errbars2[0], errbars2[1], alpha=0.2, color='dodgerblue')
+#         ax[i,1].axhline(errbars2[0], linestyle='--')
+#         ax[i,1].axhline(errbars2[1], linestyle='--')
         print(maximum, errbars2-maximum, errbars2)
 
-    if plot is True:
-        fig, ax = plt.subplots(len(labels), 2,constrained_layout=True, 
-                       figsize=(10,len(labels)), sharex='col', sharey='row',
-                      gridspec_kw={'width_ratios': [5,1]})
-
-        for i in range(n_params):
-
-            ax[i,0].plot(sample_all[:, :, i], "k", alpha=0.3)
-            ax[i,0].set_xlim(0, len(sample_all))
-            ax[i,0].set_ylabel(labels[i])
-            sample = sample_all[:, :, i].reshape(sample_all.shape[0]*sample_all.shape[1], 1)
-            ax[i,1].hist(sample,
-                         bins=30, orientation='horizontal', weights = np.ones(len(sample)) / len(sample)*100,
-                        color='k')
-        ax[-1,0].set_xlabel("Steps")
+    
+#     if plot:
+#         ax[-1,0].set_xlabel("Steps")
         
 #         fig, axes = plt.subplots(n_params, figsize=(10, n_params), sharex=True)
 #         for i in range(n_params):
@@ -1061,9 +1150,9 @@ def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
                     plot_limits=False, label='', color=None, 
                     radius_param = 2, TP=True, zorder=None, kind_temp=''):
 
-    T_eq = params[nb_mols]
-    kappa_IR = 10**(kappa)
-    gamma = 10**(gamma)
+#     T_eq = params[nb_mols]
+#     kappa_IR = 10**(kappa)
+#     gamma = 10**(gamma)
     
 #     T_int = 500.
     if planet.M_pl.ndim == 1:
@@ -1072,11 +1161,10 @@ def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
         temp_params['gravity'] = (const.G * planet.M_pl / (params[nb_mols+radius_param]*const.R_jup)**2).cgs.value
 
     temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP)
-#     guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_eq)
-    temperature_up = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=errors[nb_mols][1])
-#     guillot_global(pressures, kappa_IR, gamma, gravity, T_int, errors[nb_mols][1])
-    temperature_down = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=errors[nb_mols][0])
-#     guillot_global(pressures, kappa_IR, gamma, gravity, T_int, errors[nb_mols][0])
+    temperature_up = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
+                                     T_eq=errors[nb_mols][1])
+    temperature_down = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
+                                       T_eq=errors[nb_mols][0])
     print(temperature[0], temperature_up[0], temperature_down[0])
 
     if plot_limits:

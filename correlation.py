@@ -369,7 +369,7 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
                                  resol=70000, final=None, spec_trans=None, noise=None, 
                                  debug=False, nolog=True, pca=None, norm=True, alpha=None, inj_alpha='ones',
                                  get_corr=True, get_GG=True, get_bl=False, sfsg=True, RVconst=0,
-                                 mid_id_nu = None, vrp_kind='t',  master_out=None, iOut=None,
+                                 mid_id_nu = None, vrp_kind='t',  master_out=None, iOut=None, ratio=None,
                                  reconstructed=None, blaze=None, change_noise=False, force_npc=None, **kwargs):
     
     if modelTD0.ndim < 2:
@@ -391,11 +391,12 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
             alpha = tr.alpha_frac
         elif inj_alpha == 'ones':
             alpha = np.ones_like(tr.alpha_frac)
-            
-    if tr.ratio_recon is True:
-        ratio = tr.ratio
-    else:
-        ratio = None
+    
+    if ratio is None:
+        if tr.ratio_recon is True:
+            ratio = tr.ratio
+        else:
+            ratio = None
     
 #     if get_bl is True:
 #         logl_BL = np.ma.zeros((tr.n_spec, tr.nord, Kp_array.size, corrRV.size, len(n_pcas), modelTD0.shape[0]))

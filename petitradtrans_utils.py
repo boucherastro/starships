@@ -3,6 +3,7 @@ from petitRADTRANS import Radtrans
 from petitRADTRANS import nat_cst as nc
 
 import matplotlib.pyplot as plt
+from matplotlib import cm
 from importlib import reload
 
 import astropy.units as u
@@ -13,6 +14,7 @@ import scipy.constants as cst
 from molmass import Formula
 
 from starships.analysis import resamp_model
+from starships.spectrum import RotKerTransitCloudy
 
 from astropy.table import Table
 
@@ -385,13 +387,13 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
 
     MMW = calc_MMW3(profile)
     
-    
     if plot:
+        cmap=cm.get_cmap('tab20')
         plt.figure()
         for i,key in enumerate(profile.keys()):
 #             print(key)
-            plt.plot(np.log10(profile[key]),np.log10(pressures), label=key)
-        plt.legend()
+            plt.plot(np.log10(profile[key]),np.log10(pressures), label=key, color=cmap.colors[i])
+        plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
         plt.ylim(2,-6)
         plt.xlim(-12,1)
 
@@ -558,7 +560,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
                              P0=1, haze=None, cloud=None, contribution=False, custom_VMRs=None, #MMW=2.33,
                              path=None, rp=None, rstar=None, kind_trans='transmission', filetag='', plot=False, 
                              kappa_zero=None, kappa_factor=None, gamma_scat=None, vmrh2he=[0.85,0.15],
-                            verbose=False, dissociation=False, fct_star=None):
+                            verbose=False, dissociation=False, fct_star=None, plot_abundance=False):
     
     if path is not None:
         print('Checking if path exists...')
@@ -640,7 +642,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
 #         print('Previous MMW = {}'.format(MMW))
         abundances, MMW = gen_abundances([*species.keys()], [*c], pressures, temperature, 
                                        verbose=verbose, vmrh2he=vmrh2he, 
-                                       dissociation=dissociation)#, MMW=MMW)
+                                       dissociation=dissociation, plot=plot_abundance)#, MMW=MMW)
         # --- Calculating a more precise MMW
 #         MMW2 = calc_MMW2(abundances)
 #         print('MMW2 = {}, MMM3 = {}'.format(MMW2, MMW))
@@ -868,12 +870,16 @@ def gen_cases_file(planet, temps, cloudTop, haze, P0, MMW, R_pl, species, cases_
 
 
 def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None, **kwargs):
-
     if rot_params is not None:
-        R_pl, M_pl, T_pl, freq, right_cl = rot_params
-        rot_ker = RotKerTransitCloudy(R_pl, M_pl, T_pl, np.array(freq) / u.day, Raf,
-                                                  left_val=1., right_val=right_cl, 
+        rot_ker = RotKerTransitCloudy(rot_params[0], rot_params[1], rot_params[2], 
+                                      np.array(rot_params[3]) / u.day, Raf,
+                                                  left_val=1., right_val=1., 
                                                step_smooth=250., v_mid=0., **kwargs)
+#     if rot_params is not None:
+#         R_pl, M_pl, T_pl, freq, right_cl = rot_params
+#         rot_ker = RotKerTransitCloudy(R_pl, M_pl, T_pl, np.array(freq) / u.day, Raf,
+#                                                   left_val=1., right_val=right_cl, 
+#                                                step_smooth=250., v_mid=0., **kwargs)
     else:
         rot_ker=None
     
@@ -956,5 +962,5 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                                const.c / (wave*u.um)**2).to(u.erg/u.cm**2/u.s/u.cm) * \
                                 (R_pl**2/R_star**2) / star_spectrum
         
-    return nc.c/atmos_object.freq/1e-4, out.decompose()
+    return nc.c/atmos_object.freq/1e-4, out.decompose()#, MMW
 
