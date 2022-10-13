@@ -6,12 +6,12 @@ import matplotlib.pyplot as plt
 from starships import homemade as hm
 # import starships.analysis as a
 # from spirou_exo.extract import quick_norm
-# import spirou_exo.spectrum as spect
+from starships.spectrum import quick_inject_clean
 # from spirou_exo.transpec import remove_dem_pca_all
 from starships.orbite import rv_theo_nu, rv_theo_t
 
 from starships.mask_tools import interp1d_masked
-from starships.transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_new, remove_dem_pca_all
+from starships.transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, remove_dem_pca_all
 
 
 
@@ -322,8 +322,75 @@ def nolog2log(nolog_L, N, sum_N=True):  #, sumit=False, axis=0
         return - N / 2 * np.log( 1/N * nolog_L)
 
 
+def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_grid, model, flux, s2f, 
+                             vrp_orb=None, vr_orb=None, resol=64000, 
+                             nolog=True, inj_alpha='ones', alpha=None, kind_trans="emission"):
+        
+    model_seq = gen_model_sequence_noinj([RV, vrp_orb-vr_orb, data_tr['RV_const']], 
+                                         data_tr['wave'], data_tr['sep'], 
+                                         data_tr['pca'], int(data_tr['params'][5]), data_tr['noise'], 
+                                         planet, wave_grid[20:-20], model[20:-20], 
+                                        kind_trans=kind_trans, alpha=alpha, resol=resol)
+    
+#     model_seq = gen_model_sequence_retrieval([RV, vrp_orb-vr_orb, data_tr['RV_const']], data_tr, 
+#                                              planet, wave_grid[20:-20], model[20:-20], 
+#                                         kind_trans=kind_trans, alpha=alpha, resol=resol) 
 
-def gen_model_sequence(theta, tr, model_wave, model_spec, n_pcs=None, resol=70000, 
+    mod = model_seq/data_tr['noise']
+
+    logl_BL = np.ma.zeros((mod.shape[0], mod.shape[1]))
+    for iOrd in range(mod.shape[1]):
+
+        if flux[:,iOrd].mask.all():
+            continue
+            
+        logl_BL[:, iOrd] = calc_logl_BL_ord(flux[:,iOrd], mod[:,iOrd], data_tr['N'][:,iOrd],
+                                                     s2f=s2f[:,iOrd], nolog=nolog)
+
+    if not np.isfinite(logl_BL).all():
+        return -np.inf
+    
+    return logl_BL
+    
+    
+def gen_model_sequence_noinj(velocities, data_wave, data_sep, data_pca, data_npc, data_noise, 
+                             planet, model_wave, model_spec, resol=64000, 
+                       debug=False, alpha=None, norm=True, **kwargs):
+    # --- inject model in an empty sequence of ones
+    flux_inj, _ = quick_inject_clean(data_wave, np.ones_like(data_wave), 
+                                                  model_wave, model_spec, 
+                                                 np.sum(velocities), data_sep, planet.R_star, planet.A_star, 
+                                                                  RV=0.0, dv_star=0., 
+                                                 R0 = planet.R_pl, alpha=alpha, **kwargs)
+   
+    # -- Remove the same number of pcas that were used to inject
+    model_seq = build_trans_spectrum_mod_fast(data_wave, flux_inj, data_pca, data_noise, n_pca=data_npc)
+
+    return model_seq
+
+
+def gen_model_sequence_retrieval(velocities, data_tr, planet, model_wave, model_spec, resol=64000, 
+                       debug=False, alpha=None, norm=True, **kwargs):
+    
+    flux_inj, _ = quick_inject_clean(data_tr['wave'], data_tr['reconstructed'], 
+                                                  model_wave, model_spec, 
+                                                 np.sum(velocities), data_tr['sep'], planet.R_star, planet.A_star, 
+                                                                  RV=0.0, dv_star=0., 
+                                                 R0 = planet.R_pl, alpha=alpha, **kwargs)
+   
+    # -- Remove the same number of pcas that were used to inject
+
+    model_seq = build_trans_spectrum_mod2(data_tr['wave'], flux_inj, data_tr['mast_out'], 
+                                          data_tr['pca'], data_tr['noise'],
+                                               plot=False, norm=norm, 
+                                              ratio=data_tr['ratio'], #debug=debug, #blaze=blaze, 
+#                           mo_box=data_tr['params'][2], mo_gauss_box=data_tr['params'][4], 
+                                          n_pca=int(data_tr['params'][5]), n_comps=10)
+
+    return model_seq
+    
+
+def gen_model_sequence(theta, tr, model_wave, model_spec, n_pcs=None, resol=64000, 
                        debug=False, pca=None, norm=True, alpha=None, 
                        reconstructed=None, ratio=None, blaze=None, master_out=None, iOut=None,
                        **kwargs):

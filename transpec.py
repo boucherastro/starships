@@ -716,9 +716,10 @@ def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, i
 
 
 
-def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, iOut=None,
-                              plot=False, n_pca=2, n_comps=10, somme=False, verbose=False,
-                              mo_box=51, mo_gauss_box=3, norm=True, blaze=None, ratio=None, debug=False):
+def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, #iOut=None,
+                              plot=False, n_pca=2, n_comps=10, somme=False,
+#                               mo_box=51, mo_gauss_box=3, blaze=None, debug=False, verbose=False,
+                              norm=True, ratio=None):
 #     if debug is True:
 #         print('wave', wave[10,34,2000], np.isnan(wave).all())
 #         print('flux', flux[10,34,2000], np.isnan(flux).all())
@@ -773,8 +774,8 @@ def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, iOut=None,
     return final_ts#, final_ts_std
 
 
-def build_trans_spectrum_mod_fast(wave, flux, master_out, pca, noise, 
-                                  plot=False, n_pca=2, n_comps=10, somme=False, ):
+def build_trans_spectrum_mod_fast(wave, flux, pca, noise, 
+                                  plot=False, n_pca=2, n_comps=10, somme=False ):
 
     if n_pca > 0:
 

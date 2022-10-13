@@ -545,8 +545,8 @@ class Correlations():
         self.get_curve_at_slice(tr.Kp)
         print(r'Max SNR = {:.2f}$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
         print('')
-        hm.printmd(r'Max SNR = **{:.2f}**$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
-        print('')
+#         hm.printmd(r'Max SNR = **{:.2f}**$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
+#         print('')
         
         if tag_max is True:
             axi[0].plot(self.pos, tr.Kp.to(u.km / u.s).value,'k+', 
