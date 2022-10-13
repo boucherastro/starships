@@ -783,9 +783,9 @@ def print_static(*var):
 # ----------------------------------------------------------------
 
 
-from IPython.display import Markdown, display
-def printmd(string):
-    display(Markdown(string))
+# from IPython.display import Markdown, display
+# def printmd(string):
+#     display(Markdown(string))
     
 # ----------------------------------------------------------------    
 

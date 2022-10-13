@@ -5,7 +5,8 @@ import h5py
 import corner
 import numpy as np
 
-import pymc3
+import arviz as az
+# import pymc3
 # import pygtc
 
 from starships import homemade as hm
@@ -558,7 +559,7 @@ def calc_hist_max_and_err(sample, bins=50, bin_size=2, plot=True, color=None,
     binned = spectrum.box_binning(his,bin_size)
     max_samp = a.find_max_spline(mids, binned, binning=True)[0]
 
-    err_samp = pymc3.stats.hdi(sample, prob)                   
+    err_samp = az.hdi(sample, prob)                   
     if plot:
 #         plt.plot(mids, binned) 
         plt.axvline(max_samp, color=color)
@@ -871,7 +872,7 @@ def single_max_dist(samp, bins='auto', start=0, end=-1, bin_size=6, plot=False):
     binned = spectrum.box_binning(his[start:end], bin_size)
     maxs = a.find_max_spline(mids[start:end], binned, binning=True)[0]
 
-    errors = pymc3.stats.hdi(samp, 0.68)
+    errors = az.hdi(samp, 0.68)
 
     return maxs, errors
 
@@ -891,7 +892,7 @@ def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob
     #     if i == 9 :
     #         sample_all[:, :, i] = ((sample_all[:, :, i]/u.day).to('1/s') * maxs[6] * const.R_jup.to(u.km)).value
         samp = sample_all[:, :, i].ravel()  #cut_sample[:, :, i].ravel()
-
+        sample_i = sample_all[:, :, i].reshape(sample_all.shape[0]*sample_all.shape[1], 1)
 #         his, edges = np.histogram(samp, bins='auto',density=True)
 #         mids = 0.5*(edges[1:] + edges[:-1])
 #         if flag_id is not None and i == flag_id[0]:
@@ -901,21 +902,20 @@ def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob
 #             binned = spectrum.box_binning(his,bin_size)
 #             maximum = a.find_max_spline(mids, binned, binning=True)[0]
 #         maxs.append(maximum)
-#         if plot:
-#         print(i)
-        ax[i,0].plot(sample_all[:, :, i], "k", alpha=0.3)
-        ax[i,0].set_xlim(0, len(sample_all))
-        ax[i,0].set_ylabel(labels[i])
-        sample_i = sample_all[:, :, i].reshape(sample_all.shape[0]*sample_all.shape[1], 1)
-#         print(samp.shape, sample_i.shape)
-        his, edges, _ = ax[i,1].hist(sample_i,
-                                    bins=30, orientation='horizontal', 
-                                    weights = np.ones(len(sample_i)) / len(sample_i)*100,
-                                    color='k')
+        if plot:
+    #         print(i)
+            ax[i,0].plot(sample_all[:, :, i], "k", alpha=0.3)
+            ax[i,0].set_xlim(0, len(sample_all))
+            ax[i,0].set_ylabel(labels[i])
+        
+            his, edges, _ = ax[i,1].hist(sample_i,
+                                        bins=30, orientation='horizontal', 
+                                        weights = np.ones(len(sample_i)) / len(sample_i)*100,
+                                        color='k')
+        else:
+            his, edges = np.histogram(samp, bins=30,  
+                                        weights = np.ones(len(samp)) / len(samp)*100,)
             
-
-#         plt.figure(figsize=(7,3))
-#         his, edges,_ = np.histogram(samp, bins=30, weights = np.ones(len(samp)) / len(samp)*100) 
         mids = 0.5*(edges[1:] + edges[:-1])
 #         print(i)
         if flag_id is not None :
@@ -925,26 +925,26 @@ def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob
 #                 print('i in flag')
                 binned = spectrum.box_binning(his[30:], flag[flag[:,0] == i][0][1])
                 maximum = a.find_max_spline(mids[30:], binned, binning=True)[0]
-#                 if plot:
-                ax[i,1].plot(binned, mids[30:], color='darkorange') 
+                if plot:
+                    ax[i,1].plot(binned, mids[30:], color='darkorange') 
             else:
                 binned = spectrum.box_binning(his,bin_size)
                 maximum = a.find_max_spline(mids, binned, binning=True)[0]
-#                 if plot:
-                ax[i,1].plot(binned, mids, color='darkorange')
+                if plot:
+                    ax[i,1].plot(binned, mids, color='darkorange')
         else:
             binned = spectrum.box_binning(his,bin_size)
             maximum = a.find_max_spline(mids, binned, binning=True)[0]
-#             if plot:
-            ax[i,1].plot(binned, mids, color='darkorange')
+            if plot:
+                ax[i,1].plot(binned, mids, color='darkorange')
         maxs.append(maximum)
 
-        errbars2 = pymc3.stats.hdi(samp, prob)
+        errbars2 = az.hdi(samp, prob)
         errors.append(errbars2)
         
-#         if plot:
-        ax[i,1].axhline(maximum, color='dodgerblue')
-        ax[i,1].axhspan(errbars2[0], errbars2[1], alpha=0.2, color='dodgerblue')
+        if plot:
+            ax[i,1].axhline(maximum, color='dodgerblue')
+            ax[i,1].axhspan(errbars2[0], errbars2[1], alpha=0.2, color='dodgerblue')
 #         ax[i,1].axhline(errbars2[0], linestyle='--')
 #         ax[i,1].axhline(errbars2[1], linestyle='--')
         print(maximum, errbars2-maximum, errbars2)
@@ -1132,6 +1132,13 @@ def calc_tp_profile(params, temp_params, kind_temp='', TP=True,
                                          T_eq,
                                          temp_params['ptrans'], 
                                          temp_params['alpha'])
+        print(
+              temp_params['delta'], \
+              temp_params['gamma'], \
+              temp_params['T_int'], \
+              T_eq,\
+              temp_params['ptrans'], \
+              temp_params['alpha'])
     else:
         if TP is True:
             temp_params['kappa_IR'] = 10**params[-2]
@@ -1308,7 +1315,7 @@ def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
 # #         maximum = a.find_max_spline(mids, binned, binning=True)[0]
 # #         plt.plot(mids, binned) 
 
-# #         errbars2 = pymc3.stats.hdi(samp, 0.68)
+# #         errbars2 = az.hdi(samp, 0.68)
 # #         errors.append(errbars2)
 
 # #         plt.axvline(maximum, color='k')

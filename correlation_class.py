@@ -16,6 +16,8 @@ from scipy.interpolate import interp1d, interp2d
 from scipy.optimize import curve_fit, fsolve
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+import matplotlib as mpl
+mpl.rc('pdf', fonttype = 42) 
     
 class Correlations():
 
@@ -87,6 +89,8 @@ class Correlations():
             elif inj_alpha == 'ones':
                 alpha = tr.alpha_frac
 #             alpha = np.ones_like(tr.alpha_frac)  #tr.alpha_frac  # np.ones_like(tr.alpha_frac)
+#         print(orders, icorr, alpha)
+#         print(self.data)
         self.logl0 = np.nansum( self.data[:, orders], axis=1)
         self.logl = corr.sum_logl(self.data, icorr, orders, N, alpha=alpha, 
                                   axis=0, del_idx=index, nolog=nolog, **kwargs)
@@ -118,8 +122,12 @@ class Correlations():
         lstyles = ['-','--','-.',':']
 
         self.interp_grid = self.rv_grid
+#         print(self.interp_grid)
+        
         if logl is None:
             logl = self.logl
+        
+#         print(logl)
         
         val = []
         pos = []
@@ -136,6 +144,7 @@ class Correlations():
             else:
                 self.courbe = logl.squeeze()
             
+#             print(self.courbe, max_rv)
 #             if kind == 'courbe':
             self.get_snr_1d(max_rv=max_rv, **kwargs)
 #             self.snr=self.courbe
@@ -536,8 +545,8 @@ class Correlations():
         self.get_curve_at_slice(tr.Kp)
         print(r'Max SNR = {:.2f}$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
         print('')
-        hm.printmd(r'Max SNR = **{:.2f}**$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
-        print('')
+#         hm.printmd(r'Max SNR = **{:.2f}**$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
+#         print('')
         
         if tag_max is True:
             axi[0].plot(self.pos, tr.Kp.to(u.km / u.s).value,'k+', 
@@ -824,7 +833,7 @@ class Correlations():
         
         
         return ccf
-    
+   
     def plot_PRF(self, tr, interp_grid=None, ccf=None, RV=0., icorr=None, split_fig=[0], peak_center=None,
                      hlines=None, texts=None, kind='logl_corr', index=None, snr_1d=None, labels=None, clim=None, 
                      fig_name='', extension='.pdf', id_pc=None, map_kind='snr', debug=False, remove_mean=False,
@@ -967,7 +976,7 @@ class Correlations():
                     idx_zero = np.where((z[i] == 0).all(axis=-1) == True)[0]
                     print(idx_zero)
                     if i == 0:
-                        idx_end =idx_zero[-1]+2
+                        idx_end =idx_zero[-1]+1
                     else:
                         if idx_zero[-1] == len(y)-1:
                             idx_zero[-1]
@@ -1081,9 +1090,10 @@ class Correlations():
 
 
         fig.subplots_adjust(hspace=0.05, wspace=0.03)
-
+#         fig.tight_layout()
+        
         if fig_name != '':
-            fig.savefig('/home/boucher/spirou/Figures/fig_CCF_2D_'+fig_name+'.pdf', rasterize=True) 
+            fig.savefig('/home/boucher/spirou/Figures/fig_CCF_2D_'+fig_name+'.pdf')#, rasterize=True) 
 
         
         # --- overplot all CCF ---

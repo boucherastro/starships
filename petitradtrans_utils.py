@@ -311,10 +311,10 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
             print('add He')
         if 'H2' in species_list:
             VMRs_He = (1-np.array(VMRs).sum())
-#             print('with H2', VMRs_He)
+#             print('H2 in species', VMRs_He, np.array(VMRs).sum(), VMRs)
         else:
             VMRs_He = vmrh2he[1]*(1-np.array(VMRs).sum())
-#             print('with H2', VMRs_He)
+#             print('H2 not in species', VMRs_He)
 #         VMRs_He = vmrh2he[1]*(1-np.array(VMRs).sum())
         species.append('He')
         species_list.append('He')
@@ -647,7 +647,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
 #         MMW2 = calc_MMW2(abundances)
 #         print('MMW2 = {}, MMM3 = {}'.format(MMW2, MMW))
        
-        print(abundances.keys())
+        print(abundances.keys(), MMW)
         
         if kind_trans == 'transmission':
             print('Calculating full transmission spectrum {}/{}'.format(j+1,len(combinations)))
@@ -657,6 +657,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
             print('Calculating full emission spectrum {}/{}'.format(j+1,len(combinations)))
             atmos_full.calc_flux(temperature, abundances, gravity, MMW,
                                    contribution=contribution, **kwargs)
+            print(temperature, abundances, gravity, MMW, kwargs)
+            print(atmos_full.flux)
         if wave is None:
             wave = nc.c/atmos_full.freq/1e-4
             
@@ -888,6 +890,89 @@ def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None, **kwarg
     
     return modelWave0[:-1][15:-15], resampled[15:-15]
 
+
+
+def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures, 
+                          gravity, P0, cloud, \
+                          R_pl, R_star, kappa_factor=None, gamma_scat=None, 
+                          kind_trans = 'transmission', dissociation=False, fct_star=None, **kwargs):
+    
+    if kappa_factor is not None:
+        kappa_zero = kappa_factor * (5.31e-31*u.m**2/u.u).cgs.value
+    else:
+        kappa_zero = None
+
+    abundances, MMW = gen_abundances([*species.keys()], [*species.values()], 
+                                     pressures, temperatures, verbose=False, 
+                                     dissociation=dissociation, plot=False) 
+
+    if kind_trans == 'transmission':
+        atmos_object.calc_transm(temperatures, abundances, gravity, MMW, \
+                              R_pl = R_pl, P0_bar = P0, Pcloud=cloud, 
+                             gamma_scat=gamma_scat, kappa_zero=kappa_zero, **kwargs)
+        out = atmos_object.transm_rad**2/R_star**2
+    elif kind_trans == "emission":
+#         bb_mod = bb(planet.Teff)
+        atmos_object.calc_flux(temperatures, abundances, gravity, MMW,
+                              Pcloud=cloud, 
+                             gamma_scat=gamma_scat, kappa_zero=kappa_zero, 
+                               **kwargs)
+        wave = nc.c/atmos_object.freq/1e-4
+        if fct_star is None:
+            # --- if no star spectrum function has been provided, it takes a black body model
+            bb_mod = bb(planet.Teff)
+            # -- Converting u.erg/u.cm**2/u.s/u.Hz to u.erg/u.cm**2/u.s/u.cm
+            star_spectrum = (bb_mod(wave*u.um) * np.pi *u.sr * const.c / (wave*u.um)**2 ).to(u.erg/u.cm**2/u.s/u.cm)
+        else:
+            star_spectrum = fct_star(wave)*(u.erg/u.cm**2/u.s/u.cm)
+
+        out = ((atmos_object.flux * (u.erg / u.cm**2 /u.s /u.Hz) *\
+                               const.c / (wave*u.um)**2).to(u.erg/u.cm**2/u.s/u.cm) * \
+                                (R_pl**2/R_star**2) / star_spectrum ).decompose()
+        
+    return nc.c/atmos_object.freq/1e-4, out  #.decompose()#, MMW
+
+# def retrieval_model_plain_retrieval_version(atmos_object, species, planet, pressures, temperatures, 
+#                           gravity, P0, cloud, \
+#                           R_pl, R_star, kappa_factor=None, gamma_scat=None, 
+#                           kind_trans = 'emission', dissociation=True, fct_star=None, **kwargs):
+#     if kappa_factor is not None:
+#         kappa_zero = kappa_factor * (5.31e-31*u.m**2/u.u).cgs.value
+#     else:
+#         kappa_zero = None
+
+#     abundances, MMW = prt.gen_abundances([*species.keys()], [*species.values()], 
+#                                      pressures, temperatures, verbose=False, 
+#                                      dissociation=dissociation, plot=False)  #, MMW=MMW)
+
+#     if kind_trans == 'transmission':
+#         atmos_object.calc_transm(temperatures, abundances, gravity, MMW, \
+#                               R_pl = R_pl, P0_bar = P0, Pcloud=cloud, 
+#                              gamma_scat=gamma_scat, kappa_zero=kappa_zero, **kwargs)
+#         out = atmos_object.transm_rad**2/R_star**2
+#     elif kind_trans == "emission":
+#         atmos_object.calc_flux(temperatures, abundances, gravity, MMW,
+#                               Pcloud=cloud, 
+#                              gamma_scat=gamma_scat, kappa_zero=kappa_zero, **kwargs)
+# #         out = atmos_object.flux*(R_pl**2/R_star**2).decompose()/\
+# #                     (bb_mod((nc.c/atmos_object.freq/1e-4)*u.um) *\
+# #                      np.pi *u.sr).to(u.erg/u.cm**2/u.s/u.Hz)  # in erg cm-2 s-1 Hz-1
+#         wave = nc.c/atmos_object.freq/1e-4
+#         if fct_star is None:
+#             bb_mod = bb(planet.Teff)
+#             # -- Converting u.erg/u.cm**2/u.s/u.Hz to u.erg/u.cm**2/u.s/u.cm
+#             star_spectrum = (bb_mod(wave*u.um) * np.pi *u.sr * const.c / (wave*u.um)**2 ).to(u.erg/u.cm**2/u.s/u.cm)
+#         else:
+#             star_spectrum = fct_star(wave)*(u.erg/u.cm**2/u.s/u.cm)
+
+#         out = ((atmos_object.flux * (u.erg / u.cm**2 /u.s /u.Hz) *\
+#                                const.c / (wave*u.um)**2).to(u.erg/u.cm**2/u.s/u.cm) * \
+#                                 (R_pl**2/R_star**2) / star_spectrum ).decompose()
+      
+        
+#     return nc.c/atmos_object.freq/1e-4, out
+
+
 # def retrieval_model_plain(atmos_object, species, pressures, temperatures, gravity, P0, cloud, \
 #                           R_pl, R_star, kappa_factor=None, gamma_scat=None, 
 #                           kind_trans = 'transmission', Teff=5000*u.K, dissociation=False, **kwargs):
@@ -918,49 +1003,3 @@ def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None, **kwarg
 #                      np.pi *u.sr).to(u.erg/u.cm**2/u.s/u.Hz)  # in erg cm-2 s-1 Hz-1
         
 #     return nc.c/atmos_object.freq/1e-4, out
-
-def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures, 
-                          gravity, P0, cloud, \
-                          R_pl, R_star, kappa_factor=None, gamma_scat=None, 
-                          kind_trans = 'transmission', dissociation=False, fct_star=None, **kwargs):
-    
-    if kappa_factor is not None:
-        kappa_zero = kappa_factor * (5.31e-31*u.m**2/u.u).cgs.value
-    else:
-        kappa_zero = None
-
-    abundances, MMW = gen_abundances([*species.keys()], [*species.values()], 
-                                     pressures, temperatures, verbose=False, 
-                                     dissociation=dissociation, plot=False) 
-    # --- Calculating a more precise MMW
-#     MMW = prt.calc_MMW2(abundances)
-#     print(R_pl, R_star,gravity, MMW)
-
-    if kind_trans == 'transmission':
-        atmos_object.calc_transm(temperatures, abundances, gravity, MMW, \
-                              R_pl = R_pl, P0_bar = P0, Pcloud=cloud, 
-                             gamma_scat=gamma_scat, kappa_zero=kappa_zero, **kwargs)
-        out = atmos_object.transm_rad**2/R_star**2
-    elif kind_trans == "emission":
-#         bb_mod = bb(planet.Teff)
-        atmos_object.calc_flux(temperatures, abundances, gravity, MMW,
-                              Pcloud=cloud, 
-                             gamma_scat=gamma_scat, kappa_zero=kappa_zero, 
-                               **kwargs)
-#         out = atmos_object.flux*(R_pl**2/R_star**2).decompose()/\
-#                     (bb_mod((nc.c/atmos_object.freq/1e-4)*u.um) *\
-#                      np.pi *u.sr).to(u.erg/u.cm**2/u.s/u.Hz)  # in erg cm-2 s-1 Hz-1
-        wave = nc.c/atmos_object.freq/1e-4
-        if fct_star is None:
-            bb_mod = bb(planet.Teff)
-            # -- Converting u.erg/u.cm**2/u.s/u.Hz to u.erg/u.cm**2/u.s/u.cm
-            star_spectrum = (bb_mod(wave*u.um) * np.pi *u.sr * const.c / (wave*u.um)**2 ).to(u.erg/u.cm**2/u.s/u.cm)
-        else:
-            star_spectrum = fct_star(wave)*(u.erg/u.cm**2/u.s/u.cm)
-
-        out = (atmos_object.flux * (u.erg / u.cm**2 /u.s /u.Hz) *\
-                               const.c / (wave*u.um)**2).to(u.erg/u.cm**2/u.s/u.cm) * \
-                                (R_pl**2/R_star**2) / star_spectrum
-        
-    return nc.c/atmos_object.freq/1e-4, out.decompose()#, MMW
-

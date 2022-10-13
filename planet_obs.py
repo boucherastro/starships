@@ -27,6 +27,7 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.signal import medfilt
 # from tqdm import tqdm
 import os
+from sklearn.decomposition import PCA
 
 
 # def fits2wave(file_or_header):
@@ -1203,5 +1204,96 @@ def split_transits(obs_obj, transit_tag, mid_idx,
     
     return tr, trb1, trb2, tr_new
 
+    
+
+def save_sequences(path, filename, list_tr, do_tr, bad_indexs):
+
+    np.savez(path+filename+'_data_info', 
+             trall_alpha_frac = list_tr[str(do_tr[-1])].alpha_frac,
+             trall_icorr = list_tr[str(do_tr[-1])].icorr,
+             trall_N = list_tr[str(do_tr[-1])].N  ,
+             bad_indexs = bad_indexs
+             )
+    for i_tr, tr_key in enumerate(list(list_tr.keys())[:np.nonzero(np.array(do_tr) < 10)[0].size]):
+        np.savez(path+filename+'_data_trs_'+str(i_tr),
+                 components_ = list_tr[tr_key].pca.components_,
+                 explained_variance_ = list_tr[tr_key].pca.explained_variance_,
+                 explained_variance_ratio_ = list_tr[tr_key].pca.explained_variance_ratio_,
+                 singular_values_ = list_tr[tr_key].pca.singular_values_,
+                 mean_ = list_tr[tr_key].pca.mean_,
+                 n_components_ = list_tr[tr_key].pca.n_components_,
+                 n_features_ = list_tr[tr_key].pca.n_features_,
+                 n_samples_ = list_tr[tr_key].pca.n_samples_,
+                 noise_variance_ = list_tr[tr_key].pca.noise_variance_,
+                 n_features_in_ = list_tr[tr_key].pca.n_features_in_,
+                 RV_const = list_tr[tr_key].RV_const,
+                 params = list_tr[tr_key].params,
+                 wave = list_tr[tr_key].wave,
+                 vrp = list_tr[tr_key].vrp,
+                 sep = list_tr[tr_key].sep,
+                 noise = list_tr[tr_key].noise,
+                 N = list_tr[tr_key].N,
+                 t_start = list_tr[tr_key].t_start.value,
+                 flux = list_tr[tr_key].final/list_tr[tr_key].noise,
+                 s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
+                 mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask, 
+                 mask_noise = (list_tr[tr_key].noise).mask,
+                 mask_s2f = (np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1)).mask,
+                 mask_N = (list_tr[tr_key].N).mask, 
+               ratio = list_tr[tr_key].ratio,
+               reconstructed = list_tr[tr_key].reconstructed,
+               mast_out = list_tr[tr_key].mast_out,
+                 mask_ratio = (list_tr[tr_key].ratio).mask,
+                 mask_reconstructed = (list_tr[tr_key].reconstructed).mask,
+                 mask_mast_out = (list_tr[tr_key].mast_out).mask, 
+                 
+                 )
+
+
+
+def load_sequences(path, filename, do_tr):
+    
+    data_info = np.load(path+filename+'_data_info.npz')
+
+    data_trs = {}
+    #     flux = []
+
+    for i_tr, tr_key in enumerate(do_tr[:np.nonzero(np.array(do_tr) < 10)[0].size]):
+        data_trs[str(i_tr)] = {}
+
+        data_tr = np.load(path+filename+'_data_trs_'+str(i_tr)+'.npz')
+
+        pca=PCA(data_tr['n_components_'])
+        pca.components_ = data_tr['components_']
+        pca.explained_variance_ = data_tr['explained_variance_']
+        pca.explained_variance_ratio_ = data_tr['explained_variance_ratio_']
+        pca.singular_values_ = data_tr['singular_values_']
+        pca.mean_ = data_tr['mean_']
+        pca.n_components_ = data_tr['n_components_']
+        pca.n_features_ = data_tr['n_features_']
+        pca.n_samples_ = data_tr['n_samples_']
+        pca.noise_variance_ = data_tr['noise_variance_']
+        pca.n_features_in_ = data_tr['n_features_in_']
+
+        data_trs[str(i_tr)]['pca'] = pca
+        data_trs[str(i_tr)]['RV_const'] = data_tr['RV_const']
+        data_trs[str(i_tr)]['params'] = data_tr['params']
+        data_trs[str(i_tr)]['wave'] = data_tr['wave']
+        data_trs[str(i_tr)]['vrp'] = data_tr['vrp']*u.km/u.s
+        data_trs[str(i_tr)]['sep'] = data_tr['sep']*u.m
+        data_trs[str(i_tr)]['noise'] = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
+        data_trs[str(i_tr)]['N'] = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
+        data_trs[str(i_tr)]['t_start'] = data_tr['t_start']
+        data_trs[str(i_tr)]['flux'] = np.ma.array(data_tr['flux'], 
+                                                  mask=data_tr['mask_flux'])
+        data_trs[str(i_tr)]['s2f'] = np.ma.array(data_tr['s2f'], 
+                                                 mask=data_tr['mask_s2f'])
+        data_trs[str(i_tr)]['ratio'] = np.ma.array(data_tr['ratio'], 
+                                                   mask=data_tr['mask_ratio'])
+        data_trs[str(i_tr)]['reconstructed'] = np.ma.array(data_tr['reconstructed'], 
+                                                           mask=data_tr['mask_reconstructed'])
+        data_trs[str(i_tr)]['mast_out'] = np.ma.array(data_tr['mast_out'], 
+                                                      mask=data_tr['mask_mast_out'])
         
+    return data_info, data_trs
 
