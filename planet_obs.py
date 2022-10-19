@@ -1399,8 +1399,8 @@ def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_
 
     tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
 
-    pl_obs.merge_tr(tr_merge, list_tr, merge_tr_idx)
-    pl_obs.merge_velocity(tr_merge, list_tr, merge_tr_idx)
+    merge_tr(tr_merge, list_tr, merge_tr_idx)
+    merge_velocity(tr_merge, list_tr, merge_tr_idx)
     
     return tr_merge
 
