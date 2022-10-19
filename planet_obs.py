@@ -1063,7 +1063,7 @@ def get_blaze_file(path, file_list='list_tellu_corrected', onedim=False, blaze_d
     x = []
  
     for file in np.unique(blaze_file_list):
-        blz = '/spirou/cfht_nights/{}/reduced/{}'.format(folder, file)
+        blz = '{}'.format(folder, file)
         print(blz)
         x.append(blz)
         

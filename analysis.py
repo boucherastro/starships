@@ -33,9 +33,9 @@ cds.enable()
 # from .config import *
 
 
-from IPython.display import Markdown, display
-def printmd(string):
-    display(Markdown(string))
+# from IPython.display import Markdown, display
+# def printmd(string):
+#     display(Markdown(string))
 
 # from cycler import cycler
 # from hapi import *

@@ -145,7 +145,7 @@ def plot_all_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switc
 def plot_logl_grid_i(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False, n_lvl=None, 
                   vmin=None, vmax=None, title='', point=None, correl=False, cmap='inferno',
                   cbar_label=r'log $L$', title_it=True, tag_max=True, fig_name='', minmax='min', xlim_remove=0,
-                    contours_ccf=[3,2,1]):
+                    contours_ccf=[3,2,1], path_fig=None):
 
     size_in, size_out = np.unique(var_in, return_counts=True)
     var_in_list = size_in[::-1]
@@ -262,8 +262,8 @@ def plot_logl_grid_i(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, sw
             ax.set_xlim(x_new.min()-xlim_remove,None)
         if point is not None:
             ax.plot(*point, 'o', color='dodgerblue')
-        
-        fig.savefig('/home/boucher/spirou/Figures/fig_grid_logl_'+fig_name+'.pdf')
+        if path_fig is not None:
+            fig.savefig(path_fig+'fig_grid_logl_'+fig_name+'.pdf')
             
             
 def plot_all_orders_logl(tr, loglbl, var_in, var_out, 
@@ -580,7 +580,7 @@ def plot_all_orders_spectra(tr, flux=None):
 import matplotlib as mpl        
         
 def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='', 
-               cmap=None, bad_color='red'):
+               cmap=None, bad_color='red', path_fig=None):
     
     if cmap is None:
         cmap = mpl.cm.Greys_r
@@ -733,12 +733,12 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
         ax4.set_xlim(*xlim)
         
     fig.subplots_adjust(hspace=0)
-
-    fig.savefig('/home/boucher/spirou/Figures/fig_STEPS'+fig_name+'.pdf')
+    if path_fig is not None:
+        fig.savefig(path_fig+'fig_STEPS'+fig_name+'.pdf')
 
     
 def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
-                     cmap=None, bad_color='red', length=16, id_spec=10):
+                     cmap=None, bad_color='red', length=16, id_spec=10, path_fig=None):
     
     if cmap is None:
         cmap = mpl.cm.Greys_r
@@ -836,7 +836,8 @@ def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
     ax3.text( tr.wv[iord][100],tr.phase[-15], 'C', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
     ax4.text( tr.wv[iord][100],tr.phase[-15], 'D', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
-    fig.savefig('/home/boucher/spirou/Figures/fig_five_STEPS'+fig_name+'.pdf')
+    if path_fig is not None:
+        fig.savefig(path_fig+'fig_five_STEPS'+fig_name+'.pdf')
 
     return fig
     # cbar = plt.colorbar(im3, orientation="horizontal")
@@ -844,7 +845,7 @@ def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
     
     
 def plot_small_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
-                     cmap=None, bad_color='red', length=14):
+                     cmap=None, bad_color='red', length=14, path_fig=None):
     
     if cmap is None:
         cmap = mpl.cm.Greys_r
@@ -910,7 +911,8 @@ def plot_small_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
     fig.text(0.15, 0.44, 'C', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
     fig.text(0.15, 0.26, 'D', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
-    fig.savefig('/home/boucher/spirou/Figures/fig_small_STEPS'+fig_name+'.pdf')
+    if path_fig is not None:
+        fig.savefig(path_fig+'fig_small_STEPS'+fig_name+'.pdf')
 
     return fig
     # cbar = plt.colorbar(im3, orientation="horizontal")
@@ -1037,7 +1039,7 @@ import pygtc
 
 def plot_mcmc_current_chains(filename, labels=None, truths=None,  
                              discard=0, param_no_zero=2, id_params=None, fig_name='',
-                             show_titles=True, **corner_kwargs):
+                             show_titles=True, path_fig=None, **corner_kwargs):
 
     copied_filename = filename  #shutil.copyfile(filename, hm.insert_str(filename, '_copy', -3)) 
 
@@ -1073,7 +1075,9 @@ def plot_mcmc_current_chains(filename, labels=None, truths=None,
 
         fig = corner.corner(flat_samples, labels=labels, truths=truths,  # quantiles=[0.16, 0.5, 0.84],
                             show_titles=show_titles, **corner_kwargs);
-        fig.savefig('/home/boucher/spirou/Figures/fig_mcmc'+fig_name+'.pdf')
+        
+        if path_fig is not None:
+            fig.savefig(path_fig+'fig_mcmc'+fig_name+'.pdf')
         
 #         GTC = pygtc.plotGTC(chains=[flat_samples], figureSize='APJ_page', paramNames=labels, nContourLevels=3,
 #                            sigmaContourLevels=True)
@@ -1129,7 +1133,7 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
 
 def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttest_params, ccf=None, 
                    orders=np.arange(49), masked=False, logl=False, plot_trail=False, 
-                        Kp=None, RV=None, vrp=None, fig_name='', hist=True):
+                        Kp=None, RV=None, vrp=None, fig_name='', path_fig=None, hist=True):
     
     speed_limit, limit_out, both_side, equal_var = ttest_params
     
@@ -1226,7 +1230,8 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         nf.t_test_hist(new_A, new_B, labelA, labelB, title1, ax[1])
         fig.tight_layout()
 
-        fig.savefig('/home/boucher/spirou/Figures/fig_ttest{}.pdf'.format(fig_name))
+        if path_fig is not None:
+            fig.savefig(path_fig+'fig_ttest{}.pdf'.format(fig_name))
         
     else:
         
@@ -1321,7 +1326,8 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 #         nf.t_test_hist(new_A, new_B, labelA, labelB, title1, ax[1])
         fig.tight_layout()
 
-        fig.savefig('/home/boucher/spirou/Figures/fig_ttest_map{}.pdf'.format(fig_name))
+        if path_fig is not None:
+            fig.savefig(path_fig+'fig_ttest_map{}.pdf'.format(fig_name))
 
     return sp.stats.ttest_ind(A, B, nan_policy='omit', equal_var=equal_var)
     
@@ -1490,7 +1496,7 @@ def plot_logl_grid(logl_grid, n_pcas, cases, cond, pCloud, corrRV0, sig='with', 
 
 
 def plot_airmass(list_tr, markers=['o','s','d'], 
-                colors=['darkblue','dodgerblue','darkorange'], fig_name=''):
+                colors=['darkblue','dodgerblue','darkorange'], fig_name='', path_fig=None):
 
     plt.figure(figsize=(8,3.5))
 
@@ -1511,7 +1517,8 @@ def plot_airmass(list_tr, markers=['o','s','d'],
     plt.legend(loc='upper left', fontsize=12)
     plt.tight_layout()
 
-    plt.savefig('/home/boucher/spirou/Figures/fig_airmass_{}.pdf'.format(fig_name))
+    if path_fig is not None:
+        plt.savefig(path_fig+'fig_airmass_{}.pdf'.format(fig_name))
 
     fig, ax = plt.subplots(2,1, figsize=(9,8))
     
@@ -1540,7 +1547,8 @@ def plot_airmass(list_tr, markers=['o','s','d'],
 
     ax[1].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
 
-    plt.savefig('/home/boucher/spirou/Figures/fig_SNR_{}.pdf'.format(fig_name))
+    if path_fig is not None:
+        plt.savefig(path_fig+'fig_SNR_{}.pdf'.format(fig_name))
         
             
 # def plot_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False):

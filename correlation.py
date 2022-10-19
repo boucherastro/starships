@@ -423,10 +423,10 @@ def gen_model_sequence(theta, tr, model_wave, model_spec, n_pcs=None, resol=6400
 
 
     model_seq = build_trans_spectrum_mod2(tr.wave, tr.flux_inj, master_out, pca, tr.noise,
-                                              iOut=iOut, plot=False, norm=norm, 
-                                              ratio=ratio, debug=debug, #blaze=blaze, 
-                          mo_box=tr.params[2], mo_gauss_box=tr.params[4], n_pca=n_pcs, n_comps=10)
-
+                                         plot=False, norm=norm, ratio=ratio,
+#                           mo_box=tr.params[2], mo_gauss_box=tr.params[4], 
+                                          n_pca=n_pcs, n_comps=10)
+   
     return np.ma.masked_array(model_seq)
 
 

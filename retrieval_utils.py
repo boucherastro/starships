@@ -13,7 +13,7 @@ from starships import homemade as hm
 from starships import analysis as a
 from starships import spectrum as spectrum
 import matplotlib.pyplot as plt
-# from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d
 import astropy.units as u
 import astropy.constants as const
 
@@ -21,77 +21,41 @@ from petitRADTRANS import Radtrans
 
 from collections import OrderedDict
 import starships.petitradtrans_utils as prt
-from petitRADTRANS import nat_cst as nc
-# import numpy as np
 
-# bin_down = np.array([11225,11409,11594,11779,11963,12148,12333,12517,12702,12887,13071,13256,13441,13625,13810,13995,14179,14364,14549,14733,14918,15102,15287,15472,15656,15841,16026,16210])/1e4
-
-# bin_up = np.array([11409, 11594, 11779, 11963, 12148, 12333, 12517, 12702, 12887, 13071, 13256, 13441, 13625, 13810, 13995, 14179, 14364, 14549, 14733, 14918, 15102, 15287, 15472, 15656, 15841, 16026, 16210, 16395])/1e4
-
-# HST_wave = (bin_up - bin_down) / 2 + bin_down
-
-# TD = np.array([0.993,0.995,1.001,0.991,1.001,0.991,0.992,1.000,0.993,0.997,1.010,1.016,1.054,1.051,1.052,1.046,1.053,1.046,1.042,1.031,1.028,1.012,0.999,1.001,0.983,0.986,0.975,0.967])
-
-# HST_data = TD/100
-
-# TD_err_up = np.array([0.009,0.008,0.009,0.010,0.008,0.008,0.008,0.012,0.008,0.009,0.007,0.008,0.009,0.011,0.008,0.007,0.007,0.010,0.009,0.009,0.009,0.010,0.010,0.010,0.009,0.009,0.012,0.013])/100
-
-# TD_err_down = np.array([0.009,0.007,0.010,0.009,0.009,0.008,0.007,0.011,0.008,0.009,0.008,0.008,0.010,0.011,0.008,0.007,0.006,0.011,0.009,0.010,0.012,0.010,0.009,0.011,0.009,0.009,0.011,0.012])/100
-
-# HST_data_err = np.sqrt(TD_err_up**2+TD_err_down**2)
-
-
-# bin_down_vis = np.array([2898, 3700, 4041, 4261, 4426, 4536, 4646, 4756, 4921, 5030, 5140, 5250, 5360, 5469, 5579, 5500, 5600, 5700, 5800, 5878, 5913, 6070, 6200, 6300, 6450, 6600, 6800, 7000, 7200, 7450, 7645, 7720, 8100, 8485, 8985])/1e4
-
-# bin_up_vis = np.array([3700, 4041, 4261, 4426, 4536, 4646, 4756, 4921, 5030, 5140, 5250, 5360, 5469, 5579, 5688, 5600, 5700, 5800, 5878, 5913, 6070, 6200, 6300, 6450, 6600, 6800, 7000, 7200, 7450, 7645, 7720, 8100, 8485, 8985, 10240])/1e4
-
-# td_vis = np.array([1.050, 1.048, 1.027, 1.028, 1.025, 1.035, 1.013, 1.023, 1.028, 1.034, 1.005, 1.024, 1.024, 1.007, 1.036, 1.023, 1.047, 1.014, 1.051, 1.066, 1.026, 1.028, 1.022, 1.036, 0.995, 1.004, 0.997, 1.009, 1.018, 1.003, 1.020, 1.010, 0.986, 1.005, 1.025])
-
-# td_up_vis = np.array([0.037, 0.018, 0.014, 0.014, 0.009, 0.016, 0.015, 0.011, 0.012, 0.016, 0.014, 0.019, 0.019, 0.016, 0.014, 0.027, 0.022, 0.014, 0.018, 0.024, 0.014, 0.020, 0.018, 0.015, 0.020, 0.013, 0.016, 0.013, 0.011, 0.017, 0.022, 0.020, 0.026, 0.023, 0.018])/100
-
-# td_down_vis = np.array([0.044, 0.021, 0.015, 0.013, 0.012, 0.018, 0.013, 0.011, 0.012, 0.015, 0.012, 0.014, 0.016, 0.017, 0.015, 0.021, 0.023, 0.014, 0.020, 0.023, 0.017, 0.016, 0.020, 0.016, 0.017, 0.012, 0.012, 0.014, 0.011, 0.016, 0.026, 0.019, 0.018, 0.018, 0.017])/100
-
-# HST_wave_VIS = (bin_up_vis - bin_down_vis) / 2 + bin_down_vis
-
-# HST_data_VIS = td_vis/100
-
-# HST_data_err_VIS = np.sqrt(td_up_vis**2+td_down_vis**2)
-
-# sp_wave = np.array([3.5,4.5])
-# sp_data = np.array([0.993/100, 1.073/100])
-# sp_data_err = np.array([0.005/100, 0.006/100])
-
-# mols = ['H2O','CO','CO2','FeH','CH4','HCN','NH3','C2H2','TiO', 'OH','Na','K']
+try :
+    from petitRADTRANS.physics import guillot_global, guillot_modif
+except ModuleNotFoundError:
+    from petitRADTRANS.nat_cst import guillot_global, guillot_modif
 
 
 
-def guillot_global(P,kappa_IR,gamma,grav,T_int,T_equ):
-    ''' Returns a temperature array, in units of K,
-    of the same dimensions as the pressure P
-    (in bar). For this the temperature model of Guillot (2010)
-    is used (his Equation 29).
+# def guillot_global(P,kappa_IR,gamma,grav,T_int,T_equ):
+#     ''' Returns a temperature array, in units of K,
+#     of the same dimensions as the pressure P
+#     (in bar). For this the temperature model of Guillot (2010)
+#     is used (his Equation 29).
 
-    Args:
-        P:
-            numpy array of floats, containing the input pressure in bars.
-        kappa_IR (float):
-            The infrared opacity in units of :math:`\\rm cm^2/s`.
-        gamma (float):
-            The ratio between the visual and infrated opacity.
-        grav (float):
-            The planetary surface gravity in units of :math:`\\rm cm/s^2`.
-        T_int (float):
-            The planetary internal temperature (in units of K).
-        T_equ (float):
-            The planetary equilibrium temperature (in units of K).
-    '''
-    tau = P*1e6*kappa_IR/grav
-    T_irr = T_equ*np.sqrt(2.)
-    T = (0.75 * T_int**4. * (2. / 3. + tau) + \
-      0.75 * T_irr**4. / 4. * (2. / 3. + 1. / gamma / 3.**0.5 + \
-      (gamma / 3.**0.5 - 1. / 3.**0.5 / gamma)* \
-      np.exp(-gamma * tau *3.**0.5)))**0.25
-    return T
+#     Args:
+#         P:
+#             numpy array of floats, containing the input pressure in bars.
+#         kappa_IR (float):
+#             The infrared opacity in units of :math:`\\rm cm^2/s`.
+#         gamma (float):
+#             The ratio between the visual and infrated opacity.
+#         grav (float):
+#             The planetary surface gravity in units of :math:`\\rm cm/s^2`.
+#         T_int (float):
+#             The planetary internal temperature (in units of K).
+#         T_equ (float):
+#             The planetary equilibrium temperature (in units of K).
+#     '''
+#     tau = P*1e6*kappa_IR/grav
+#     T_irr = T_equ*np.sqrt(2.)
+#     T = (0.75 * T_int**4. * (2. / 3. + tau) + \
+#       0.75 * T_irr**4. / 4. * (2. / 3. + 1. / gamma / 3.**0.5 + \
+#       (gamma / 3.**0.5 - 1. / 3.**0.5 / gamma)* \
+#       np.exp(-gamma * tau *3.**0.5)))**0.25
+#     return T
 
 
 
@@ -613,7 +577,8 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
                       TP=False,  radius_param=2, cloud_param=1,  #kappa_IR=-3, gamma=-1.5,
                       scale=1., haze=None, nb_mols=None, kind_res='low', \
                       list_mols=None, kind_temp='', kind_trans='transmission', 
-                      plot_abundance=False, **kwargs):
+                      plot_abundance=False, 
+                      change_line_list=None, add_line_list=None, **kwargs):
     
 #     species_all0 = OrderedDict({})
     
@@ -624,7 +589,9 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
     
     if kind_res == "low":
 
-        species_all0 = prt.select_mol_list(list_mols, list_values=None, kind_res='low')
+        species_all0 = prt.select_mol_list(list_mols, list_values=None, kind_res='low', 
+                                          change_line_list=change_line_list, 
+                                           add_line_list=add_line_list)
 #         for mol in list_mols:
 #             species_all0[mol] = [1e-99]
 #                             'H2O_HITEMP': [1e-99], 
@@ -694,32 +661,34 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 #     print(temp_params['kappa_IR'], temp_params['gamma'])
 
 #     temperature = nc.guillot_global(pressures, 10**kappa_IR, 10**gamma, gravity, T_int, T_equ)
-    if kind_temp == 'iso' :
-        temperature = temp_params['T_eq']*np.ones_like(temp_params['pressures'])
-    elif kind_temp == 'modif':
-        if TP is True:
-            temp_params['delta'] = 10**params[-4]
-            temp_params['gamma'] = 10**params[-3]
-            temp_params['ptrans'] = 10**params[-2]
-            temp_params['alpha'] = params[-1]
-        temperature = nc.guillot_modif(temp_params['pressures'], 
-                                         temp_params['delta'], 
-                                         temp_params['gamma'], 
-                                         temp_params['T_int'], 
-                                         temp_params['T_eq'],
-                                         temp_params['ptrans'], 
-                                         temp_params['alpha'])
-    else:
+
+    temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP)
+#     if kind_temp == 'iso' :
+#         temperature = temp_params['T_eq']*np.ones_like(temp_params['pressures'])
+#     elif kind_temp == 'modif':
+#         if TP is True:
+#             temp_params['delta'] = 10**params[-4]
+#             temp_params['gamma'] = 10**params[-3]
+#             temp_params['ptrans'] = 10**params[-2]
+#             temp_params['alpha'] = params[-1]
+#         temperature = nc.guillot_modif(temp_params['pressures'], 
+#                                          temp_params['delta'], 
+#                                          temp_params['gamma'], 
+#                                          temp_params['T_int'], 
+#                                          temp_params['T_eq'],
+#                                          temp_params['ptrans'], 
+#                                          temp_params['alpha'])
+#     else:
         
-        if TP is True:
-            temp_params['kappa_IR'] = 10**params[-2]
-            temp_params['gamma'] = 10**params[-1]
-        temperature = nc.guillot_global(temp_params['pressures'], 
-                                     temp_params['kappa_IR'], 
-                                     temp_params['gamma'], 
-                                     temp_params['gravity'], 
-                                     temp_params['T_int'], 
-                                     temp_params['T_eq'])
+#         if TP is True:
+#             temp_params['kappa_IR'] = 10**params[-2]
+#             temp_params['gamma'] = 10**params[-1]
+#         temperature = nc.guillot_global(temp_params['pressures'], 
+#                                      temp_params['kappa_IR'], 
+#                                      temp_params['gamma'], 
+#                                      temp_params['gravity'], 
+#                                      temp_params['T_int'], 
+#                                      temp_params['T_eq'])
         
 #     plt.plot(temperature, np.log10(temp_params['pressures']))
 #     else:
@@ -1125,7 +1094,7 @@ def calc_tp_profile(params, temp_params, kind_temp='', TP=True,
             temp_params['gamma'] = 10**params[-3]
             temp_params['ptrans'] = 10**params[-2]
             temp_params['alpha'] = params[-1]
-        temperatures = nc.guillot_modif(pressures, 
+        temperatures = guillot_modif(pressures, 
                                          temp_params['delta'], 
                                          temp_params['gamma'], 
                                          temp_params['T_int'], 
@@ -1143,7 +1112,7 @@ def calc_tp_profile(params, temp_params, kind_temp='', TP=True,
         if TP is True:
             temp_params['kappa_IR'] = 10**params[-2]
             temp_params['gamma'] = 10**params[-1]
-        temperatures = nc.guillot_global(pressures, 
+        temperatures = guillot_global(pressures, 
                                      temp_params['kappa_IR'], 
                                      temp_params['gamma'], 
                                      temp_params['gravity'], 
