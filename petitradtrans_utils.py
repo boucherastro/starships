@@ -118,7 +118,7 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         'NH3': 'NH3_main_iso',
         'TiO': 'TiO_all_iso',
         'VO': 'VO',
-        'OH': 'OH_SCARLET',
+        'OH': 'OH',#'OH_SCARLET',
         'Na': 'Na',
         'K': 'K',
         'H-': 'H-',
@@ -146,7 +146,9 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
     })
     
     if add_line_list is not None:
+        print('Adding')
         for added_mol in add_line_list:
+            print(added_mol[0], ' as ', added_mol[1])
             species_linelists[kind_res][added_mol[0]] = added_mol[1]
             
     if change_line_list is not None:
@@ -267,9 +269,9 @@ def update_dissociation_abundance_profile(profile, specie_name, pressures,temper
             profile['H'] += (A0 - profile_updt)*scale
         except KeyError:
             print("You must add H- to your species")
-    if specie_name == 'H2O_main_iso':
-        profile['OH_SCARLET'] += (A0 - profile_updt)*scale
-    if specie_name == 'H2O_HITEMP':
+    if (specie_name.split('_')[0] == 'H2O'):
+#         profile['OH_SCARLET'] += (A0 - profile_updt)*scale
+#     if specie_name == 'H2O_HITEMP':
         profile['OH'] += (A0 - profile_updt)*scale
 
          
@@ -647,7 +649,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
 #         MMW2 = calc_MMW2(abundances)
 #         print('MMW2 = {}, MMM3 = {}'.format(MMW2, MMW))
        
-        print(abundances.keys(), MMW)
+#         print(abundances.keys(), MMW)
         
         if kind_trans == 'transmission':
             print('Calculating full transmission spectrum {}/{}'.format(j+1,len(combinations)))
@@ -657,8 +659,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
             print('Calculating full emission spectrum {}/{}'.format(j+1,len(combinations)))
             atmos_full.calc_flux(temperature, abundances, gravity, MMW,
                                    contribution=contribution, **kwargs)
-            print(temperature, abundances, gravity, MMW, kwargs)
-            print(atmos_full.flux)
+#             print(temperature, abundances, gravity, MMW, kwargs)
+#             print(atmos_full.flux)
         if wave is None:
             wave = nc.c/atmos_full.freq/1e-4
             

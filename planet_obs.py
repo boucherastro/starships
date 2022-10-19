@@ -28,6 +28,7 @@ from scipy.signal import medfilt
 # from tqdm import tqdm
 import os
 from sklearn.decomposition import PCA
+from collections import OrderedDict
 
 
 # def fits2wave(file_or_header):
@@ -1063,7 +1064,7 @@ def get_blaze_file(path, file_list='list_tellu_corrected', onedim=False, blaze_d
     x = []
  
     for file in np.unique(blaze_file_list):
-        blz = '/spirou/cfht_nights/{}/reduced/{}'.format(folder, file)
+        blz = '{}'.format(folder, file)
         print(blz)
         x.append(blz)
         
@@ -1080,57 +1081,124 @@ def get_blaze_file(path, file_list='list_tellu_corrected', onedim=False, blaze_d
 
  ##############################################################################   
 
-def merge_tr(trb1,trb2,tr_merge, params=None):
-    tr_merge.icorr = np.concatenate((trb1.icorr, trb1.n_spec + trb2.icorr))
-    tr_merge.phase = np.concatenate((trb1.phase, trb2.phase)).value
-#     tr_merge.phase = np.concatenate((trb1.phase, trb2.phase), axis=0).value
+def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
     
-    tr_merge.noise = np.ma.concatenate((trb1.noise, trb2.noise), axis=0)
-    tr_merge.fl_norm = np.ma.concatenate((trb1.fl_norm, trb2.fl_norm), axis=0)
-    tr_merge.fl_Sref = np.ma.concatenate((trb1.fl_Sref, trb2.fl_Sref), axis=0)
-    tr_merge.fl_masked = np.ma.concatenate((trb1.fl_masked, trb2.fl_masked), axis=0)
-    tr_merge.fl_norm_mo = np.ma.concatenate((trb1.fl_norm_mo, trb2.fl_norm_mo), axis=0)
-    
-    if trb1.mast_out.ndim == 2:
-        tr_merge.mast_out = np.ma.mean(np.ma.array([np.ma.masked_invalid(trb1.mast_out),
-                                                np.ma.masked_invalid(trb2.mast_out)]), axis=0)
-    elif trb1.mast_out.ndim == 3:
-        tr_merge.mast_out = np.ma.concatenate((trb1.mast_out, trb2.mast_out), axis=0)
 
-    tr_merge.spec_trans = np.ma.concatenate((trb1.spec_trans, trb2.spec_trans), axis=0)
-    tr_merge.full_ts = np.ma.concatenate((trb1.full_ts, trb2.full_ts), axis=0)
-#     tr_merge.chose = np.ma.concatenate((trb1.chose, trb2.chose), axis=0)
-    tr_merge.final = np.ma.concatenate((trb1.final, trb2.final), axis=0)
-    tr_merge.final_std = np.ma.concatenate((trb1.final_std, trb2.final_std), axis=0)
-    tr_merge.rebuilt = np.ma.concatenate((trb1.rebuilt, trb2.rebuilt), axis=0)
-#     tr_merge.pca = tr.pca  # np.concatenate((trb1.pca, trb2.pca), axis=0)
-    tr_merge.N = np.ma.concatenate((trb1.N, trb2.N), axis=0)
-    tr_merge.N_frac = np.min(np.array([trb1.N_frac,trb2.N_frac]),axis=0)
-    tr_merge.reconstructed = np.ma.concatenate((trb1.reconstructed, trb2.reconstructed), axis=0)
-    tr_merge.ratio = np.ma.concatenate((trb1.ratio, trb2.ratio), axis=0)
-#     tr_merge.recon_all = np.ma.concatenate((trb1.recon_all, trb2.recon_all), axis=0)
+    icorr_list = []
+    iIn_list = []
+    iOut_list = []
+    
+    add_n_spec = 0
+    for idx, tr_i in enumerate(merge_tr_idx):
+        if idx == 0:
+            icorr_list.append(list_tr[str(tr_i)].icorr)
+            iIn_list.append(list_tr[str(tr_i)].iIn)
+            iOut_list.append(list_tr[str(tr_i)].iOut)
+        else:
+            add_n_spec += list_tr[str(tr_i-1)].n_spec
+            icorr_list.append(list_tr[str(tr_i)].icorr + add_n_spec)
+            iIn_list.append(list_tr[str(tr_i)].iIn + add_n_spec)
+            iOut_list.append(list_tr[str(tr_i)].iOut + add_n_spec)
+    tr_merge.icorr = icorr_list
+    tr_merge.iIn = icorr_list
+    tr_merge.iOut = icorr_list
+    
+    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx]).value
+    tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
+    tr_merge.fl_norm = np.ma.concatenate([list_tr[str(tr_i)].fl_norm for tr_i in merge_tr_idx], axis=0)
+    tr_merge.fl_Sref = np.ma.concatenate([list_tr[str(tr_i)].fl_Sref for tr_i in merge_tr_idx], axis=0)
+    tr_merge.fl_masked = np.ma.concatenate([list_tr[str(tr_i)].fl_masked for tr_i in merge_tr_idx], axis=0)
+    tr_merge.fl_norm_mo = np.ma.concatenate([list_tr[str(tr_i)].fl_norm_mo for tr_i in merge_tr_idx], axis=0)
+
+    if list_tr[str(merge_tr_idx[0])].mast_out.ndim == 2:
+        tr_merge.mast_out = np.ma.mean([np.ma.masked_invalid(list_tr[str(tr_i)].mast_out) \
+                                                          for tr_i in merge_tr_idx], axis=0)
+    elif list_tr[str(merge_tr_idx[0])].mast_out.ndim == 3:
+        tr_merge.mast_out = np.ma.concatenate([list_tr[str(tr_i)].mast_out for tr_i in merge_tr_idx], axis=0)
+
+    tr_merge.spec_trans = np.ma.concatenate([list_tr[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
+    tr_merge.full_ts = np.ma.concatenate([list_tr[str(tr_i)].full_ts for tr_i in merge_tr_idx], axis=0)
+    tr_merge.final = np.ma.concatenate([list_tr[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
+    tr_merge.final_std = np.ma.concatenate([list_tr[str(tr_i)].final_std for tr_i in merge_tr_idx], axis=0)
+    tr_merge.rebuilt = np.ma.concatenate([list_tr[str(tr_i)].rebuilt for tr_i in merge_tr_idx], axis=0)
+    tr_merge.N = np.ma.concatenate([list_tr[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
+    tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
+    tr_merge.reconstructed = np.ma.concatenate([list_tr[str(tr_i)].reconstructed for tr_i in merge_tr_idx], axis=0)
+    tr_merge.ratio = np.ma.concatenate([list_tr[str(tr_i)].ratio for tr_i in merge_tr_idx], axis=0)
     if params is None:
-        tr_merge.params = trb1.params
+        tr_merge.params = list_tr[str(merge_tr_idx[0])].params
+    
+#     return tr_merge
+
+def merge_velocity(tr_merge, list_tr, merge_tr_idx):
+    
+    tr_merge.mid_vrp = np.concatenate([list_tr[str(tr_i)].mid_vrp.value* \
+                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.RV_sys = np.concatenate([list_tr[str(tr_i)].RV_sys* \
+                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.mid_berv = np.concatenate([list_tr[str(tr_i)].mid_berv* \
+                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.mid_vr = np.concatenate([list_tr[str(tr_i)].mid_vr.value* \
+                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.berv = np.concatenate([list_tr[str(tr_i)].berv for tr_i in merge_tr_idx])
+    tr_merge.vrp = np.concatenate([list_tr[str(tr_i)].vrp.value* \
+                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.vr = np.concatenate([list_tr[str(tr_i)].vr.value* \
+                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.RV_const = np.concatenate([list_tr[str(tr_i)].RV_const* \
+                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    
+# def merge_tr_old(trb1,trb2,tr_merge, params=None):
+#     tr_merge.icorr = np.concatenate((trb1.icorr, trb1.n_spec + trb2.icorr))
+#     tr_merge.phase = np.concatenate((trb1.phase, trb2.phase)).value
+# #     tr_merge.phase = np.concatenate((trb1.phase, trb2.phase), axis=0).value
+    
+#     tr_merge.noise = np.ma.concatenate((trb1.noise, trb2.noise), axis=0)
+#     tr_merge.fl_norm = np.ma.concatenate((trb1.fl_norm, trb2.fl_norm), axis=0)
+#     tr_merge.fl_Sref = np.ma.concatenate((trb1.fl_Sref, trb2.fl_Sref), axis=0)
+#     tr_merge.fl_masked = np.ma.concatenate((trb1.fl_masked, trb2.fl_masked), axis=0)
+#     tr_merge.fl_norm_mo = np.ma.concatenate((trb1.fl_norm_mo, trb2.fl_norm_mo), axis=0)
+    
+#     if trb1.mast_out.ndim == 2:
+#         tr_merge.mast_out = np.ma.mean(np.ma.array([np.ma.masked_invalid(trb1.mast_out),
+#                                                 np.ma.masked_invalid(trb2.mast_out)]), axis=0)
+#     elif trb1.mast_out.ndim == 3:
+#         tr_merge.mast_out = np.ma.concatenate((trb1.mast_out, trb2.mast_out), axis=0)
+
+#     tr_merge.spec_trans = np.ma.concatenate((trb1.spec_trans, trb2.spec_trans), axis=0)
+#     tr_merge.full_ts = np.ma.concatenate((trb1.full_ts, trb2.full_ts), axis=0)
+# #     tr_merge.chose = np.ma.concatenate((trb1.chose, trb2.chose), axis=0)
+#     tr_merge.final = np.ma.concatenate((trb1.final, trb2.final), axis=0)
+#     tr_merge.final_std = np.ma.concatenate((trb1.final_std, trb2.final_std), axis=0)
+#     tr_merge.rebuilt = np.ma.concatenate((trb1.rebuilt, trb2.rebuilt), axis=0)
+# #     tr_merge.pca = tr.pca  # np.concatenate((trb1.pca, trb2.pca), axis=0)
+#     tr_merge.N = np.ma.concatenate((trb1.N, trb2.N), axis=0)
+#     tr_merge.N_frac = np.min(np.array([trb1.N_frac,trb2.N_frac]),axis=0)
+#     tr_merge.reconstructed = np.ma.concatenate((trb1.reconstructed, trb2.reconstructed), axis=0)
+#     tr_merge.ratio = np.ma.concatenate((trb1.ratio, trb2.ratio), axis=0)
+# #     tr_merge.recon_all = np.ma.concatenate((trb1.recon_all, trb2.recon_all), axis=0)
+#     if params is None:
+#         tr_merge.params = trb1.params
         
         
-def merge_velocity(trb1,trb2,tr_merge):
-    tr_merge.mid_vrp = np.concatenate((trb1.mid_vrp*np.ones_like(trb1.vrp.value),
-                                       trb2.mid_vrp*np.ones_like(trb2.vrp.value)))
-    tr_merge.RV_sys = np.concatenate((trb1.RV_sys*np.ones_like(trb1.vrp.value),
-                                      trb2.RV_sys*np.ones_like(trb2.vrp.value)))
-    tr_merge.mid_berv = np.concatenate((trb1.mid_berv*np.ones_like(trb1.vrp.value),
-                                        trb2.mid_berv*np.ones_like(trb2.vrp.value)))
-    tr_merge.mid_vr = np.concatenate((trb1.mid_vr*np.ones_like(trb1.vrp.value),
-                                      trb2.mid_vr*np.ones_like(trb2.vrp.value)))
-    tr_merge.berv = np.concatenate((trb1.berv*np.ones_like(trb1.vrp.value),
-                                    trb2.berv*np.ones_like(trb2.vrp.value)))
-    tr_merge.vrp = np.concatenate((trb1.vrp*np.ones_like(trb1.vrp.value),
-                                   trb2.vrp*np.ones_like(trb2.vrp.value)))
-    tr_merge.vr = np.concatenate((trb1.vr*np.ones_like(trb1.vrp.value),
-                                  trb2.vr*np.ones_like(trb2.vrp.value)))
-    tr_merge.RV_const = np.concatenate((trb1.RV_const*np.ones_like(trb1.vrp.value),
-                                        trb2.RV_const*np.ones_like(trb2.vrp.value)))
-    # t12.phase = np.concatenate((t1.phase,t2.phase)).value
+# def merge_velocity_old(trb1,trb2,tr_merge):
+#     tr_merge.mid_vrp = np.concatenate((trb1.mid_vrp*np.ones_like(trb1.vrp.value),
+#                                        trb2.mid_vrp*np.ones_like(trb2.vrp.value)))
+#     tr_merge.RV_sys = np.concatenate((trb1.RV_sys*np.ones_like(trb1.vrp.value),
+#                                       trb2.RV_sys*np.ones_like(trb2.vrp.value)))
+#     tr_merge.mid_berv = np.concatenate((trb1.mid_berv*np.ones_like(trb1.vrp.value),
+#                                         trb2.mid_berv*np.ones_like(trb2.vrp.value)))
+#     tr_merge.mid_vr = np.concatenate((trb1.mid_vr*np.ones_like(trb1.vrp.value),
+#                                       trb2.mid_vr*np.ones_like(trb2.vrp.value)))
+#     tr_merge.berv = np.concatenate((trb1.berv*np.ones_like(trb1.vrp.value),
+#                                     trb2.berv*np.ones_like(trb2.vrp.value)))
+#     tr_merge.vrp = np.concatenate((trb1.vrp*np.ones_like(trb1.vrp.value),
+#                                    trb2.vrp*np.ones_like(trb2.vrp.value)))
+#     tr_merge.vr = np.concatenate((trb1.vr*np.ones_like(trb1.vrp.value),
+#                                   trb2.vr*np.ones_like(trb2.vrp.value)))
+#     tr_merge.RV_const = np.concatenate((trb1.RV_const*np.ones_like(trb1.vrp.value),
+#                                         trb2.RV_const*np.ones_like(trb2.vrp.value)))
+#     # t12.phase = np.concatenate((t1.phase,t2.phase)).value
 
 def split_transits(obs_obj, transit_tag, mid_idx, 
                    params0=[0.85, 0.97, 51, 41, 3, 1, 2.0, 1.0, 3.0, 1.0],
@@ -1253,7 +1321,13 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs):
 
 def load_sequences(path, filename, do_tr):
     
-    data_info = np.load(path+filename+'_data_info.npz')
+    data_info_file = np.load(path+filename+'_data_info.npz')
+    data_info = {}
+
+    data_info['trall_alpha_frac'] = data_info_file['trall_alpha_frac']
+    data_info['trall_icorr'] = data_info_file['trall_icorr']
+    data_info['trall_N'] = data_info_file['trall_N']
+    data_info['bad_indexs'] = data_info_file['bad_indexs']
 
     data_trs = {}
     #     flux = []
@@ -1297,3 +1371,71 @@ def load_sequences(path, filename, do_tr):
         
     return data_info, data_trs
 
+
+
+def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
+                     coeffs, ld_model, kind_trans, RV_sys, polynome=None, 
+                     ratio_recon=False, cont=False, cbp=True, **kwargs_build_ts):
+    
+    tr = obs.select_transit(transit_tag)
+    tr.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
+    tr.norv_sequence(RV=RV_sys)
+
+    if polynome is not None:
+    #                 print("P(O-2) = ", polynome[tag-1])
+        if polynome:
+            poly_time = tr.t_start.value  # tr.AM
+        else:
+            poly_time = None
+
+    tr.build_trans_spec(params= params_all, \
+                    iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
+                        cbp=cbp, poly_time=poly_time, **kwargs_build_ts)
+    return tr
+
+def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans):
+
+    tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
+
+    tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
+
+    merge_tr(tr_merge, list_tr, merge_tr_idx)
+    merge_velocity(tr_merge, list_tr, merge_tr_idx)
+    
+    return tr_merge
+
+
+def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
+                          do_tr=[1,2,3,12,123], cbp=True, 
+                           kind_trans='transmission',
+                          ld_model = 'linear', coeffs=[0.53],
+                           polynome=None, **kwargs_build_ts):
+    #                           
+    
+    ratio_recon=True
+    cont=False
+
+    list_tr = OrderedDict({})
+    
+    for tag in do_tr:
+        name_tag = str(tag)
+        if len(name_tag) < 2:
+
+            list_tr[name_tag] = gen_obs_sequence(obs, transit_tags[tag-1], params_all[tag-1], 
+                                                 iOut_temp[tag-1],
+                                                 coeffs, ld_model, kind_trans, RV_sys[tag-1], 
+                                                 polynome=polynome[tag-1], 
+                                 ratio_recon=ratio_recon, cont=cont, cbp=cbp, **kwargs_build_ts)
+        
+        else :  
+
+            merge_tr_idx = [int(tag_i) for tag_i in name_tag]
+
+            tr_merge = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, 
+                                               coeffs, ld_model, kind_trans)
+
+            list_tr[name_tag] = tr_merge
+    
+
+    return list_tr
+  
