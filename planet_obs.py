@@ -378,7 +378,25 @@ class Observations():
                 new_headers_im.append(self.headers_image[tag])
                 new_headers_tl.append(self.headers_tellu[tag])
         
-        return Observations(headers=new_headers, wave=self.wave[transit_tag],
+        
+#         sub_obs = Observations(headers=new_headers, wave=self.wave[transit_tag],
+#                             count=self.count[transit_tag], blaze=self.blaze[transit_tag], 
+#                             tellu=self.tellu[transit_tag], 
+#                             uncorr=self.uncorr[transit_tag],
+#                             name=self.name, planet=self.planet , 
+#                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
+# #                             filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag], 
+#                             CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl)
+        
+#         try:
+#             sub_obs.filenames_uncorr = np.array(self.filenames_uncorr)[transit_tag]
+#         except AttributeError:
+#             sub_obs.filenames_uncorr = np.array(self.filenames)[transit_tag]
+            
+        
+#         return sub_obs
+        return Observations(headers=new_headers, 
+                            wave=self.wave[transit_tag],
                             count=self.count[transit_tag], blaze=self.blaze[transit_tag], 
                             tellu=self.tellu[transit_tag], 
                             uncorr=self.uncorr[transit_tag],
@@ -490,7 +508,7 @@ class Observations():
             self.noise = None
             
         # ---- Transit model
-        
+
         self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.mid_tr, e=p.excent)
 
         rp, x, y, z, self.sep, p.bRstar = o.position(self.nu, e=p.excent, i=p.incl, w=p.w, omega=p.omega,
@@ -501,34 +519,38 @@ class Observations():
         p.b = (p.bRstar / p.R_star).decompose()
         out, part, total = o.transit(p.R_star, p.R_pl + p.H, self.sep, 
                                      z=z, nu=self.nu, r=np.array(rp.decompose()), i_tperi=i_peri, w=p.w) 
-#         print(out,part,total)
-        
+        #         print(out,part,total)
+
         if kind_trans == 'transmission':
             print('Transmission')
             self.iOut = out
             self.part = part
             self.total = total
             self.iIn = np.sort(np.concatenate([part,total]))
-#             print(self.iIn.size, self.iOut.size)
-            
-            
-        
+        #             print(self.iIn.size, self.iOut.size)
+
+
+
         elif kind_trans == 'emission':
             print('Emission')
             self.iOut = total
             self.part = part
             self.total = out
             self.iIn = np.sort(np.concatenate([out]))
-            
-#             print(self.iIn.size, self.iOut.size)
-            
+
+        #             print(self.iIn.size, self.iOut.size)
+
         self.iin, self.iout = o.where_is_the_transit(self.t, p.mid_tr, p.period, p.trandur)
         self.iout_e, self.iin_e = o.where_is_the_transit(self.t, p.mid_tr+0.5*p.period, p.period, p.trandur)
-        
+
         if (self.part.size == 0) and (iin is True) :
             print('Taking iin and iout')
-            self.iIn = self.iin
-            self.iOut = self.iout
+            if kind_trans == 'transmission':
+                self.iIn = self.iin
+                self.iOut = self.iout
+            elif kind_trans == 'emission':
+                self.iIn = self.iin_e
+                self.iOut = self.iout_e
         
         self.icorr = self.iIn
         
@@ -536,26 +558,26 @@ class Observations():
             fig, ax = plt.subplots(3,1, sharex=True)
             ax[2].plot(self.t, np.nanmean(self.SNR[:, :],axis=-1),'o-')
             if out.size > 0 :
-                ax[0].plot(self.t[out],self.AM[out],'ro')
-                ax[1].plot(self.t[out], self.adc1[out],'ro')
-                ax[2].plot(self.t[out], np.nanmean(self.SNR[out, :],axis=-1),'ro')
+                ax[0].plot(self.t[self.iOut],self.AM[self.iOut],'ro')
+                ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'ro')
+                ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :],axis=-1),'ro')
             if part.size > 0 :
-                ax[0].plot(self.t[part],self.AM[part],'go')
-                ax[1].plot(self.t[part], self.adc1[part],'go')
-                ax[2].plot(self.t[part], np.nanmean(self.SNR[part, :],axis=-1),'go')
+                ax[0].plot(self.t[self.part],self.AM[self.part],'go')
+                ax[1].plot(self.t[self.part], self.adc1[self.part],'go')
+                ax[2].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :],axis=-1),'go')
             if total.size > 0 :
-                ax[0].plot(self.t[total],self.AM[total],'bo')
-                ax[1].plot(self.t[total], self.adc1[total],'bo')
-                ax[2].plot(self.t[total], np.nanmean(self.SNR[total, :],axis=-1),'bo')
-#             if self.iin.size > 0 :    
-#                 ax[0].plot(self.t[self.iin], self.AM[self.iin],'g.')
-#                 ax[1].plot(self.t[self.iin], self.adc1[self.iin],'g.')
-#                 ax[2].plot(self.t[self.iin], np.nanmean(self.SNR[self.iin, :],axis=-1),'g.')
-#             if self.iout.size > 0 :  
-#                 ax[0].plot(self.t[self.iout], self.AM[self.iout],'r.')
-#                 ax[1].plot(self.t[self.iout], self.adc1[self.iout],'r.')
-#                 ax[2].plot(self.t[self.iout], np.nanmean(self.SNR[self.iout, :],axis=-1),'r.')
-            
+                ax[0].plot(self.t[self.total],self.AM[self.total],'bo')
+                ax[1].plot(self.t[self.total], self.adc1[self.total],'bo')
+                ax[2].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :],axis=-1),'bo')
+            if self.iin.size > 0 :    
+                ax[0].plot(self.t[self.iIn], self.AM[self.iIn],'g.')
+                ax[1].plot(self.t[self.iIn], self.adc1[self.iIn],'g.')
+                ax[2].plot(self.t[self.iIn], np.nanmean(self.SNR[self.iIn, :],axis=-1),'g.')
+            if self.iout.size > 0 :  
+                ax[0].plot(self.t[self.iOut], self.AM[self.iOut],'r.')
+                ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'r.')
+                ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :],axis=-1),'r.')
+
 
             ax[0].set_ylabel('Airmass')
             ax[1].set_ylabel('ADC1 angle')
@@ -639,18 +661,17 @@ class Observations():
  
         noise = self.noise
         self.fl_norm, self.fl_norm_mo, self.mast_out, \
-        self.spec_trans, self.full_ts, self.chose, \
-        self.final, self.final_std, self.rebuilt, \
+        self.spec_trans, self.full_ts, self.ts_norm, \
+        self.final, self.rebuilt, \
         self.pca, self.fl_Sref, self.fl_masked, \
         ratio, last_mask, self.recon_time = ts.build_trans_spectrum4(self.wave, flux, 
-                                     self.light_curve, self.berv, self.planet.RV_sys, 
-                                     self.vr, self.vrp, self.iIn, self.iOut, 
+                                     self.berv, self.planet.RV_sys, self.vr, self.iOut, 
                                      path=self.path, tellu=self.tellu, noise=noise, 
                                     lim_mask=params[0], lim_buffer=params[1],
                                     mo_box=params[2], mo_gauss_box=params[4],
                                     n_pca=params[5],
                                     tresh=params[6], tresh_lim=params[7],
-                                    tresh2=params[8], tresh_lim2=params[9], 
+                                    last_tresh=params[8], last_tresh_lim=params[9], 
                                     n_comps=self.n_comps,
                                     clip_ts=clip_ts, clip_ratio=clip_ratio, 
                                     poly_time=poly_time, **kwargs)
@@ -706,15 +727,15 @@ class Observations():
         self.berv = -self.berv
         self.mid_id = int(np.ceil(self.n_spec/2)-1)
         self.mid_berv = self.berv[self.mid_id]
-        self.mid_vr = self.vr[self.mid_id]
-        self.mid_vrp = self.vrp[self.mid_id]
+        self.mid_vr = self.vr[self.mid_id].value
+        self.mid_vrp = self.vrp[self.mid_id].value
 
         self.berv = (self.berv-self.berv[self.mid_id])
-        self.vr = (self.vr-self.vr[self.mid_id]).to(u.km / u.s)
-        self.vrp = (self.vrp-self.vrp[self.mid_id]).to(u.km / u.s)
+        self.vr = (self.vr-self.vr[self.mid_id]).to(u.km / u.s).value
+        self.vrp = (self.vrp-self.vrp[self.mid_id]).to(u.km / u.s).value
         self.planet.RV_sys=0*u.km/u.s
 
-        self.RV_const = self.mid_berv+self.mid_vr.value+self.RV_sys
+        self.RV_const = self.mid_berv+self.mid_vr+self.RV_sys
 
 
 #         self.build_trans_spec(**kwargs)
@@ -736,16 +757,16 @@ class Observations():
         self.mid_id = int(np.ceil(self.n_spec/2)-1)
         self.mid_berv = self.berv[self.mid_id]
         self.planet.RV_sys=0*u.km/u.s
-        self.mid_vr = self.vr[self.mid_id]
-        self.mid_vrp = self.vrp[self.mid_id]
-        self.RV_const = self.mid_berv + self.mid_vr.value + self.RV_sys
+        self.mid_vr = self.vr[self.mid_id].value
+        self.mid_vrp = self.vrp[self.mid_id].value
+        self.RV_const = self.mid_berv + self.mid_vr + self.RV_sys
 
         tb1.berv = -tb1.berv
         tb1.berv = (tb1.berv-self.mid_berv)
-        tb1.vr = (tb1.vr-self.mid_vr).to(u.km / u.s)
-        tb1.vrp = (tb1.vrp-self.mid_vrp).to(u.km / u.s)
+        tb1.vr = (tb1.vr-self.mid_vr).to(u.km / u.s).value
+        tb1.vrp = (tb1.vrp-self.mid_vrp).to(u.km / u.s).value
         tb1.planet.RV_sys=0*u.km/u.s
-        tb1.RV_const = self.mid_berv + self.mid_vr.value + self.RV_sys
+        tb1.RV_const = self.mid_berv + self.mid_vr + self.RV_sys
         tb1.mid_berv = self.mid_berv
         tb1.mid_vrp = self.mid_vrp
         tb1.mid_vr = self.mid_vr
@@ -754,10 +775,10 @@ class Observations():
 
         tb2.berv = -tb2.berv
         tb2.berv = (tb2.berv-self.mid_berv)
-        tb2.vr = (tb2.vr-self.mid_vr).to(u.km / u.s)
-        tb2.vrp = (tb2.vrp-self.mid_vrp).to(u.km / u.s)
+        tb2.vr = (tb2.vr-self.mid_vr).to(u.km / u.s).value
+        tb2.vrp = (tb2.vrp-self.mid_vrp).to(u.km / u.s).value
         tb2.planet.RV_sys=0*u.km/u.s
-        tb2.RV_const = self.mid_berv + self.mid_vr.value + self.RV_sys
+        tb2.RV_const = self.mid_berv + self.mid_vr + self.RV_sys
         tb2.mid_berv = self.mid_berv
         tb2.mid_vrp = self.mid_vrp
         tb2.mid_vr = self.mid_vr
@@ -765,8 +786,8 @@ class Observations():
 #         tb2.build_trans_spec(**kwargs2, **kwargs)
 
         self.berv = (self.berv-self.berv[self.mid_id])
-        self.vr = (self.vr-self.vr[self.mid_id]).to(u.km / u.s)
-        self.vrp = (self.vrp-self.vrp[self.mid_id]).to(u.km / u.s)
+        self.vr = (self.vr-self.vr[self.mid_id]).to(u.km / u.s).value
+        self.vrp = (self.vrp-self.vrp[self.mid_id]).to(u.km / u.s).value
 
 
         
@@ -1099,9 +1120,9 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
             icorr_list.append(list_tr[str(tr_i)].icorr + add_n_spec)
             iIn_list.append(list_tr[str(tr_i)].iIn + add_n_spec)
             iOut_list.append(list_tr[str(tr_i)].iOut + add_n_spec)
-    tr_merge.icorr = icorr_list
-    tr_merge.iIn = icorr_list
-    tr_merge.iOut = icorr_list
+    tr_merge.icorr = np.concatenate(icorr_list)
+    tr_merge.iIn = np.concatenate(iIn_list)
+    tr_merge.iOut = np.concatenate(iOut_list)
     
     tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx]).value
     tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
@@ -1119,7 +1140,6 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
     tr_merge.spec_trans = np.ma.concatenate([list_tr[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
     tr_merge.full_ts = np.ma.concatenate([list_tr[str(tr_i)].full_ts for tr_i in merge_tr_idx], axis=0)
     tr_merge.final = np.ma.concatenate([list_tr[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
-    tr_merge.final_std = np.ma.concatenate([list_tr[str(tr_i)].final_std for tr_i in merge_tr_idx], axis=0)
     tr_merge.rebuilt = np.ma.concatenate([list_tr[str(tr_i)].rebuilt for tr_i in merge_tr_idx], axis=0)
     tr_merge.N = np.ma.concatenate([list_tr[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
     tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
@@ -1132,18 +1152,18 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
 
 def merge_velocity(tr_merge, list_tr, merge_tr_idx):
     
-    tr_merge.mid_vrp = np.concatenate([list_tr[str(tr_i)].mid_vrp.value* \
+    tr_merge.mid_vrp = np.concatenate([list_tr[str(tr_i)].mid_vrp* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
     tr_merge.RV_sys = np.concatenate([list_tr[str(tr_i)].RV_sys* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
     tr_merge.mid_berv = np.concatenate([list_tr[str(tr_i)].mid_berv* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.mid_vr = np.concatenate([list_tr[str(tr_i)].mid_vr.value* \
+    tr_merge.mid_vr = np.concatenate([list_tr[str(tr_i)].mid_vr* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
     tr_merge.berv = np.concatenate([list_tr[str(tr_i)].berv for tr_i in merge_tr_idx])
-    tr_merge.vrp = np.concatenate([list_tr[str(tr_i)].vrp.value* \
+    tr_merge.vrp = np.concatenate([list_tr[str(tr_i)].vrp* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.vr = np.concatenate([list_tr[str(tr_i)].vr.value* \
+    tr_merge.vr = np.concatenate([list_tr[str(tr_i)].vr* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
     tr_merge.RV_const = np.concatenate([list_tr[str(tr_i)].RV_const* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
@@ -1272,18 +1292,227 @@ def split_transits(obs_obj, transit_tag, mid_idx,
     
     return tr, trb1, trb2, tr_new
 
+
+
+def save_single_sequences(path, filename, tr, save_all=False, filename_end='', bad_indexs=None):
+
+    if bad_indexs is None:
+        bad_indexs = []
+
+    if save_all is False:
+        np.savez(path+filename+'_data_trs_'+filename_end,
+             components_ = tr.pca.components_,
+             explained_variance_ = tr.pca.explained_variance_,
+             explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
+             singular_values_ = tr.pca.singular_values_,
+             mean_ = tr.pca.mean_,
+             n_components_ = tr.pca.n_components_,
+             n_features_ = tr.pca.n_features_,
+             n_samples_ = tr.pca.n_samples_,
+             noise_variance_ = tr.pca.noise_variance_,
+             n_features_in_ = tr.pca.n_features_in_,
+             RV_const = tr.RV_const,
+             params = tr.params,
+             wave = tr.wave,
+             vrp = tr.vrp,
+             sep = tr.sep,
+             noise = tr.noise,
+             N = tr.N,
+             t_start = tr.t_start.value,
+             flux = tr.final/tr.noise,
+             s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
+             mask_flux = (tr.final/tr.noise).mask, 
+             mask_noise = (tr.noise).mask,
+             mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
+             mask_N = (tr.N).mask, 
+             ratio = tr.ratio,
+             reconstructed = tr.reconstructed,
+             mast_out = tr.mast_out,
+             mask_ratio = (tr.ratio).mask,
+             mask_reconstructed = (tr.reconstructed).mask,
+             mask_mast_out = (tr.mast_out).mask,
+             spec_trans = tr.spec_trans,
+             final = tr.final,
+             mask_spec_trans = tr.spec_trans.mask,
+             mask_final = tr.final.mask,
+             alpha_frac = tr.alpha_frac,
+             icorr = tr.icorr,
+             bad_indexs = bad_indexs,
+             clip_ts = tr.clip_ts,
+             scaling = tr.scaling,
+             )
+    else:
+        np.savez(path+filename+'_data_trs_'+filename_end,
+             components_ = tr.pca.components_,
+             explained_variance_ = tr.pca.explained_variance_,
+             explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
+             singular_values_ = tr.pca.singular_values_,
+             mean_ = tr.pca.mean_,
+             n_components_ = tr.pca.n_components_,
+             n_features_ = tr.pca.n_features_,
+             n_samples_ = tr.pca.n_samples_,
+             noise_variance_ = tr.pca.noise_variance_,
+             n_features_in_ = tr.pca.n_features_in_,
+             RV_const = tr.RV_const,
+             params = tr.params,
+             wave = tr.wave,
+             vrp = tr.vrp,
+             sep = tr.sep,
+             noise = tr.noise,
+             N = tr.N,
+             t_start = tr.t_start.value,
+             flux = tr.final/tr.noise,
+             s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
+             mask_flux = (tr.final/tr.noise).mask, 
+             mask_noise = (tr.noise).mask,
+             mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
+             mask_N = (tr.N).mask, 
+             ratio = tr.ratio,
+             reconstructed = tr.reconstructed,
+             mast_out = tr.mast_out,
+             mask_ratio = (tr.ratio).mask,
+             mask_reconstructed = (tr.reconstructed).mask,
+             mask_mast_out = (tr.mast_out).mask, 
+             spec_trans = tr.spec_trans,
+             final = tr.final,
+             mask_spec_trans = tr.spec_trans.mask,
+             mask_final = tr.final.mask,
+             alpha_frac = tr.alpha_frac,
+             icorr = tr.icorr,
+             bad_indexs = bad_indexs,
+             clip_ts = tr.clip_ts,
+             scaling = tr.scaling,
+             fl_norm = tr.fl_norm,
+             fl_norm_mo = tr.fl_norm_mo,
+             full_ts = tr.full_ts,
+             ts_norm = tr.ts_norm,
+             rebuilt = tr.rebuilt,
+             fl_Sref = tr.fl_Sref,
+             fl_masked = tr.fl_masked,
+             recon_time = tr.recon_time,
+             mask_fl_norm = tr.fl_norm.mask,
+             mask_fl_norm_mo = tr.fl_norm_mo.mask,
+             mask_full_ts = tr.full_ts.mask,
+             mask_ts_norm = tr.ts_norm.mask,
+             mask_rebuilt = tr.rebuilt.mask,
+             mask_fl_Sref = tr.fl_Sref.mask,
+             mask_fl_masked = tr.fl_masked.mask,
+             mask_recon_time = tr.recon_time.mask,
+             )
+
+        print(path+filename+'_data_trs_'+filename_end+'.npz')
+
+        
+def load_fast_correl(path, filename, load_all=False, filename_end='', data_trs=None):
+    
+    if data_trs is None:
+        data_trs = {}
+    #     flux = []
+
+    data_trs[filename_end] = {}
+
+    data_tr = np.load(path+filename+'_data_trs_'+filename_end+'.npz')
+
+    data_trs[filename_end]['RV_const'] = data_tr['RV_const']
+    data_trs[filename_end]['params'] = data_tr['params']
+    data_trs[filename_end]['vrp'] = data_tr['vrp']*u.km/u.s
+    data_trs[filename_end]['sep'] = data_tr['sep']*u.m
+    data_trs[filename_end]['noise'] = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
+    data_trs[filename_end]['N'] = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
+    data_trs[filename_end]['t_start'] = data_tr['t_start']
+    data_trs[filename_end]['alpha_frac'] = data_tr['alpha_frac']
+    data_trs[filename_end]['icorr'] = data_tr['icorr']
+    data_trs[filename_end]['clip_ts'] = data_tr['clip_ts']
+
+        
+    return data_trs
+        
+def load_single_sequences(path, filename, load_all=False, filename_end='', data_trs=None):
+    
+    if data_trs is None:
+        data_trs = {}
+    #     flux = []
+
+    data_trs[filename_end] = {}
+
+    data_tr = np.load(path+filename+'_data_trs_'+filename_end+'.npz')
+
+    pca=PCA(data_tr['n_components_'])
+    pca.components_ = data_tr['components_']
+    pca.explained_variance_ = data_tr['explained_variance_']
+    pca.explained_variance_ratio_ = data_tr['explained_variance_ratio_']
+    pca.singular_values_ = data_tr['singular_values_']
+    pca.mean_ = data_tr['mean_']
+    pca.n_components_ = data_tr['n_components_']
+    pca.n_features_ = data_tr['n_features_']
+    pca.n_samples_ = data_tr['n_samples_']
+    pca.noise_variance_ = data_tr['noise_variance_']
+    pca.n_features_in_ = data_tr['n_features_in_']
+
+    data_trs[filename_end]['pca'] = pca
+    data_trs[filename_end]['RV_const'] = data_tr['RV_const']
+    data_trs[filename_end]['params'] = data_tr['params']
+    data_trs[filename_end]['wave'] = data_tr['wave']
+    data_trs[filename_end]['vrp'] = data_tr['vrp']*u.km/u.s
+    data_trs[filename_end]['sep'] = data_tr['sep']*u.m
+    data_trs[filename_end]['noise'] = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
+    data_trs[filename_end]['N'] = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
+    data_trs[filename_end]['t_start'] = data_tr['t_start']
+    data_trs[filename_end]['flux'] = np.ma.array(data_tr['flux'], 
+                                              mask=data_tr['mask_flux'])
+    data_trs[filename_end]['s2f'] = np.ma.array(data_tr['s2f'], 
+                                             mask=data_tr['mask_s2f'])
+    data_trs[filename_end]['ratio'] = np.ma.array(data_tr['ratio'], 
+                                               mask=data_tr['mask_ratio'])
+    data_trs[filename_end]['reconstructed'] = np.ma.array(data_tr['reconstructed'], 
+                                                       mask=data_tr['mask_reconstructed'])
+    data_trs[filename_end]['mast_out'] = np.ma.array(data_tr['mast_out'], 
+                                                  mask=data_tr['mask_mast_out'])
+    data_trs[filename_end]['final'] = np.ma.array(data_tr['final'], 
+                                                  mask=data_tr['mask_final'])
+    data_trs[filename_end]['spec_trans'] = np.ma.array(data_tr['spec_trans'], 
+                                                  mask=data_tr['mask_spec_trans'])
+    data_trs[filename_end]['alpha_frac'] = data_tr['alpha_frac']
+    data_trs[filename_end]['icorr'] = data_tr['icorr']
+    data_trs[filename_end]['clip_ts'] = data_tr['clip_ts']
+#     data_trs[filename_end]['scaling'] = data_tr['scaling']
+
+    if load_all:
+        data_trs[filename_end]['fl_norm'] = np.ma.array(data_tr['fl_norm'], 
+                                                  mask=data_tr['mask_fl_norm'])
+        data_trs[filename_end]['fl_norm_mo'] = np.ma.array(data_tr['fl_norm_mo'], 
+                                                  mask=data_tr['mask_fl_norm_mo'])
+        data_trs[filename_end]['full_ts'] = np.ma.array(data_tr['full_ts'], 
+                                                  mask=data_tr['mask_full_ts'])
+        data_trs[filename_end]['ts_norm'] = np.ma.array(data_tr['ts_norm'], 
+                                                  mask=data_tr['mask_ts_norm'])
+        data_trs[filename_end]['rebuilt'] = np.ma.array(data_tr['rebuilt'], 
+                                                  mask=data_tr['mask_rebuilt'])
+        data_trs[filename_end]['fl_Sref'] = np.ma.array(data_tr['fl_Sref'], 
+                                                  mask=data_tr['mask_fl_Sref'])
+        data_trs[filename_end]['fl_masked'] = np.ma.array(data_tr['fl_masked'], 
+                                                  mask=data_tr['mask_fl_masked'])
+        data_trs[filename_end]['recon_time'] = np.ma.array(data_tr['recon_time'], 
+                                                  mask=data_tr['mask_recon_time'])
+        
+    return data_trs
     
 
-def save_sequences(path, filename, list_tr, do_tr, bad_indexs):
+def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=False):
 
+    if bad_indexs is None:
+        bad_indexs = []
+    
     np.savez(path+filename+'_data_info', 
              trall_alpha_frac = list_tr[str(do_tr[-1])].alpha_frac,
              trall_icorr = list_tr[str(do_tr[-1])].icorr,
              trall_N = list_tr[str(do_tr[-1])].N  ,
              bad_indexs = bad_indexs
              )
+    print(path+filename+'_data_info'+'.npz')
     for i_tr, tr_key in enumerate(list(list_tr.keys())[:np.nonzero(np.array(do_tr) < 10)[0].size]):
-        np.savez(path+filename+'_data_trs_'+str(i_tr),
+        if save_all is False:
+            np.savez(path+filename+'_data_trs_'+str(i_tr),
                  components_ = list_tr[tr_key].pca.components_,
                  explained_variance_ = list_tr[tr_key].pca.explained_variance_,
                  explained_variance_ratio_ = list_tr[tr_key].pca.explained_variance_ratio_,
@@ -1308,18 +1537,83 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs):
                  mask_noise = (list_tr[tr_key].noise).mask,
                  mask_s2f = (np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1)).mask,
                  mask_N = (list_tr[tr_key].N).mask, 
-               ratio = list_tr[tr_key].ratio,
-               reconstructed = list_tr[tr_key].reconstructed,
-               mast_out = list_tr[tr_key].mast_out,
+                 ratio = list_tr[tr_key].ratio,
+                 reconstructed = list_tr[tr_key].reconstructed,
+                 mast_out = list_tr[tr_key].mast_out,
+                 mask_ratio = (list_tr[tr_key].ratio).mask,
+                 mask_reconstructed = (list_tr[tr_key].reconstructed).mask,
+                 mask_mast_out = (list_tr[tr_key].mast_out).mask,
+                 spec_trans = list_tr[tr_key].spec_trans,
+                 final = list_tr[tr_key].final,
+                 mask_spec_trans = list_tr[tr_key].spec_trans.mask,
+                 mask_final = list_tr[tr_key].final.mask,
+             alpha_frac = list_tr[tr_key].alpha_frac,
+             icorr = list_tr[tr_key].icorr,
+             clip_ts = list_tr[tr_key].clip_ts,
+             scaling = list_tr[tr_key].scaling,
+                 )
+        else:
+            np.savez(path+filename+'_data_trs_'+str(i_tr),
+                 components_ = list_tr[tr_key].pca.components_,
+                 explained_variance_ = list_tr[tr_key].pca.explained_variance_,
+                 explained_variance_ratio_ = list_tr[tr_key].pca.explained_variance_ratio_,
+                 singular_values_ = list_tr[tr_key].pca.singular_values_,
+                 mean_ = list_tr[tr_key].pca.mean_,
+                 n_components_ = list_tr[tr_key].pca.n_components_,
+                 n_features_ = list_tr[tr_key].pca.n_features_,
+                 n_samples_ = list_tr[tr_key].pca.n_samples_,
+                 noise_variance_ = list_tr[tr_key].pca.noise_variance_,
+                 n_features_in_ = list_tr[tr_key].pca.n_features_in_,
+                 RV_const = list_tr[tr_key].RV_const,
+                 params = list_tr[tr_key].params,
+                 wave = list_tr[tr_key].wave,
+                 vrp = list_tr[tr_key].vrp,
+                 sep = list_tr[tr_key].sep,
+                 noise = list_tr[tr_key].noise,
+                 N = list_tr[tr_key].N,
+                 t_start = list_tr[tr_key].t_start.value,
+                 flux = list_tr[tr_key].final/list_tr[tr_key].noise,
+                 s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
+                 mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask, 
+                 mask_noise = (list_tr[tr_key].noise).mask,
+                 mask_s2f = (np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1)).mask,
+                 mask_N = (list_tr[tr_key].N).mask, 
+                 ratio = list_tr[tr_key].ratio,
+                 reconstructed = list_tr[tr_key].reconstructed,
+                 mast_out = list_tr[tr_key].mast_out,
                  mask_ratio = (list_tr[tr_key].ratio).mask,
                  mask_reconstructed = (list_tr[tr_key].reconstructed).mask,
                  mask_mast_out = (list_tr[tr_key].mast_out).mask, 
-                 
+                 spec_trans = list_tr[tr_key].spec_trans,
+                 final = list_tr[tr_key].final,
+                 mask_spec_trans = list_tr[tr_key].spec_trans.mask,
+                 mask_final = list_tr[tr_key].final.mask,
+             alpha_frac = list_tr[tr_key].alpha_frac,
+             icorr = list_tr[tr_key].icorr,
+             clip_ts = list_tr[tr_key].clip_ts,
+             scaling = list_tr[tr_key].scaling,
+                 fl_norm = list_tr[tr_key].fl_norm,
+                 fl_norm_mo = list_tr[tr_key].fl_norm_mo,
+                 full_ts = list_tr[tr_key].full_ts,
+                 ts_norm = list_tr[tr_key].ts_norm,
+                 rebuilt = list_tr[tr_key].rebuilt,
+                 fl_Sref = list_tr[tr_key].fl_Sref,
+                 fl_masked = list_tr[tr_key].fl_masked,
+                 recon_time = list_tr[tr_key].recon_time,
+                 mask_fl_norm = list_tr[tr_key].fl_norm.mask,
+                 mask_fl_norm_mo = list_tr[tr_key].fl_norm_mo.mask,
+                 mask_full_ts = list_tr[tr_key].full_ts.mask,
+                 mask_ts_norm = list_tr[tr_key].ts_norm.mask,
+                 mask_rebuilt = list_tr[tr_key].rebuilt.mask,
+                 mask_fl_Sref = list_tr[tr_key].fl_Sref.mask,
+                 mask_fl_masked = list_tr[tr_key].fl_masked.mask,
+                 mask_recon_time = list_tr[tr_key].recon_time.mask,
                  )
-
-
-
-def load_sequences(path, filename, do_tr):
+           
+        print(path+filename+'_data_trs_'+str(i_tr)+'.npz')
+        
+        
+def load_sequences(path, filename, do_tr, load_all=False):
     
     data_info_file = np.load(path+filename+'_data_info.npz')
     data_info = {}
@@ -1368,6 +1662,32 @@ def load_sequences(path, filename, do_tr):
                                                            mask=data_tr['mask_reconstructed'])
         data_trs[str(i_tr)]['mast_out'] = np.ma.array(data_tr['mast_out'], 
                                                       mask=data_tr['mask_mast_out'])
+        data_trs[str(i_tr)]['final'] = np.ma.array(data_tr['final'], 
+                                                      mask=data_tr['mask_final'])
+        data_trs[str(i_tr)]['spec_trans'] = np.ma.array(data_tr['spec_trans'], 
+                                                      mask=data_tr['mask_spec_trans'])
+        data_trs[str(i_tr)]['alpha_frac'] = data_tr['alpha_frac']
+        data_trs[str(i_tr)]['icorr'] = data_tr['icorr']
+        data_trs[str(i_tr)]['clip_ts'] = data_tr['clip_ts']
+        data_trs[str(i_tr)]['scaling'] = data_tr['scaling']
+        
+        if load_all:
+            data_trs[str(i_tr)]['fl_norm'] = np.ma.array(data_tr['fl_norm'], 
+                                                      mask=data_tr['mask_fl_norm'])
+            data_trs[str(i_tr)]['fl_norm_mo'] = np.ma.array(data_tr['fl_norm_mo'], 
+                                                      mask=data_tr['mask_fl_norm_mo'])
+            data_trs[str(i_tr)]['full_ts'] = np.ma.array(data_tr['full_ts'], 
+                                                      mask=data_tr['mask_full_ts'])
+            data_trs[str(i_tr)]['ts_norm'] = np.ma.array(data_tr['ts_norm'], 
+                                                      mask=data_tr['mask_ts_norm'])
+            data_trs[str(i_tr)]['rebuilt'] = np.ma.array(data_tr['rebuilt'], 
+                                                      mask=data_tr['mask_rebuilt'])
+            data_trs[str(i_tr)]['fl_Sref'] = np.ma.array(data_tr['fl_Sref'], 
+                                                      mask=data_tr['mask_fl_Sref'])
+            data_trs[str(i_tr)]['fl_masked'] = np.ma.array(data_tr['fl_masked'], 
+                                                      mask=data_tr['mask_fl_masked'])
+            data_trs[str(i_tr)]['recon_time'] = np.ma.array(data_tr['recon_time'], 
+                                                      mask=data_tr['mask_recon_time'])
         
     return data_info, data_trs
 
@@ -1387,7 +1707,9 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
             poly_time = tr.t_start.value  # tr.AM
         else:
             poly_time = None
-
+    else:
+        poly_time = None
+        
     tr.build_trans_spec(params= params_all, \
                     iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
                         cbp=cbp, poly_time=poly_time, **kwargs_build_ts)
