@@ -76,21 +76,46 @@ class Correlations():
         if index is not None:
             self.ccf[np.unique(index)]=0
             
-    def calc_logl(self, tr, icorr=None, orders=None, index=None, 
-                  N=None, nolog=None, alpha=None, inj_alpha='ones', **kwargs):  
+#     def calc_logl(self, data_obj, icorr=None, orders=None, index=None, 
+#                   N=None, nolog=None, alpha=None, inj_alpha='ones', kind_obj='seq', **kwargs):  
+        
+#         if orders is None:
+#             orders = list(np.arange(49))
+#         if icorr is None:
+#             icorr = data_obj.icorr
+#         if alpha is None:
+#             if inj_alpha =='alpha':
+#                 alpha = np.ones_like(data_obj.alpha_frac)
+#             elif inj_alpha == 'ones':
+#                 alpha = data_obj.alpha_frac
+# #             alpha = np.ones_like(tr.alpha_frac)  #tr.alpha_frac  # np.ones_like(tr.alpha_frac)
+# #         print(orders, icorr, alpha)
+# #         print(self.data)
+
+
+    def calc_logl(self, data_obj, icorr=None, orders=None, index=None, 
+                  N=None, nolog=None, alpha=None, inj_alpha='ones', kind_obj='seq', **kwargs):  
         
         if orders is None:
             orders = list(np.arange(49))
         if icorr is None:
-            icorr = tr.icorr
+            if kind_obj == 'seq':
+                icorr = data_obj.icorr
+            elif kind_obj == 'dict':
+                icorr = data_obj['icorr']
         if alpha is None:
             if inj_alpha =='alpha':
-                alpha = np.ones_like(tr.alpha_frac)
+                if kind_obj == 'seq':
+                    alpha = np.ones_like(data_obj.alpha_frac)
+                elif kind_obj == 'dict':
+                    alpha = np.ones_like(data_obj['alpha_frac'])
             elif inj_alpha == 'ones':
-                alpha = tr.alpha_frac
-#             alpha = np.ones_like(tr.alpha_frac)  #tr.alpha_frac  # np.ones_like(tr.alpha_frac)
-#         print(orders, icorr, alpha)
-#         print(self.data)
+                if kind_obj == 'seq':
+                    alpha = data_obj.alpha_frac
+                elif kind_obj == 'dict':
+                    alpha = data_obj['alpha_frac']
+
+
         self.logl0 = np.nansum( self.data[:, orders], axis=1)
         self.logl = corr.sum_logl(self.data, icorr, orders, N, alpha=alpha, 
                                   axis=0, del_idx=index, nolog=nolog, **kwargs)
@@ -793,12 +818,15 @@ class Correlations():
 
     
     def calc_ccf2d(self, tr, ccf=None, kind='logl_corr', id_pc=None, 
-                   remove_mean=False, debug=False, index=None):
+                   remove_mean=False, debug=False, index=None, orders=None):
+        if orders is None:
+            orders = np.arange(49)
+        
         if ccf is None:
             if kind == "shift":
                 ccf = self.shifted_ccf
             elif kind == 'logl_corr':
-                ccf = np.ma.masked_invalid(np.ma.sum(self.data, axis=1)).squeeze()
+                ccf = np.ma.masked_invalid(np.ma.sum(self.data[:, orders], axis=1)).squeeze()
                 print(ccf.shape)
 
             elif kind == "logl_sig":
@@ -834,7 +862,7 @@ class Correlations():
         
         return ccf
    
-    def plot_PRF(self, tr, interp_grid=None, ccf=None, RV=0., icorr=None, split_fig=[0], peak_center=None,
+    def plot_PRF(self, tr, interp_grid=None, ccf=None, orders=None, RV=0., icorr=None, split_fig=[0], peak_center=None,
                      hlines=None, texts=None, kind='logl_corr', index=None, snr_1d=None, labels=None, clim=None, 
                      fig_name='', extension='.pdf', id_pc=None, map_kind='snr', debug=False, remove_mean=False,
                  minus_kp=False, figwidth=10):
@@ -877,7 +905,7 @@ class Correlations():
 #         print(ccf.mean())
 
         ccf = self.calc_ccf2d(tr, ccf=ccf, kind=kind, id_pc=id_pc, 
-                              remove_mean=remove_mean, index=index)
+                              remove_mean=remove_mean, index=index, orders=orders)
     
         
     
@@ -964,7 +992,7 @@ class Correlations():
             ax_ccf = fig.add_subplot(gs[0, -1], sharey=ax_map)
             ax_snr = fig.add_subplot(gs[-1, :-1], sharex=ax_map)
 
-        berv_rv = -tr.vrp.value-tr.mid_vrp.value-tr.RV_sys-(tr.mid_vr.value+tr.vr.value)-(tr.mid_berv+tr.berv)
+        berv_rv = -tr.vrp-tr.mid_vrp-tr.RV_sys-(tr.mid_vr+tr.vr)-(tr.mid_berv+tr.berv)
 
         if len(split_fig) > 1:
             for i in range(len(split_fig))[:-1]:

@@ -11,7 +11,8 @@ from starships.spectrum import quick_inject_clean
 from starships.orbite import rv_theo_nu, rv_theo_t
 
 from starships.mask_tools import interp1d_masked
-from starships.transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, remove_dem_pca_all
+from starships.transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, \
+                                remove_dem_pca_all, build_trans_spectrum4
 
 
 
@@ -322,18 +323,18 @@ def nolog2log(nolog_L, N, sum_N=True):  #, sumit=False, axis=0
         return - N / 2 * np.log( 1/N * nolog_L)
 
 
-def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_grid, model, flux, s2f, 
+def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flux, s2f, 
                              vrp_orb=None, vr_orb=None, resol=64000, 
                              nolog=True, inj_alpha='ones', alpha=None, kind_trans="emission"):
         
     model_seq = gen_model_sequence_noinj([RV, vrp_orb-vr_orb, data_tr['RV_const']], 
                                          data_tr['wave'], data_tr['sep'], 
                                          data_tr['pca'], int(data_tr['params'][5]), data_tr['noise'], 
-                                         planet, wave_grid[20:-20], model[20:-20], 
+                                         planet, wave_mod[20:-20], model[20:-20], 
                                         kind_trans=kind_trans, alpha=alpha, resol=resol)
     
 #     model_seq = gen_model_sequence_retrieval([RV, vrp_orb-vr_orb, data_tr['RV_const']], data_tr, 
-#                                              planet, wave_grid[20:-20], model[20:-20], 
+#                                              planet, wave_mod[20:-20], model[20:-20], 
 #                                         kind_trans=kind_trans, alpha=alpha, resol=resol) 
 
     mod = model_seq/data_tr['noise']
@@ -388,6 +389,207 @@ def gen_model_sequence_retrieval(velocities, data_tr, planet, model_wave, model_
                                           n_pca=int(data_tr['params'][5]), n_comps=10)
 
     return model_seq
+
+
+
+def unload_data(data_obj, kind_obj, 
+                final=None, spec_trans=None, noise=None, ratio=None,
+                pca=None, alpha=None, inj_alpha='ones',):
+    
+    if kind_obj == 'dict':
+        if spec_trans is None:
+            spec_trans = data_obj['spec_trans']
+
+        if pca is None:
+            pca= data_obj['pca']
+
+        if final is None:
+            final = data_obj['final']   
+
+        N = data_obj['N']
+
+        if noise is None:
+            noise = data_obj['noise']
+        if alpha is None:
+            print('Injecting model w/ alpha = {}'.format(inj_alpha))
+            if inj_alpha =='alpha':
+                alpha = data_obj['alpha_frac']
+            elif inj_alpha == 'ones':
+                alpha = np.ones_like(data_obj['alpha_frac'])
+
+        if ratio is None:
+#             if tr.ratio_recon is True:
+            ratio = data_obj['ratio']
+#             else:
+#                 ratio = None
+        params0 = data_obj['params']
+        scaling = data_obj['scaling']
+        wave, vrp, icorr, clip_ts = data_obj['wave'], data_obj['vrp'], data_obj['icorr'], data_obj['clip_ts']
+        t_start, RV_const, sep =  data_obj['t_start'], data_obj['RV_const'], data_obj['sep']
+#         nu =data_obj['nu']
+        
+    if kind_obj == 'seq':
+        if spec_trans is None:
+            spec_trans = data_obj.spec_trans
+
+        if pca is None:
+            pca=data_obj.pca
+
+        if final is None:
+            final = data_obj.final   
+        if noise is None:
+            noise = data_obj.noise
+        if alpha is None:
+            print('Injecting model w/ alpha = {}'.format(inj_alpha))
+            if inj_alpha =='alpha':
+                alpha = data_obj.alpha_frac
+            elif inj_alpha == 'ones':
+                alpha = np.ones_like(data_obj.alpha_frac)
+
+        if ratio is None:
+            if data_obj.ratio_recon is True:
+                ratio = data_obj.ratio
+            else:
+                ratio = None
+        N = data_obj.N
+        params0 = data_obj.params
+        scaling = data_obj.scaling
+        wave, vrp, icorr, clip_ts = data_obj.wave, data_obj.vrp, data_obj.icorr, data_obj.clip_ts
+        t_start, RV_const, sep = data_obj.t_start.value, data_obj.RV_const, data_obj.sep
+#         nu = data_obj.nu
+    return spec_trans, pca, final, N, noise, alpha, ratio, \
+            params0, wave, vrp, icorr, clip_ts, t_start, RV_const, sep, scaling
+
+
+def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_mod, models, 
+                                 resol, kind_trans, final=None, spec_trans=None, noise=None, ratio=None,
+                                 pca=None, alpha=None, inj_alpha='ones',
+                                 get_GG=True, vrp_kind='t', nolog=True, 
+                                 change_noise=False, force_npc=None, **kwargs):
+    
+    if models.ndim < 2:
+        models = models[None,:]
+        
+        
+    spec_trans, pca, final, \
+    N, noise, alpha, ratio, \
+    params0, wave, vrp, icorr, \
+    clip_ts, t_start, RV_const, sep, scaling = unload_data(data_obj, kind_obj, 
+                                                      final=final, spec_trans=spec_trans, 
+                                                      noise=noise, ratio=ratio,
+                                                      pca=pca, alpha=alpha, inj_alpha=inj_alpha)
+
+    n_spec, nord, _ = final.shape
+#     if get_bl is True:
+#         logl_BL = np.ma.zeros((tr.n_spec, tr.nord, Kp_array.size, corrRV.size, len(n_pcas), modelTD0.shape[0]))
+    correl = np.ma.zeros((n_spec, nord, Kp_array.size, corrRV.size, len(n_pcas), models.shape[0]))
+    logl_BL_sig = np.ma.zeros((n_spec, nord, Kp_array.size, corrRV.size, len(n_pcas), models.shape[0]))
+    
+    for n, n_pc in enumerate(n_pcas):
+#         print('n',n)
+        
+        params = params0.copy()
+        if (int(params[5]) != n_pc) or (change_noise is True):
+            print(' Previous N_pc = {}, changing to {}  '.format(int(params[5]), n_pc))
+            params[5] = n_pc
+            print('Building final transmission spectrum with {} n_pc'.format(n_pc))
+
+            # --- Will recompute the final transmission spectrum from spec_trans and pca 
+            # --- (the rest is ignored)
+            final, rebuilt, pca,  = build_trans_spectrum4(wave, spec_trans,   #_, _, _, mask_last, _
+                                     vrp, planet.RV_sys, vrp, icorr, tellu=spec_trans, noise=noise, 
+                                    lim_mask=params[0], lim_buffer=params[1],
+                                    mo_box=params[2], mo_gauss_box=params[4],
+                                    tresh=params[6], tresh_lim=params[7],
+                                    last_tresh=params[8], last_tresh_lim=params[9], 
+                                    n_pca=int(params[5]), clip_ts=clip_ts, clip_ratio=6, poly_time=None, 
+                                    flux_masked=spec_trans, flux_Sref=spec_trans, flux_norm=spec_trans, 
+                    flux_norm_mo=spec_trans, master_out=spec_trans, spec_trans=spec_trans, mask_var=False,
+                                iOut_temp='all', cont=False)[6:9]
+
+            N = (~np.isnan(final)).sum(axis=-1)
+            
+            if change_noise is True:
+                print('Calculating noise with {} PCs'.format(params[5]))
+                sig_col = np.ma.std(final, axis=0)[None,:,:]  #self.final  # self.spec_trans
+                noise = sig_col*scaling
+            #last_mask=False, n_comps=tr.n_comps, 
+
+#             rebuilt = tr.rebuilt
+#             final = np.ma.array(final, mask=mask_last) 
+#             pca = tr.pca
+            if kind_obj == 'seq':
+                data_obj.params = params
+                data_obj.N = N
+            elif kind_obj == 'dict':
+                data_obj['params'] = params
+                data_obj['N'] = N
+            
+        if get_GG is True:
+            flux = final/noise
+    #         flux -= np.ma.mean(flux, axis=-1)[:,:,None]
+        else:
+            flux = final
+        
+        s2f_sig = np.ma.sum(flux**2, axis=-1)
+        
+#         if (get_bl is True) | (sfsg is True):
+#             s2f = np.ma.sum(final**2, axis=-1)
+        if force_npc is not None:
+            n_pc_mod = force_npc
+            print('Forcing model with : {}'.format(n_pc_mod))
+        else:
+            n_pc_mod = n_pc
+            
+        for f,specMod in enumerate(models):
+#             print('f',f)
+
+            for i,Kpi in enumerate(Kp_array):
+#                 print('i',i)
+                if vrp_kind == 'nu':
+                    vrp_orb = rv_theo_nu(Kpi, nu*u.rad, planet.w, plnt=True).value
+                elif vrp_kind == 't':
+                    vrp_orb = rv_theo_t(Kpi, t_start*u.d, planet.mid_tr, planet.period, plnt=True).value
+
+                vr_orb = -vrp_orb*(planet.M_pl/planet.M_star).decompose().value
+
+                for v,vrad in enumerate(corrRV):
+#                     print('v',v)
+                    hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
+                                             n_pc, i+1,len(Kp_array),Kpi, f+1, models.shape[0], v+1,corrRV.size))
+
+                    model_seq = gen_model_sequence_noinj([vrad, vrp_orb-vr_orb, RV_const], 
+                                         wave, sep, pca, int(params[5]), noise, 
+                                         planet, wave_mod[20:-20], specMod[20:-20], 
+                                         kind_trans=kind_trans, alpha=alpha, resol=resol, **kwargs)
+    
+#                     model_seq = gen_model_sequence_retrieval([RV, vrp_orb-vr_orb, data_tr['RV_const']], data_tr, 
+#                                                              planet, wave_mod[20:-20], specMod[20:-20], 
+#                                                         kind_trans=kind_trans, alpha=alpha, resol=resol, **kwargs)
+
+                    if get_GG is True:
+                        mod = model_seq/noise
+                    else:
+                        mod = model_seq
+
+                    for iOrd in range(nord):
+#                         print('iOrd',iOrd)
+
+                        if final[:,iOrd].mask.all():
+                            continue
+
+                        logl_BL_sig[:, iOrd, i, v, n, f],\
+                        correl[:, iOrd, i, v, n, f] = calc_logl_G_corr_ord(flux[:,iOrd], mod[:,iOrd], 
+                                                                            N[:,iOrd], s2f=s2f_sig[:,iOrd],
+                                                                            nolog=nolog)
+    out = []
+    out.append(correl)
+#     if get_GG is True:
+    out.append(logl_BL_sig)
+#     if get_bl is True:
+#         out.append(logl_BL)
+    
+    return out
     
 
 def gen_model_sequence(theta, tr, model_wave, model_spec, n_pcs=None, resol=64000, 
@@ -433,11 +635,11 @@ def gen_model_sequence(theta, tr, model_wave, model_spec, n_pcs=None, resol=6400
 # import matplotlib.pyplot as plt
 
 def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, modelTD0, 
-                                 resol=70000, final=None, spec_trans=None, noise=None, 
-                                 debug=False, nolog=True, pca=None, norm=True, alpha=None, inj_alpha='ones',
-                                 get_corr=True, get_GG=True, get_bl=False, sfsg=True, RVconst=0,
-                                 mid_id_nu = None, vrp_kind='t',  master_out=None, iOut=None, ratio=None,
-                                 reconstructed=None, blaze=None, change_noise=False, force_npc=None, **kwargs):
+                                 resol, final=None, spec_trans=None, noise=None, 
+                                 nolog=True, pca=None, norm=True, alpha=None, inj_alpha='ones',
+                                 get_GG=True, RVconst = 0.0,
+                                 vrp_kind='t',  master_out=None, iOut=None, ratio=None,
+                                 reconstructed=None, change_noise=False, force_npc=None, **kwargs):
     
     if modelTD0.ndim < 2:
         modelTD0 = modelTD0[None,:]
@@ -524,10 +726,11 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
     
                     model_seq = gen_model_sequence([vrad, vrp_orb-vr_orb, RVconst], tr, modelWave0, specMod,  
                                                    pca=pca,
-                                                   n_pcs=n_pc_mod, resol=resol, debug=debug,  norm=norm, 
-                                                   reconstructed=reconstructed, ratio=ratio, blaze=blaze, 
+                                                   n_pcs=n_pc_mod, resol=resol, norm=norm, 
+                                                   reconstructed=reconstructed, ratio=ratio, 
+                                                   #blaze=blaze, debug=debug,  
                                                    master_out=master_out, iOut=iOut, alpha=alpha, **kwargs)
-#                     model_seq = model_seq_all[v]
+
                     if get_GG is True:
                         mod = model_seq/noise
                     else:
@@ -543,7 +746,7 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
 
                         if final[:,iOrd].mask.all():
                             continue
-#                         if nolog is False:
+
 
                         logl_BL_sig[:, iOrd, i, v, n, f],\
                         correl[:, iOrd, i, v, n, f] = calc_logl_G_corr_ord(flux[:,iOrd], mod[:,iOrd], 
