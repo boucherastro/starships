@@ -1005,3 +1005,50 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
 #                      np.pi *u.sr).to(u.erg/u.cm**2/u.s/u.Hz)  # in erg cm-2 s-1 Hz-1
         
 #     return nc.c/atmos_object.freq/1e-4, out
+
+
+#################
+# Prior Functions
+#################
+# Taken from petitRADTRANS
+
+
+# SQRT2 = math.sqrt(2.)
+# import math as math
+# from scipy.special import gamma,erfcinv
+
+# # Stolen from https://github.com/JohannesBuchner/MultiNest/blob/master/src/priors.f90
+# def log_prior(cube,lx1,lx2):
+#     return 10**(lx1+cube*(lx2-lx1))
+
+# def uniform_prior(cube,x1,x2):
+#     return x1+cube*(x2-x1)
+
+def gaussian_prior(cube,mu,sigma):
+#     SQRT2 = math.sqrt(2.)
+#     return mu + sigma*SQRT2*erfcinv(2.0*(1.0 - cube))
+    return -(((cube-mu)/sigma)**2.)/2.
+
+
+# def log_gaussian_prior(cube,mu,sigma):
+#     SQRT2 = math.sqrt(2.)
+#     bracket = sigma*sigma + sigma*SQRT2*erfcinv(2.0*cube)
+#     return mu*np.exp(bracket)
+
+# def delta_prior(cube,x1,x2):
+#     return x1
+
+# # Sanity checks on parameter ranges
+# def b_range(x, b):
+#     if x > b:
+#         return -np.inf
+#     else:
+#         return 0.
+
+def a_b_range(x, a, b):
+    if x < a:
+        return -np.inf
+    elif x > b:
+        return -np.inf
+    else:
+        return 0.
