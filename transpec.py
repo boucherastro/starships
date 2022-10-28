@@ -559,14 +559,22 @@ def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34,
 
 
 
-def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, iOut, 
-                         lim_mask=0.75, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True, new_mask_tellu=None,
+# def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, iOut, 
+#                          lim_mask=0.75, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True, new_mask_tellu=None,
+#                           mask_var=True, last_mask=True, iOut_temp=None, plot=False, #kind_mo_lp='filter',
+#                           mo_box=51, mo_gauss_box=5, n_pca=1, n_comps=10, clip_ratio=None, clip_ts=None,
+#                           poly_time=None, kind_mo="median", cont=False, cbp=False, ##blaze=None,
+#                           tresh=3., tresh_lim=1., tresh2=3, tresh_lim2=1, noise=None, somme=False, norm=True,
+#                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
+#                           spec_trans=None, full_ts=None, unberv_it=True, wave_mo=None, template=None):
+def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut, 
+                         lim_mask=0.5, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True, new_mask_tellu=None,
                           mask_var=True, last_mask=True, iOut_temp=None, plot=False, #kind_mo_lp='filter',
                           mo_box=51, mo_gauss_box=5, n_pca=1, n_comps=10, clip_ratio=None, clip_ts=None,
                           poly_time=None, kind_mo="median", cont=False, cbp=False, ##blaze=None,
-                          tresh=3., tresh_lim=1., tresh2=3, tresh_lim2=1, noise=None, somme=False, norm=True,
+                          tresh=3., tresh_lim=1., last_tresh=3, last_tresh_lim=1, noise=None, somme=False, norm=True,
                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
-                          spec_trans=None, full_ts=None, unberv_it=True, wave_mo=None, template=None):
+                          spec_trans=None, full_ts=None, unberv_it=True):
     
     rebuilt=np.ma.empty_like(flux)
     ratio=np.ma.empty_like(flux)
@@ -684,23 +692,23 @@ def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, i
 
     if norm is True:
         hm.print_static('Removing the mean \n')
-        chose = quick_norm(full_ts, somme=False, take_all=False)
+        ts_norm = quick_norm(full_ts, somme=False, take_all=False)
 
         if last_mask is True:
             print('Removing the remaining high variance pixels. \n')
-            if tresh2 != tresh_lim:
-                new_mask = [ext.get_mask_noise(f, tresh2, tresh_lim2, gwidth=0.01) for f in chose.swapaxes(0,1)]
-                new_mask = new_mask | chose.mask
-                final_ts = np.ma.array(chose, mask=new_mask)
+            if last_tresh != tresh_lim:
+                mask_last = [ext.get_mask_noise(f, last_tresh, last_tresh_lim, gwidth=0.01) for f in ts_norm.swapaxes(0,1)]
+                mask_last = mask_last | ts_norm.mask
+                final_ts = np.ma.array(ts_norm, mask=mask_last)
             else:
-                final_ts = sigma_clip(chose, tresh2)
-                new_mask = final_ts.mask
+                final_ts = sigma_clip(ts_norm, last_tresh)
+                mask_last = final_ts.mask
             
             hm.print_static('Removing the mean. \n')
             final_ts = quick_norm(final_ts, somme=somme, take_all=False)
         else:
-            new_mask = chose.mask
-            final_ts = chose
+            mask_last = ts_norm.mask
+            final_ts = ts_norm
 
     else:
         final_ts = full_ts/np.ma.mean(full_ts, axis=-1)[:,:,None]
@@ -710,8 +718,8 @@ def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, i
 #     else:
 #         final_ts_std = final_ts/noise**2
         
-    return flux_norm, flux_norm_mo, master_out, spec_trans, full_ts, chose, \
-           final_ts, final_ts, rebuilt, pca, flux_Sref, flux_masked, ratio, new_mask, recon_time 
+    return flux_norm, flux_norm_mo, master_out, spec_trans, full_ts, ts_norm, \
+           final_ts, rebuilt, pca, flux_Sref, flux_masked, ratio, mask_last, recon_time 
 #, flux_BARYref, flux_SYSref, flux_Sref
 
 

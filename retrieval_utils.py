@@ -798,7 +798,7 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 #     return wave_low, np.array(model_rp_low)[0]/1e6*scale
 
 
-def downgrade_mod(wlen, flux_lambda, down_wave,Rbf=1000, Raf=75):
+def downgrade_mod(wlen, flux_lambda, down_wave, Rbf=1000, Raf=75):
     
     _, resamp_prt = spectrum.resampling(wlen, flux_lambda, Raf=Raf, Rbf=Rbf, sample=wlen)
     binned_prt_hst = spectrum.box_binning(resamp_prt, Rbf/Raf)

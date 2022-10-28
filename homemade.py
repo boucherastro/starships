@@ -115,10 +115,11 @@ def calc_tr_lightcurve(planet, coeffs, time,
 
     if kind_trans == 'emission':
         transittype = "secondary"
-#         bb_star = bb(planet.Teff)
-#         bb_pl = bb(planet.Teq)
+        bb_star = bb(planet.Teff)
+        bb_pl = bb(planet.Tp)
+        fl_ratio = bb_pl(1.4*u.um)/bb_star(1.4*u.um)
         params.fp = fl_ratio
-        params.t_secondary = planet.mid_tr.value + 0.5*planet.period.to(u.d).value
+        params.t_secondary = planet.mid_tr.value #+ 0.5*planet.period.to(u.d).value
     else:
         transittype = "primary"
     m = batman.TransitModel(params, time, transittype=transittype)    #initializes model

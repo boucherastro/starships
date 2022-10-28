@@ -8,69 +8,69 @@ import matplotlib.pyplot as plt
 from astropy.convolution import convolve, Gaussian1DKernel
 
 
-def read_all_sp(path, file_list, wv_default=None, blaze_default=None,
-                blaze_path=None, debug=False):
-    #'20180805_2295520f_pp_blaze_AB.fits'
+# def read_all_sp(path, file_list, wv_default=None, blaze_default=None,
+#                 blaze_path=None, debug=False):
+#     #'20180805_2295520f_pp_blaze_AB.fits'
 
-    headers, count, wv, blaze = list_of_dict([]), [], [], []
-    blaze_path = blaze_path or path
+#     headers, count, wv, blaze = list_of_dict([]), [], [], []
+#     blaze_path = blaze_path or path
 
-    with open(path + file_list) as f:
+#     with open(path + file_list) as f:
 
-        for file in f:
+#         for file in f:
 
-            hdul = fits.open(path + file.split('\n')[0])
-            headers.append(hdul[0].header)
-            count.append(hdul[0].data)
+#             hdul = fits.open(path + file.split('\n')[0])
+#             headers.append(hdul[0].header)
+#             count.append(hdul[0].data)
 
-            wv_file = wv_default or hdul[0].header['WAVEFILE']
-            try:
-                blaze_file = blaze_default or build_blaze_file(hdul[0].header)
-            except KeyError:
-                blaze_file = hdul[0].header['CDBBLAZE']
+#             wv_file = wv_default or hdul[0].header['WAVEFILE']
+#             try:
+#                 blaze_file = blaze_default or build_blaze_file(hdul[0].header)
+#             except KeyError:
+#                 blaze_file = hdul[0].header['CDBBLAZE']
 
-            if debug:
-                print(file.split('\n')[0], wv_file, blaze_file)
+#             if debug:
+#                 print(file.split('\n')[0], wv_file, blaze_file)
 
-            with fits.open(path + wv_file) as f:
-                wv.append(f[0].data / 1000)
+#             with fits.open(path + wv_file) as f:
+#                 wv.append(f[0].data / 1000)
             
-            with fits.open(blaze_path + blaze_file) as f:
-                blaze.append(f[0].data)
+#             with fits.open(blaze_path + blaze_file) as f:
+#                 blaze.append(f[0].data)
 
-    return headers, np.array(wv), np.array(count), np.array(blaze)
+#     return headers, np.array(wv), np.array(count), np.array(blaze)
 
-def read_all_sp_CADC(path, file_list):
+# def read_all_sp_CADC(path, file_list):
     
-    headers_princ, headers_image, headers_tellu = list_of_dict([]), list_of_dict([]), list_of_dict([])
-    count, wv, blaze, recon = [], [], [], []
+#     headers_princ, headers_image, headers_tellu = list_of_dict([]), list_of_dict([]), list_of_dict([])
+#     count, wv, blaze, recon = [], [], [], []
 
-    with open(path + file_list) as f:
+#     with open(path + file_list) as f:
 
-        for file in f:
-           # print(file)
+#         for file in f:
+#            # print(file)
 
-            hdul = fits.open(path + file.split('\n')[0])
+#             hdul = fits.open(path + file.split('\n')[0])
             
-            headers_princ.append(hdul[0].header)
-            headers_image.append(hdul[1].header)
+#             headers_princ.append(hdul[0].header)
+#             headers_image.append(hdul[1].header)
             
-            if file_list == 'list_v':
-                count.append(hdul[1].data)
-            else:
-                if file_list == 'list_tellu_corrected':
-                    headers_tellu.append(hdul[4].header)
-                    recon.append(hdul[4].data)
-                    ext = [1,2,3]
-                if file_list == 'list_e2ds':
-                    ext = [1,5,9]
+#             if file_list == 'list_v':
+#                 count.append(hdul[1].data)
+#             else:
+#                 if file_list == 'list_tellu_corrected':
+#                     headers_tellu.append(hdul[4].header)
+#                     recon.append(hdul[4].data)
+#                     ext = [1,2,3]
+#                 if file_list == 'list_e2ds':
+#                     ext = [1,5,9]
 
-                count.append(hdul[ext[0]].data)
-                wv.append(hdul[ext[1]].data / 1000)
-                blaze.append(hdul[ext[2]].data)
+#                 count.append(hdul[ext[0]].data)
+#                 wv.append(hdul[ext[1]].data / 1000)
+#                 blaze.append(hdul[ext[2]].data)
     
-    return headers_princ, headers_image, headers_tellu, np.array(wv), \
-            np.array(count), np.array(blaze), np.array(recon)
+#     return headers_princ, headers_image, headers_tellu, np.array(wv), \
+#             np.array(count), np.array(blaze), np.array(recon)
 
 
 
@@ -442,16 +442,29 @@ def get_mask_tell(tell, tresh, pad_tresh):
     if tell.mask.all():
         return tell.mask
     
-    new_mask = (tell < tresh)
-    
+#     new_mask = (tell < tresh)
+#      while True:
+#         temp_mask = np.convolve(new_mask, [1,1,1], 'same').astype(bool)
+#         temp_mask = (temp_mask & (tell < pad_tresh))
+#         if (temp_mask == new_mask).all():
+#             break
+#         new_mask = temp_mask
+
+    # --- This will mask the already masked telluric lines (saturated or poorly constrained) 
+    new_mask = (tell.data < tresh) #| (~np.isfinite(tell.data))
+    mask_inv = (~np.isfinite(tell.data))
+   
     while True:
         temp_mask = np.convolve(new_mask, [1,1,1], 'same').astype(bool)
-        temp_mask = (temp_mask & (tell < pad_tresh))
+        temp_mask = (temp_mask & (tell.data < 0.97))
         if (temp_mask == new_mask).all():
             break
         new_mask = temp_mask
+    
+    # --- Will automatically mask 3 pixels each sides of already masked tellurics
+    mask_inv = np.convolve(mask_inv, [1,1,1,1,1,1,1], 'same').astype(bool)
         
-    return new_mask
+    return new_mask | mask_inv
 
 
 from scipy.optimize import least_squares
