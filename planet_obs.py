@@ -1695,7 +1695,7 @@ def load_sequences(path, filename, do_tr, load_all=False):
 
 def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
                      coeffs, ld_model, kind_trans, RV_sys, polynome=None, 
-                     ratio_recon=False, cont=False, cbp=True, **kwargs_build_ts):
+                     ratio_recon=False, cont=False, cbp=True, noise_npc=None, **kwargs_build_ts):
     
     tr = obs.select_transit(transit_tag)
     tr.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
@@ -1710,9 +1710,28 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
     else:
         poly_time = None
         
-    tr.build_trans_spec(params= params_all, \
+    if noise_npc is None:
+        tr.build_trans_spec(params= params_all, \
                     iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
                         cbp=cbp, poly_time=poly_time, **kwargs_build_ts)
+    else:
+       
+        params_copy = params_all.copy()
+        params_copy[5] = noise_npc
+#         tr.build_trans_spec(params= params_all, \
+#                     iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
+#                         cbp=cbp, poly_time=poly_time, **kwargs_build_ts)
+        tr.build_trans_spec(params= params_copy, \
+                        iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
+                        cbp=cbp, poly_time=poly_time, **kwargs_build_ts)
+        tr.build_trans_spec(params= params_all, \
+                         iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
+                        cbp=False, poly_time=poly_time, 
+                       flux_masked=tr.fl_masked, flux_Sref=tr.fl_Sref, flux_norm=tr.fl_norm, 
+                        flux_norm_mo=tr.fl_norm_mo, master_out=tr.mast_out, spec_trans=tr.spec_trans, 
+                            mask_var=False, **kwargs_build_ts)
+        
+        
     return tr
 
 def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans):
@@ -1731,7 +1750,7 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
                           do_tr=[1,2,3,12,123], cbp=True, 
                            kind_trans='transmission',
                           ld_model = 'linear', coeffs=[0.53],
-                           polynome=None, **kwargs_build_ts):
+                           polynome=None, noise_npc=None, **kwargs_build_ts):
     #                           
     
     ratio_recon=True
@@ -1746,7 +1765,7 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
             list_tr[name_tag] = gen_obs_sequence(obs, transit_tags[tag-1], params_all[tag-1], 
                                                  iOut_temp[tag-1],
                                                  coeffs, ld_model, kind_trans, RV_sys[tag-1], 
-                                                 polynome=polynome[tag-1], 
+                                                 polynome=polynome[tag-1], noise_npc=noise_npc, 
                                  ratio_recon=ratio_recon, cont=cont, cbp=cbp, **kwargs_build_ts)
         
         else :  
