@@ -7,7 +7,7 @@ import numpy as np
 
 import arviz as az
 # import pymc3
-# import pygtc
+
 
 from starships import homemade as hm
 from starships import analysis as a
@@ -1511,7 +1511,7 @@ def plot_corner(sample_all, labels, param_no_zero=4, maxs=None, errors=None, plo
 # import numpy as np
 
 # import pymc3
-# # import pygtc
+
 
 # from spirou_exo.utils import homemade as hm
 # from spirou_exo import analysis as a

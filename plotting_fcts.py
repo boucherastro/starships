@@ -1035,7 +1035,7 @@ def plot_detection_snrs(t, interp_grid_map, min_val_map, snrs_map, VMRs, Teq, id
 import h5py
 import corner
 import shutil
-import pygtc
+
 
 def plot_mcmc_current_chains(filename, labels=None, truths=None,  
                              discard=0, param_no_zero=2, id_params=None, fig_name='',
@@ -1078,10 +1078,7 @@ def plot_mcmc_current_chains(filename, labels=None, truths=None,
         
         if path_fig is not None:
             fig.savefig(path_fig+'fig_mcmc'+fig_name+'.pdf')
-        
-#         GTC = pygtc.plotGTC(chains=[flat_samples], figureSize='APJ_page', paramNames=labels, nContourLevels=3,
-#                            sigmaContourLevels=True)
-        
+
     return fig
         
 ########################
