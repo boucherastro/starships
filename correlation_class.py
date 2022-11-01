@@ -299,8 +299,8 @@ class Correlations():
         self.Kp0 = (tr.Kp.to(u.km / u.s)).value
         self.RV_shift = RV_shift
         
-        interp_grid = np.linspace(-limit_shift - 2 * (tr.vrp)[icorr].value[0] + RV_sys,
-                                  limit_shift - 2 * (tr.vrp)[icorr].value[-1] + RV_sys, 
+        interp_grid = np.linspace(-limit_shift - 2 * (tr.vrp)[icorr][0] + RV_sys,
+                                  limit_shift - 2 * (tr.vrp)[icorr][-1] + RV_sys,
                                   interp_size).squeeze()
         self.interp_grid = interp_grid
         
@@ -535,7 +535,9 @@ class Correlations():
         else:
             yyy = self.ccf0
         im1 = ax1.pcolormesh(self.rv_grid, tr.phase.value, yyy, cmap=cmap, rasterized=True)
-
+        if clim is not None:
+            im1.set_clim(clim[0],clim[1])
+            
         ax1.plot((tr.berv-tr.planet.RV_sys.value), tr.phase.value, '--',color='darkred', alpha=0.8, label='BERV')
 #         ax1.set_xlim(self.interp_grid[0], self.interp_grid[-1])
         ax1.set_ylabel(r'$\phi$', fontsize=14)
@@ -548,9 +550,9 @@ class Correlations():
         cbar.set_label('CCF', fontsize=14)
 
         iout = np.delete(np.arange(tr.vrp.size), icorr)
-        ax1.plot(tr.vrp[iout].value+self.RV_shift[iout]+tr.mid_vrp.value, tr.phase.value[iout], 
+        ax1.plot(tr.vrp[iout]+self.RV_shift[iout]+tr.mid_vrp, tr.phase.value[iout],
                  'k.', alpha=0.5, label=r'Expected $v_{\rm P}$')
-        ax1.plot(tr.vrp.value+self.RV_shift+tr.mid_vrp.value, tr.phase.value, 
+        ax1.plot(tr.vrp+self.RV_shift+tr.mid_vrp, tr.phase.value,
                  'k', alpha=0.35, label=r'Expected $v_{\rm P}$')
         if hline is not None:
             ax1.axhline(hline, color='white', linestyle='-')
