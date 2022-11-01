@@ -14,7 +14,7 @@ from astroquery.vizier import Vizier
 from astropy import units as u
 from astropy import constants as const
 from astropy.table import Table, Column, QTable
-import astropy.io.ascii as ascii_ap
+# import astropy.io.ascii as ascii_ap
 from astropy.io import fits
 import matplotlib.pyplot as plt
 import scipy.constants as cst
@@ -23,7 +23,7 @@ from scipy.io.idl import readsav
 
 import os.path
 # from .config import *
-from importlib import reload
+# from importlib import reload
 
 from starships.mask_tools import interp1d_masked
 # import spirou_exo.analysis as a
@@ -31,7 +31,7 @@ from starships.mask_tools import interp1d_masked
 # from scipy.interpolate import interp1d
 
 # from hapi import transmittanceSpectrum
-
+masterDir = '/home/boucher/spirou/'
 #------------------------------
 # --- Get the model spectrum of a star depending on it's temperature and logg ---
 # --- teff=[1200,7000]K or spt [M6,T8.5] and logg=[2.5,5.5] ---

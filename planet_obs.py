@@ -824,7 +824,7 @@ class Observations():
 #         correl0 = np.ma.zeros((self.n_spec, self.nord, corrRV.size))
         logl = np.ma.zeros((self.n_spec, self.nord, corrRV.size))
 
-        # - Calculate the shift -
+        # - Calculate the shinft -
         shifts = hm.calc_shift(corrRV, kind='rel')
 
         # - Interpolate over the orginal data
