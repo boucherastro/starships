@@ -1,6 +1,6 @@
 import numpy as np
 from starships import homemade as hm
-from starships.spectrum import find_R, quick_inject
+# from starships.spectrum import find_R, quick_inject
 from starships import analysis as a
 # from spirou_exo import transpec as ts
 # from spirou_exo import correlation as corr
@@ -9,13 +9,13 @@ from starships.orbite import rv_theo_nu
 from starships.mask_tools import interp1d_masked
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-import scipy.constants as cst
+# import scipy.constants as cst
 import scipy as sp
 from astropy import units as u
 from astropy import constants as const
 
 import matplotlib.pyplot as plt
-from itertools import islice
+# from itertools import islice
 from astropy.table import Table, Column
 
 
@@ -254,8 +254,8 @@ def plot_logl_grid_i(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, sw
 #             levels = nf.calc_n_sigma_lvl(clip_im, [1,2,3], val=clip_im.max(), plot=False, inverse=True)
 
         ax.contour(np.log10(var_in_list), var_out_list, clip_im, levels, 
-                        extent=(np.log10(var_in_list[0]),np.log10(var_in_list[-1]),\
-                          var_out_list[0],var_out_list[-1]), cmap='tab20b_r', alpha=0.8) #cmap+'_r'  #'Spectral_r'
+                        extent=(np.log10(var_in_list[0]),np.log10(var_in_list[-1]),
+                                var_out_list[0],var_out_list[-1]), cmap='tab20b_r', alpha=0.8) #cmap+'_r'  #'Spectral_r'
         if xlim_remove > 0:
             ax.set_xlim(None,x_new.max()-xlim_remove)
         else:

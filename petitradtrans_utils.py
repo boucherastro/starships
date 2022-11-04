@@ -272,16 +272,16 @@ def update_dissociation_abundance_profile(profile, specie_name, pressures, tempe
         profile['OH'] += (A0 - profile_updt) * scale
 
 
-# def calc_MMW3(abundances):
-#     MMW = np.zeros_like(abundances[abundances.keys()[0]])
-#     for i,key in enumerate(abundances.keys()):
-#         mol = key.split('_')[0]
-#         # if i == 0:
-#         #     MMW = np.zeros_like(abundances[key])
-# #         print(abundances[key], prt.calc_single_mass(mol))
-#         MMW += abundances[key]*calc_single_mass(mol)
-# #         print(MMW)
-#     return MMW
+def calc_MMW3(abundances):
+    # MMW = np.zeros_like(abundances[abundances.keys()[0]])
+    for i,key in enumerate(abundances.keys()):
+        mol = key.split('_')[0]
+        if i == 0:
+            MMW = np.zeros_like(abundances[key])
+#         print(abundances[key], prt.calc_single_mass(mol))
+        MMW += abundances[key]*calc_single_mass(mol)
+#         print(MMW)
+    return MMW
 
 
 def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
