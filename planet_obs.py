@@ -1748,7 +1748,7 @@ def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_
 
 def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
                           do_tr=[1,2,3,12,123], cbp=True, 
-                           kind_trans='transmission',
+                           kind_trans='transmission', flux_all=None,
                           ld_model = 'linear', coeffs=[0.53],
                            polynome=None, noise_npc=None, **kwargs_build_ts):
     #                           
@@ -1761,6 +1761,8 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
     for tag in do_tr:
         name_tag = str(tag)
         if len(name_tag) < 2:
+            if flux_all is not None:
+                kwargs_build_ts['flux'] = flux_all[tag-1]
 
             list_tr[name_tag] = gen_obs_sequence(obs, transit_tags[tag-1], params_all[tag-1], 
                                                  iOut_temp[tag-1],

@@ -1,5 +1,5 @@
 
-import emcee
+# import emcee
 import h5py
 
 import corner
@@ -17,9 +17,9 @@ from scipy.interpolate import interp1d
 import astropy.units as u
 import astropy.constants as const
 
-from petitRADTRANS import Radtrans
+# from petitRADTRANS import Radtrans
 
-from collections import OrderedDict
+# from collections import OrderedDict
 import starships.petitradtrans_utils as prt
 
 try :
@@ -161,7 +161,7 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
         plt.annotate(r'C/O = {:.2f}$^{{+{}}}_{{-{}}}$'.format(maximum, 
                                                               '{:.2f}'.format(errbars2[1]-maximum),
                                                               '{:.2f}'.format(maximum-errbars2[0])
-                                                             ), \
+                                                             ),
                      xy=(0.1,0.75), xycoords='axes fraction', fontsize=16 )
         plt.ylabel('% Occurence', fontsize=16)
         plt.xlabel('C/O', fontsize=16)
@@ -377,9 +377,10 @@ def plot_c_sur_o(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=0,
 
     
 def plot_abund_ratios(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=0,
-                               sol_values=None, stellar_values=None, errors=None, H2=0.75, N2=10**(-4.5),
-                              list_mols=['H2O','CO','CO2','FeH','CH4','HCN','NH3','C2H2','TiO',\
-                                        'OH','Na','K'], fig_name='', prob=0.68):
+                      sol_values=None, stellar_values=None,H2=0.85, # errors=None,  N2=10**(-4.5),
+                      list_mols=['H2O','CO','CO2','FeH','CH4','HCN','NH3','C2H2','TiO',
+                                        'OH','Na','K'],
+                      plot_all=True, fig=None, fig_name=None, prob=0.68, **kwargs):
     if nb_mols is None:
         nb_mols = len(list_mols)
         
@@ -453,13 +454,14 @@ def plot_abund_ratios(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=
             samp_n_sur_h = np.log10(samp_n / samp_h) -sol_values[3]
 #         samp_n_sur_o = samp_n / samp_o 
 
-        fig = plt.figure()
+        if fig is None:
+            fig = plt.figure()
 
         maximum2, errbars22 = calc_hist_max_and_err(samp_c_sur_h, bins=bins, bin_size=6, plot=True,
-                                                    color='dodgerblue', label='C/H', prob=prob)
+                                                    color='dodgerblue', label='C/H', prob=prob, **kwargs)
         print('C/H = {:.4f} + {:.4f} - {:.4f}'.format(maximum2,errbars22[1]-maximum2,maximum2-errbars22[0]))
         maximum3, errbars23 = calc_hist_max_and_err(samp_o_sur_h, bins=bins, bin_size=6, plot=True,
-                                                    color='darkorange', label='O/H', prob=prob)
+                                                    color='darkorange', label='O/H', prob=prob, **kwargs)
         print('O/H = {:.4f} + {:.4f} - {:.4f}'.format(maximum3,errbars23[1]-maximum3,maximum3-errbars23[0]))
                 
         if n_sur_h != 0:
@@ -467,18 +469,19 @@ def plot_abund_ratios(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=
                                                         color='forestgreen', label='N/H', prob=prob)
             print('N/H = {:.4f} + {:.4f} - {:.4f}'.format(maximum3,errbars23[1]-maximum3,maximum3-errbars23[0]))
             plt.axvline(stellar_values[3], linestyle='-.', color='darkgreen')
+        if plot_all:
+            plt.axvline(0, linestyle='--', color='black', label='Solar')
+    #         plt.axvline(fe_sur_h, linestyle=':', color='red', label='Stellar')#, zorder=32)
+            plt.axvline(stellar_values[1]- sol_values[1], linestyle=':', color='royalblue', label='C/H Stellar')
+            plt.axvline(stellar_values[2]- sol_values[2], linestyle=':', color='orangered', label='O/H Stellar')
 
-        plt.axvline(0, linestyle='--', color='black', label='Solar')
-#         plt.axvline(fe_sur_h, linestyle=':', color='red', label='Stellar')#, zorder=32)
-        plt.axvline(stellar_values[1]- sol_values[1], linestyle=':', color='royalblue', label='C/H Stellar')
-        plt.axvline(stellar_values[2]- sol_values[2], linestyle=':', color='orangered', label='O/H Stellar')
+            plt.ylabel('% Occurence', fontsize=16)
+            plt.xlabel('[$X$/H]', fontsize=16)
 
-        plt.ylabel('% Occurence', fontsize=16)
-        plt.xlabel('[$X$/H]', fontsize=16)
+            plt.legend(fontsize=13)
 
-        plt.legend(fontsize=13)
-        
-        fig.savefig('/home/boucher/spirou/Figures/fig_X_sur_H_distrib_sol{}.pdf'.format(fig_name))
+        if fig_name is not None:
+            fig.savefig('/home/boucher/spirou/Figures/fig_X_sur_H_distrib_sol{}.pdf'.format(fig_name))
     
     return fig
    
@@ -644,6 +647,7 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 
 #     print(nb_mols, params)
     temp_params['T_eq'] = params[nb_mols+0]
+    print(temp_params['T_eq'])
     
     if cloud_param is not None:
         cloud = 10**(params[nb_mols+cloud_param])
@@ -1085,7 +1089,7 @@ def calc_tp_profile(params, temp_params, kind_temp='', TP=True,
         pressures = temp_params['pressures']
     if T_eq is None:
         T_eq = temp_params['T_eq']
-    
+    # print(temp_params, T_eq)
     if kind_temp == 'iso' :
         temperatures = T_eq*np.ones_like(pressures)
     elif kind_temp == 'modif':

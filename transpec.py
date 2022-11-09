@@ -1,4 +1,4 @@
-import starships.extract as ext
+from starships import extract as ext
 from starships import analysis as a
 from starships import homemade as hm
 from starships.extract import quick_norm, running_filter
@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 from astropy.convolution import convolve, Gaussian1DKernel
 from scipy.interpolate import interp1d
 
-# from spirou_exo.plotting_fcts import plot_order
 from numpy.polynomial.polynomial import polyval
 
 from itertools import groupby
@@ -567,14 +566,14 @@ def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34,
 #                           tresh=3., tresh_lim=1., tresh2=3, tresh_lim2=1, noise=None, somme=False, norm=True,
 #                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
 #                           spec_trans=None, full_ts=None, unberv_it=True, wave_mo=None, template=None):
-def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut, 
-                         lim_mask=0.5, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True, new_mask_tellu=None,
-                          mask_var=True, last_mask=True, iOut_temp=None, plot=False, #kind_mo_lp='filter',
+def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
+                          lim_mask=0.5, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True, new_mask_tellu=None,
+                          mask_var=True, last_mask=True, iOut_temp=None, plot=False,  #kind_mo_lp='filter',
                           mo_box=51, mo_gauss_box=5, n_pca=1, n_comps=10, clip_ratio=None, clip_ts=None,
-                          poly_time=None, kind_mo="median", cont=False, cbp=False, ##blaze=None,
+                          poly_time=None, kind_mo="median", cont=False, cbp=False,  ##blaze=None,
                           tresh=3., tresh_lim=1., last_tresh=3, last_tresh_lim=1, noise=None, somme=False, norm=True,
                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
-                          spec_trans=None, full_ts=None, unberv_it=True):
+                          spec_trans=None, clean_ts=None, unberv_it=True):
     
     rebuilt=np.ma.empty_like(flux)
     ratio=np.ma.empty_like(flux)
@@ -681,18 +680,19 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
     else:
         recon_time = np.ones_like(spec_trans)
 
-    if full_ts is None:
+    if clean_ts is None:
         hm.print_static('Removing the static noise with PCA and sigma cliping \n')
 #         print(n_pca, n_comps)
         print(spec_trans.shape)
         if clip_ts is not None:
             spec_trans = sigma_clip(spec_trans, clip_ts)
+            print('spec_trans all nan : {}'.format(spec_trans.mask.all()))
         #*** mean normalize again??***
-        full_ts, rebuilt, pca = remove_dem_pca_all(spec_trans, n_pcs=n_pca, n_comps=n_comps, plot=plot)
-
+        clean_ts, rebuilt, pca = remove_dem_pca_all(spec_trans, n_pcs=n_pca, n_comps=n_comps, plot=plot)
+        print('clean_ts all nan : {}'.format(clean_ts.mask.all()))
     if norm is True:
         hm.print_static('Removing the mean \n')
-        ts_norm = quick_norm(full_ts, somme=False, take_all=False)
+        ts_norm = quick_norm(clean_ts, somme=False, take_all=False)
 
         if last_mask is True:
             print('Removing the remaining high variance pixels. \n')
@@ -711,14 +711,9 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
             final_ts = ts_norm
 
     else:
-        final_ts = full_ts/np.ma.mean(full_ts, axis=-1)[:,:,None]
-
-#     if noise is None:
-#         final_ts_std = final_ts/np.std(final_ts, axis=0)**2
-#     else:
-#         final_ts_std = final_ts/noise**2
+        final_ts = clean_ts / np.ma.mean(clean_ts, axis=-1)[:, :, None]
         
-    return flux_norm, flux_norm_mo, master_out, spec_trans, full_ts, ts_norm, \
+    return flux_norm, flux_norm_mo, master_out, spec_trans, clean_ts, ts_norm, \
            final_ts, rebuilt, pca, flux_Sref, flux_masked, ratio, mask_last, recon_time 
 #, flux_BARYref, flux_SYSref, flux_Sref
 
