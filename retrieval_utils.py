@@ -647,6 +647,7 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 
 #     print(nb_mols, params)
     temp_params['T_eq'] = params[nb_mols+0]
+    print(temp_params['T_eq'])
     
     if cloud_param is not None:
         cloud = 10**(params[nb_mols+cloud_param])
@@ -1088,7 +1089,7 @@ def calc_tp_profile(params, temp_params, kind_temp='', TP=True,
         pressures = temp_params['pressures']
     if T_eq is None:
         T_eq = temp_params['T_eq']
-    
+    # print(temp_params, T_eq)
     if kind_temp == 'iso' :
         temperatures = T_eq*np.ones_like(pressures)
     elif kind_temp == 'modif':
