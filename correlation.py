@@ -637,7 +637,7 @@ def gen_model_sequence(theta, tr, model_wave, model_spec, n_pcs=None, resol=6400
 def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, modelTD0, 
                                  resol, final=None, spec_trans=None, noise=None, 
                                  nolog=True, pca=None, norm=True, alpha=None, inj_alpha='ones',
-                                 get_GG=True, RVconst = 0.0,
+                                 get_GG=True, RVconst = 0.0, new_mask=None,
                                  vrp_kind='t',  master_out=None, iOut=None, ratio=None,
                                  reconstructed=None, change_noise=False, force_npc=None, **kwargs):
     
@@ -696,7 +696,10 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
     #         flux -= np.ma.mean(flux, axis=-1)[:,:,None]
         else:
             flux = final
-        
+
+        if new_mask is not None:
+            flux = np.ma.array(flux, mask=new_mask)
+
         s2f_sig = np.ma.sum(flux**2, axis=-1)
         
 #         if (get_bl is True) | (sfsg is True):

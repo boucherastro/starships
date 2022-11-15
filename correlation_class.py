@@ -102,18 +102,27 @@ class Correlations():
             if kind_obj == 'seq':
                 icorr = data_obj.icorr
             elif kind_obj == 'dict':
-                icorr = data_obj['icorr']
+                try:
+                    icorr = data_obj['icorr']
+                except KeyError:
+                    icorr = data_obj['trall_icorr']
         if alpha is None:
             if inj_alpha =='alpha':
                 if kind_obj == 'seq':
                     alpha = np.ones_like(data_obj.alpha_frac)
                 elif kind_obj == 'dict':
-                    alpha = np.ones_like(data_obj['alpha_frac'])
+                    try:
+                        alpha = np.ones_like(data_obj['alpha_frac'])
+                    except KeyError:
+                        alpha = np.ones_like(data_obj['trall_alpha_frac'])
             elif inj_alpha == 'ones':
                 if kind_obj == 'seq':
                     alpha = data_obj.alpha_frac
                 elif kind_obj == 'dict':
-                    alpha = data_obj['alpha_frac']
+                    try:
+                        alpha = data_obj['alpha_frac']
+                    except KeyError:
+                        alpha = data_obj['trall_alpha_frac']
 
 
         self.logl0 = np.nansum( self.data[:, orders], axis=1)
