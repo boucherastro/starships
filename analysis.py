@@ -367,7 +367,7 @@ def pseudo_cont_spectrum(x,y, prominence=None, plot=False,**kwargs):
     return filter_peak
 
 
-def resamp_model(modelWave0, modelTD0, Rbf, Raf=70000, pix_per_elem=2,rot_ker=None, sample=None, **kwargs): #, binning=False):
+def resamp_model(modelWave0, modelTD0, Rbf, Raf=70000, pix_per_elem=2, rot_ker=None, sample=None, **kwargs): #, binning=False):
     
     if ~isinstance(modelTD0, np.ma.MaskedArray):
         modelTD0 = np.ma.masked_invalid(modelTD0)

@@ -718,7 +718,7 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
                 if vrp_kind == 'nu':
                     vrp_orb = rv_theo_nu(Kpi, tr.nu*u.rad, tr.planet.w, plnt=True).value
                 elif vrp_kind == 't':
-                    vrp_orb = rv_theo_t(Kpi, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+                    vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
 
                 vr_orb = -vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose().value
 
@@ -840,7 +840,7 @@ def quick_calc_logl_injred_class_parts(tr, Kp_array, corrRV, n_pcas, modelWave0,
                 if vrp_kind == 'nu':
                     vrp_orb = rv_theo_nu(Kpi, tr.nu*u.rad, tr.planet.w, plnt=True).value
                 elif vrp_kind == 't':
-                    vrp_orb = rv_theo_t(Kpi, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+                    vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         
 #                 if mid_id_nu is not None:
 #                     vrp_orb = vrp_orb - rv_theo_nu(Kpi, mid_id_nu*u.rad, tr.planet.w, plnt=True).value

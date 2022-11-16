@@ -286,7 +286,7 @@ def gen_rv_sequence(self, p, plot=False, K=None):
         plt.plot(self.t, self.vr + p.RV_sys, 'ro')
 
 
-def gen_transit_model(self, p, plot=False):
+def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=False):
     self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.mid_tr, e=p.excent)
 
     rp, x, y, z, self.sep, p.bRstar = o.position(self.nu, e=p.excent, i=p.incl, w=p.w, omega=p.omega,
@@ -363,6 +363,8 @@ def gen_transit_model(self, p, plot=False):
     #                         p.A_star).value for sep in self.sep]).squeeze()
     #         self.alpha = np.array([hm.circle_overlap(p.R_star, p.R_pl, sep).value for sep in self.sep])
     self.alpha_frac = self.alpha / self.alpha.max()
+
+    self.kind_trans, self.coeffs, self.ld_model = kind_trans, coeffs, ld_model
 
 
 class Observations():
@@ -557,7 +559,7 @@ class Observations():
                     
                 self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0], 
                                  dtype='float') for order in range(49)]).T
-                self.berv = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
+                self.berv0 = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
             else:
 #                 obs_date = [date+' '+hour for date,hour in zip(self.headers_image.get_all('DATE-OBS')[0], \
 #                                                self.headers.get_all('UTIME')[0])]
@@ -578,7 +580,7 @@ class Observations():
                 except KeyError:
                     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:03}'.format(order))[0], \
                                          dtype='float') for order in range(49)]).T
-                self.berv = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
+                self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
             
             self.dt = np.array(np.array(self.headers.get_all('EXPTIME')[0], dtype='float') ).squeeze() * u.s
             self.AM = np.array(self.headers.get_all('AIRMASS')[0], dtype='float').squeeze()
@@ -589,7 +591,7 @@ class Observations():
         else : 
             self.t_start = sequence[0] * u.d
             self.SNR = sequence[1]
-            self.berv = sequence[2]
+            self.berv0 = sequence[2]
             self.dt = sequence[3] * u.s
 
             self.AM = sequence[4]
@@ -601,6 +603,8 @@ class Observations():
             self.flux = self.count/(self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None])
         else:
             self.flux = self.count
+            
+        self.berv= self.berv0.copy()
         light_curve = np.ma.sum(np.ma.sum(self.count, axis=-1), axis=-1)
         self.light_curve = light_curve / np.nanmax(light_curve)
         self.t = self.t_start #+ self.dt/2
@@ -707,7 +711,7 @@ class Observations():
 # #         self.alpha = np.array([hm.circle_overlap(p.R_star, p.R_pl, sep).value for sep in self.sep])
 #         self.alpha_frac = self.alpha/self.alpha.max()
 #
-        gen_transit_model(self, p, plot=plot)
+        gen_transit_model(self, p, kind_trans, coeffs, ld_model, plot=plot)
         # --- Radial velocities
 
         gen_rv_sequence(self, p, plot=False)
@@ -843,7 +847,7 @@ class Observations():
         else:
             self.RV_sys = RV
             
-        self.berv = -self.berv
+        self.berv = -self.berv0
         self.mid_id = int(np.ceil(self.n_spec/2)-1)
         self.mid_berv = self.berv[self.mid_id]
         self.mid_vr = self.vr[self.mid_id].value
@@ -1413,7 +1417,8 @@ def split_transits(obs_obj, transit_tag, mid_idx,
 
 
 
-def save_single_sequences(path, filename, tr, save_all=False, filename_end='', bad_indexs=None):
+def save_single_sequences(path, filename, tr,
+                          save_all=False, filename_end='', bad_indexs=None):
 
     if bad_indexs is None:
         bad_indexs = []
@@ -1462,9 +1467,12 @@ def save_single_sequences(path, filename, tr, save_all=False, filename_end='', b
              phase = tr.phase.value,
              SNR = tr.SNR,
              nu = tr.nu,
-                 berv=tr.berv+tr.mid_berv,
+                 berv0=tr.berv0,
                  AM=tr.AM,
                  RV_sys = tr.RV_sys,
+                kind_trans = tr.kind_trans,
+                 coeffs = tr.coeffs,
+                 ld_model = tr.ld_model,
                  # iIn = tr.iIn,
                  # iOut = tr.iOut,
              )
@@ -1510,9 +1518,12 @@ def save_single_sequences(path, filename, tr, save_all=False, filename_end='', b
              clip_ts = tr.clip_ts,
              scaling = tr.scaling,
              phase = tr.phase.value,
-                 berv=tr.berv+tr.mid_berv,
+                 berv0=tr.berv0,
                  AM=tr.AM,
                  RV_sys=tr.RV_sys,
+                kind_trans = tr.kind_trans,
+                 coeffs = tr.coeffs,
+                 ld_model = tr.ld_model,
                  # iIn = tr.iIn,
                  # iOut = tr.iOut,
              SNR = tr.SNR,
@@ -1600,6 +1611,7 @@ def load_single_sequences(path, filename, name, planet,
     tr.pca = pca
     tr.RV_const = data_tr['RV_const']
     tr.params = data_tr['params']
+    tr.params[5] = int(tr.params[5])
     #     tr.vrp = data_tr['vrp']
     tr.sep = data_tr['sep'] * u.m
     tr.noise = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
@@ -1614,6 +1626,7 @@ def load_single_sequences(path, filename, name, planet,
 
     tr.ratio = np.ma.array(data_tr['ratio'],
                            mask=data_tr['mask_ratio'])
+    tr.ratio_recon = True
     tr.reconstructed = np.ma.array(data_tr['reconstructed'],
                                    mask=data_tr['mask_reconstructed'])
     tr.mast_out = np.ma.array(data_tr['mast_out'],
@@ -1635,7 +1648,8 @@ def load_single_sequences(path, filename, name, planet,
     #     tr.iOut = data_tr['iOut']
 
     tr.AM = data_tr['AM']
-    tr.berv = data_tr['berv']
+    tr.berv0 = data_tr['berv0']
+    tr.berv = data_tr['berv0']
     tr.SNR = data_tr['SNR']
     tr.nu = data_tr['nu']
 
@@ -1658,7 +1672,7 @@ def load_single_sequences(path, filename, name, planet,
                                     mask=data_tr['mask_recon_time'])
 
     # ---- Transit model
-    gen_transit_model(tr, planet, plot=plot)
+    gen_transit_model(tr, planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
 
     # --- Radial velocities
 
@@ -2026,4 +2040,256 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
     
 
     return list_tr
-  
+
+
+
+### --- Telluric custom masking
+from starships.analysis import calc_snr_1d
+from starships.extract import get_mask_tell, get_mask_noise
+# from starships import transpec as ts
+
+
+def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
+                           thresh=None, plot=False, pad_to=None,
+                           snr_floor=None,
+                           masking_spectra=None, correl_spectra=None,
+                           kind='tellu'):
+    new_mask_pclean = np.empty_like(pclean)
+    ccf_pclean_new = ccf_pclean.copy()  # np.empty_like(ccf_pclean)
+    if kind == 'tellu':
+        add_to_mask = 0.025
+    elif kind == 'sky':
+        add_to_mask = 0.05
+    print('add_to_mask', add_to_mask)
+    if pad_to is None:
+        if kind == 'tellu':
+            pad_to = 0.97
+        elif kind == 'sky':
+            pad_to = 0.999
+    print('pad_to', pad_to)
+    if thresh is None:
+        if kind == 'tellu':
+            thresh = 1.9
+        elif kind == 'sky':
+            thresh = 2.0
+    print('thresh', thresh)
+
+    if snr_floor is None:
+        if kind == 'tellu':
+            snr_floor = 0.9
+        elif kind == 'sky':
+            snr_floor = 1.0
+    print('snr_floor', snr_floor)
+
+    if masking_spectra is None:
+        masking_spectra = pclean
+    if correl_spectra is None:
+        correl_spectra = pclean
+
+    for iOrd in range(tr.nord):
+        #     print(iOrd)
+        limit_mask = tr.params[0]
+        #     flux_ord = flux[:,iOrd,None,:]
+
+        _, rv_snr, _, snr_i, _ = calc_snr_1d(np.abs(ccf_pclean[:, iOrd]),
+                                             corrRV0, np.zeros_like(tr.vrp), RV_sys=0.0)
+
+        #         param, pcov = curve_fit(gauss, ydata=snr_i, xdata=rv_snr, p0=[5,3,0])
+        #         print('sig = {}, amp = {}, x0 = {}'.format(*param))
+
+        fct_snr = interp1d(rv_snr, snr_i)
+        snr_i_0 = np.max(snr_i[100 - 3:100 + 3 + 1])  # fct_snr(0.0)
+        hm.print_static(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
+
+        if plot:
+            fig, axs = plt.subplots(2, 2, figsize=(6, 7), sharex=True)
+            axs[0, 0].pcolormesh(corrRV0, tr.phase, np.abs(ccf_pclean[:, iOrd]))
+            axs[0, 0].set_title(str(iOrd))
+            axs[1, 0].plot(rv_snr, snr_i)
+            axs[1, 0].axvline(0.0)
+            axs[1, 0].axhline(snr_i_0)
+        #             axs[1,0].plot(rv_snr, gauss(rv_snr,*param))
+
+        last_snr_i = snr_i_0.copy()
+        #         print("last",last_snr_i)
+
+        new_mask = flux[:, iOrd].mask
+
+        if (snr_i_0 > thresh):
+            print(snr_i_0, snr_floor, limit_mask, pad_to)
+            while (snr_i_0 > snr_floor) and (limit_mask < pad_to):
+
+                limit_mask += add_to_mask
+                hm.print_static(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
+
+                new_mask = [get_mask_tell(np.ma.masked_invalid(tell),
+                                          limit_mask, pad_to) for tell in masking_spectra[:, iOrd, :]]
+                new_mask = new_mask | flux[:, iOrd].mask
+                flux_ord = np.ma.array(flux[:, iOrd], mask=new_mask)[:, None]
+
+                ccf_pclean_ord = corr.quick_correl_3dmod(tr.wave[:, iOrd, None],
+                                                         flux_ord,
+                                                         corrRV0,
+                                                         tr.wave[:, iOrd, None],
+                                                         correl_spectra[:, iOrd, None])
+
+                _, rv_snr, _, snr_i, _ = calc_snr_1d(np.abs(ccf_pclean_ord).squeeze(),
+                                                     corrRV0, np.zeros_like(tr.vrp), RV_sys=0.0)
+                ccf_pclean_new[:, iOrd] = ccf_pclean_ord.squeeze()
+
+                fct_snr = interp1d(rv_snr, snr_i)
+                snr_i_0 = np.max(snr_i[100 - 3:100 + 3 + 1])  # fct_snr(0.0)
+
+                if kind == 'tellu':
+                    if snr_i_0 == last_snr_i:
+                        #                     print("new_snr == last",snr_i_0, last_snr_i, 'add 0.05')
+                        if snr_i_0 >= 5:
+                            add_to_mask = 0.1
+                        else:
+                            add_to_mask = 0.05
+                    else:
+                        #                     print("new_snr != last",snr_i_0, last_snr_i, 'add 0.025')
+                        if snr_i_0 >= 5:
+                            add_to_mask = 0.05
+                        else:
+                            add_to_mask = 0.025
+                elif kind == 'sky':
+                    if snr_i_0 == last_snr_i:
+                        #                     print("new_snr == last",snr_i_0, last_snr_i, 'add 0.05')
+                        if limit_mask + 0.1 < 0.97:
+                            add_to_mask = 0.1
+                        else:
+                            add_to_mask = 0.05
+                        if limit_mask >= 0.95:
+                            add_to_mask = 0.002
+                        if limit_mask >= 0.98:
+                            add_to_mask = 0.001
+                    else:
+                        #                     print("new_snr != last",snr_i_0, last_snr_i, 'add 0.025')
+                        if snr_i_0 >= 3:
+                            add_to_mask = 0.05
+                        else:
+                            add_to_mask = 0.025
+                        if limit_mask >= 0.95:
+                            add_to_mask = 0.002
+                        if limit_mask >= 0.98:
+                            add_to_mask = 0.001
+
+                last_snr_i = snr_i_0
+
+        if kind == 'tellu':
+            new_mask = [get_mask_tell(tell, limit_mask + 0.025, pad_to) for tell in tr.pclean[:, iOrd, :]]
+            new_mask = new_mask | flux[:, iOrd].mask
+        #         flux_ord = np.ma.array(flux[:,iOrd], mask=new_mask)[:,None]
+        print(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
+
+        if plot:
+            axs[0, 1].pcolormesh(corrRV0, tr.phase, np.abs(ccf_pclean_new[:, iOrd]))
+            axs[1, 1].plot(rv_snr, snr_i)
+            axs[1, 1].axvline(0.0)
+            axs[1, 1].axhline(snr_i_0)
+
+        #         pltr.figure()
+        #         pltr.pcolormesh(corrRV0, tr.phase, np.abs(ccf_pclean_ord).squeeze())
+
+        new_mask_pclean[:, iOrd, :] = new_mask | flux[:, iOrd].mask
+
+    new_flux = np.ma.array(flux, mask=new_mask_pclean)
+
+    return new_mask_pclean, new_flux, ccf_pclean_new
+
+
+# for tr in [t1,t2,t3]:
+def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
+    if not (hasattr(tr, 'pclean') | hasattr(tr, 'sky')):
+        sky = []
+        tellu = []
+        #     with open(path + file_list) as f:
+
+        for file in tr.filenames:
+            blocks = file.split('_')
+            filename = '_'.join(blocks[0:2]) + '_tellu_pclean_' + blocks[-1]
+
+            print(filename)
+
+            sky_model = fits.getdata(tr.path + filename, ext=4)
+            tell_model = fits.getdata(tr.path + filename, ext=3)
+
+            sky.append(np.ma.masked_invalid(sky_model))
+            tellu.append(np.ma.masked_invalid(tell_model))
+
+        tr.sky = np.ma.masked_invalid(sky)
+        tr.pclean = np.ma.masked_invalid(tellu)
+
+    sky_t = np.ma.masked_invalid(tr.sky)
+    skynorm = sky_t / np.ma.max(sky_t)
+    skydown = 1 - skynorm
+    plt.figure()
+    plt.plot(skydown[0, 34])
+
+    spec_trans_tr = (tr.uncorr / tr.pclean) / tr.blaze / tr.reconstructed
+
+    sky_tr = spec_trans_tr - np.ma.median(spec_trans_tr, axis=-1)[:, :, None]
+    sky_tr = sky_tr / np.ma.max(sky_tr)
+    sky_tr = 1 - sky_tr
+    tile_sky_tr = np.tile(np.ma.mean(sky_tr, axis=0), (tr.n_spec, 1, 1))
+
+    params = tr.params
+    flux_mask = ts.build_trans_spectrum4(tr.wave, spec_trans_tr,
+                                         tr.berv, tr.planet.RV_sys, tr.vr, tr.iOut,
+                                         tellu=tr.tellu, noise=tr.noise,
+                                         lim_mask=params[0], lim_buffer=params[1],
+                                         mo_box=params[2], mo_gauss_box=params[4],
+                                         n_pca=params[5],
+                                         tresh=params[6], tresh_lim=params[7],
+                                         last_tresh=params[8], last_tresh_lim=params[9],
+                                         n_comps=tr.n_comps,
+                                         clip_ts=None, clip_ratio=None,
+                                         iOut_temp='all', cont=False,
+                                         cbp=True, poly_time=None,
+                                         flux_masked=tr.fl_masked,
+                                         flux_Sref=tr.fl_Sref, flux_norm=tr.fl_norm,
+                                         flux_norm_mo=tr.fl_norm_mo, master_out=tr.mast_out,
+                                         spec_trans=spec_trans_tr,
+                                         mask_var=False)[6]
+
+    #     flux_mask = tr.final.copy()
+    new_mask = [get_mask_noise(f, 4, 3, gwidth=0.01, poly_ord=5) for f in flux_mask.swapaxes(0, 1)]
+    new_mask = new_mask | flux_mask.mask
+    flux_mask = np.ma.array(flux_mask, mask=new_mask)
+
+    # --- Tellu masking ---
+
+    ccf_tellu_tr = corr.quick_correl_3dmod(tr.wave, flux_mask, corrRV0, tr.wave, tr.pclean)
+
+    tellu_mask, cmasked_flux_tr, ccf_tellu_clean = mask_custom_pclean_ord(tr, flux_mask, tr.pclean,
+                                                                          ccf_tellu_tr, corrRV0, plot=False)
+
+    if plot_clean:
+        ccf_tellu_clean = corr.quick_correl_3dmod(tr.wave, cmasked_flux_tr,
+                                                  corrRV0, tr.wave, tr.pclean)
+        _ = pf.plot_all_orders_correl(corrRV0, np.abs(ccf_tellu_clean), tr,
+                                      icorr=None, logl=False, sharey=True,
+                                      vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
+                                      vline=None, hline=2, kind='snr', return_snr=True)
+
+        # --- Sky masking ---
+
+    ccf_sky_tr = corr.quick_correl_3dmod(tr.wave, cmasked_flux_tr, corrRV0,
+                                         tr.wave, skydown)
+
+    sky_mask, cmasked_flux_sky, ccf_sky_clean = mask_custom_pclean_ord(tr, cmasked_flux_tr, sky_tr,
+                                                                       ccf_sky_tr, corrRV0, kind='sky',
+                                                                       thresh=2.0, plot=False, pad_to=pad_to,
+                                                                       masking_spectra=skydown, correl_spectra=skydown)
+
+    if plot_clean:
+        ccf_sky_clean = corr.quick_correl_3dmod(tr.wave, cmasked_flux_sky,
+                                                corrRV0, tr.wave, skydown)
+        _ = pf.plot_all_orders_correl(corrRV0, np.abs(ccf_sky_clean), tr,
+                                      icorr=None, logl=False, sharey=True,
+                                      vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
+                                      vline=None, hline=2, kind='snr', return_snr=True)
+
+    tr.final_cm = cmasked_flux_sky
+    tr.custom_mask = cmasked_flux_sky.mask
