@@ -15,18 +15,22 @@ from starships import transpec as ts
 from starships import homemade as hm
 from starships import spectrum as spectrum
 from starships.mask_tools import interp1d_masked
-from starships.correlation import calc_logl_BL_ord # calc_logl_OG_cst, calc_logl_OG_ord
+from starships.plotting_fcts import plot_all_orders_correl
+from starships.analysis import calc_snr_1d
+from starships.extract import get_mask_tell, get_mask_noise
+from starships.correlation import calc_logl_BL_ord, quick_correl_3dmod # calc_logl_OG_cst, calc_logl_OG_ord
 # from starships.analysis import make_quick_model
 # from starships.extract import quick_norm
 # from transit_prediction.masterfile import MasterFile 
 # from masterfile.archive import MasterFile
 from exofile.archive import ExoFile
+from scipy.interpolate import interp1d
 
 # from fits2wave import fits2wave
-from scipy.interpolate import InterpolatedUnivariateSpline
-from scipy.signal import medfilt
+# from scipy.interpolate import InterpolatedUnivariateSpline
+# from scipy.signal import medfilt
 # from tqdm import tqdm
-import os
+# import os
 from sklearn.decomposition import PCA
 from collections import OrderedDict
 
@@ -1802,14 +1806,14 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  mask_ratio = (list_tr[tr_key].ratio).mask,
                  mask_reconstructed = (list_tr[tr_key].reconstructed).mask,
                  mask_mast_out = (list_tr[tr_key].mast_out).mask,
-                 spec_trans = list_tr[tr_key].spec_trans,
-                 final = list_tr[tr_key].final,
-                 mask_spec_trans = list_tr[tr_key].spec_trans.mask,
-                 mask_final = list_tr[tr_key].final.mask,
-             alpha_frac = list_tr[tr_key].alpha_frac,
-             icorr = list_tr[tr_key].icorr,
-             clip_ts = list_tr[tr_key].clip_ts,
-             scaling = list_tr[tr_key].scaling,
+                 # spec_trans = list_tr[tr_key].spec_trans,
+                 # final=list_tr[tr_key].final,
+                 # mask_spec_trans=list_tr[tr_key].spec_trans.mask,
+                 # mask_final=list_tr[tr_key].final.mask,
+                 # alpha_frac=list_tr[tr_key].alpha_frac,
+                 # icorr=list_tr[tr_key].icorr,
+                 # clip_ts=list_tr[tr_key].clip_ts,
+                 # scaling=list_tr[tr_key].scaling,
                  )
         else:
             np.savez(path+filename+'_data_trs_'+str(i_tr),
@@ -1921,16 +1925,17 @@ def load_sequences(path, filename, do_tr, load_all=False):
                                                            mask=data_tr['mask_reconstructed'])
         data_trs[str(i_tr)]['mast_out'] = np.ma.array(data_tr['mast_out'], 
                                                       mask=data_tr['mask_mast_out'])
-        data_trs[str(i_tr)]['final'] = np.ma.array(data_tr['final'], 
-                                                      mask=data_tr['mask_final'])
-        data_trs[str(i_tr)]['spec_trans'] = np.ma.array(data_tr['spec_trans'], 
-                                                      mask=data_tr['mask_spec_trans'])
-        data_trs[str(i_tr)]['alpha_frac'] = data_tr['alpha_frac']
-        data_trs[str(i_tr)]['icorr'] = data_tr['icorr']
-        data_trs[str(i_tr)]['clip_ts'] = data_tr['clip_ts']
-        data_trs[str(i_tr)]['scaling'] = data_tr['scaling']
-        
+
         if load_all:
+            data_trs[str(i_tr)]['final'] = np.ma.array(data_tr['final'],
+                                                       mask=data_tr['mask_final'])
+            data_trs[str(i_tr)]['spec_trans'] = np.ma.array(data_tr['spec_trans'],
+                                                            mask=data_tr['mask_spec_trans'])
+            data_trs[str(i_tr)]['alpha_frac'] = data_tr['alpha_frac']
+            data_trs[str(i_tr)]['icorr'] = data_tr['icorr']
+            data_trs[str(i_tr)]['clip_ts'] = data_tr['clip_ts']
+            data_trs[str(i_tr)]['scaling'] = data_tr['scaling']
+
             data_trs[str(i_tr)]['fl_norm'] = np.ma.array(data_tr['fl_norm'], 
                                                       mask=data_tr['mask_fl_norm'])
             data_trs[str(i_tr)]['fl_norm_mo'] = np.ma.array(data_tr['fl_norm_mo'], 
@@ -2044,9 +2049,6 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
 
 
 ### --- Telluric custom masking
-from starships.analysis import calc_snr_1d
-from starships.extract import get_mask_tell, get_mask_noise
-# from starships import transpec as ts
 
 
 def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
@@ -2127,7 +2129,7 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
                 new_mask = new_mask | flux[:, iOrd].mask
                 flux_ord = np.ma.array(flux[:, iOrd], mask=new_mask)[:, None]
 
-                ccf_pclean_ord = corr.quick_correl_3dmod(tr.wave[:, iOrd, None],
+                ccf_pclean_ord = quick_correl_3dmod(tr.wave[:, iOrd, None],
                                                          flux_ord,
                                                          corrRV0,
                                                          tr.wave[:, iOrd, None],
@@ -2260,22 +2262,22 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
 
     # --- Tellu masking ---
 
-    ccf_tellu_tr = corr.quick_correl_3dmod(tr.wave, flux_mask, corrRV0, tr.wave, tr.pclean)
+    ccf_tellu_tr = quick_correl_3dmod(tr.wave, flux_mask, corrRV0, tr.wave, tr.pclean)
 
     tellu_mask, cmasked_flux_tr, ccf_tellu_clean = mask_custom_pclean_ord(tr, flux_mask, tr.pclean,
                                                                           ccf_tellu_tr, corrRV0, plot=False)
 
     if plot_clean:
-        ccf_tellu_clean = corr.quick_correl_3dmod(tr.wave, cmasked_flux_tr,
+        ccf_tellu_clean = quick_correl_3dmod(tr.wave, cmasked_flux_tr,
                                                   corrRV0, tr.wave, tr.pclean)
-        _ = pf.plot_all_orders_correl(corrRV0, np.abs(ccf_tellu_clean), tr,
+        _ = plot_all_orders_correl(corrRV0, np.abs(ccf_tellu_clean), tr,
                                       icorr=None, logl=False, sharey=True,
                                       vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
                                       vline=None, hline=2, kind='snr', return_snr=True)
 
         # --- Sky masking ---
 
-    ccf_sky_tr = corr.quick_correl_3dmod(tr.wave, cmasked_flux_tr, corrRV0,
+    ccf_sky_tr = quick_correl_3dmod(tr.wave, cmasked_flux_tr, corrRV0,
                                          tr.wave, skydown)
 
     sky_mask, cmasked_flux_sky, ccf_sky_clean = mask_custom_pclean_ord(tr, cmasked_flux_tr, sky_tr,
@@ -2284,9 +2286,9 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
                                                                        masking_spectra=skydown, correl_spectra=skydown)
 
     if plot_clean:
-        ccf_sky_clean = corr.quick_correl_3dmod(tr.wave, cmasked_flux_sky,
+        ccf_sky_clean = quick_correl_3dmod(tr.wave, cmasked_flux_sky,
                                                 corrRV0, tr.wave, skydown)
-        _ = pf.plot_all_orders_correl(corrRV0, np.abs(ccf_sky_clean), tr,
+        _ = plot_all_orders_correl(corrRV0, np.abs(ccf_sky_clean), tr,
                                       icorr=None, logl=False, sharey=True,
                                       vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
                                       vline=None, hline=2, kind='snr', return_snr=True)
