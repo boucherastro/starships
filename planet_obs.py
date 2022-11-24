@@ -33,6 +33,7 @@ from scipy.interpolate import interp1d
 # import os
 from sklearn.decomposition import PCA
 from collections import OrderedDict
+import gc
 
 
 # def fits2wave(file_or_header):
@@ -382,14 +383,14 @@ class Observations():
     def __init__(self, wave=np.array([]), count=np.array([]), blaze=np.array([]),
                  headers = list_of_dict([]), headers_image = list_of_dict([]), headers_tellu = list_of_dict([]), 
                  tellu=np.array([]), uncorr=np.array([]), 
-                 name='', path='',filenames=[], planet=None, CADC=False, **kwargs):
+                 name='', path='',filenames=[], planet=None, pl_kwargs=None, CADC=False):
         
         self.name = name
         self.path=path
         
         # --- Get the system parameters from the ExoFile
         if planet is None:
-            self.planet = Planet(name)
+            self.planet = Planet(name, **pl_kwargs)
         else:
             self.planet=planet
         
@@ -524,7 +525,7 @@ class Observations():
                             uncorr=self.uncorr[transit_tag],
                             name=self.name, planet=self.planet , 
                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
-                            filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag], 
+                            # filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
                             CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl)
     
     def calc_sequence(self, plot=True, sequence=None, K=None, uncorr=False, iin=False, 
@@ -756,7 +757,7 @@ class Observations():
 #             plt.plot(self.t, self.vr+p.RV_sys, 'ro')
 
 #         self.phase = (((self.t_start - p.mid_tr - p.period/2) % p.period)/p.period) - 0.5
-        self.phase = ((self.t-p.mid_tr)/p.period).decompose()
+        self.phase = ((self.t-p.mid_tr)/p.period).decompose().value
         self.phase -= np.round(self.phase.mean())
         if kind_trans == 'emission':
             if (self.phase < 0).all():
@@ -1113,10 +1114,11 @@ class Observations():
 
 
 class Planet():
-    def __init__(self, name, parametres=None):
+    def __init__(self, name, parametres=None, observatory='cfht', **kwargs):
         self.name = name
         
         if parametres is None:
+            print('Getting {} from ExoFile'.format(name))
             parametres = ExoFile.load(use_alt_file=True).by_pl_name(name)
 
         #  --- Propriétés du système
@@ -1124,20 +1126,61 @@ class Planet():
         self.M_star = parametres['st_mass'].to(u.kg)
         self.RV_sys = parametres['st_radv'].to(u.km/u.s)
         self.Teff = parametres['st_teff'].to(u.K)
-        try :
-            self.vsini= parametres['st_vsin'].data.data*u.m/u.s
-        except AttributeError:
-            self.vsini= parametres['st_vsin'].to(u.m/u.s)
 
-        #--- Propriétés de la planète
-        try :
-            self.R_pl = (parametres['pl_radj'].data*const.R_jup).data*u.m
-            self.M_pl = (parametres['pl_bmassj'].data*const.M_jup).data*u.kg
-            self.ap = (parametres['pl_orbsmax'].data*const.au).data*u.m
+        try:
+            self.vsini = parametres['st_vsin'].data.data * u.m / u.s
+        except AttributeError:
+            self.vsini = parametres['st_vsin'].to(u.m / u.s)
+
+        # --- Propriétés de la planète
+        try:
+            self.R_pl = (parametres['pl_radj'].data * const.R_jup).data * u.m
+            self.M_pl = (parametres['pl_bmassj'].data * const.M_jup).data * u.kg
+            self.ap = (parametres['pl_orbsmax'].data * const.au).data * u.m
         except (AttributeError, TypeError) as e:
             self.R_pl = parametres['pl_radj'].to(u.m)
             self.M_pl = parametres['pl_bmassj'].to(u.kg)
             self.ap = parametres['pl_orbsmax'].to(u.m)
+        self.rho = parametres['pl_dens']  # 5.5 *u.g/u.cm**3 # --- Jupiter : 1.33 g cm-3  /// Terre : 5.5 g cm-3
+        self.Tp = np.asarray(parametres['pl_eqt'], dtype=np.float64) * u.K
+
+        # --- Paramètres d'observations
+        self.observatoire = observatory
+        try:
+            self.radec = [parametres['ra'].data.data * u.deg,
+                          parametres['dec'].data.data * u.deg]  # parametres['radec']
+        except AttributeError:
+            self.radec = [parametres['ra'] * u.deg, parametres['dec'] * u.deg]
+        # --- Paramètres transit
+        self.period = parametres['pl_orbper'].to(u.s)
+        try:
+            self.mid_tr = parametres['pl_tranmid'].data * u.d  # from nasa exo archive
+        except (AttributeError, TypeError) as e:
+            self.mid_tr = parametres['pl_tranmid'].to(u.d)
+        self.trandur = (parametres['pl_trandur'] / u.d * u.h).to(u.s)
+
+        # --- Paramètres Orbitaux
+        self.excent = parametres['pl_orbeccen']
+        if self.excent.mask:
+            self.excent = 0.0
+        self.incl = parametres['pl_orbincl'].to(u.rad)
+        self.w = parametres['pl_orblper'].to(u.rad) + (3 * np.pi / 2) * u.rad
+        self.omega = np.radians(0) * u.rad
+
+        for key in list(kwargs.keys()):
+            new_value = kwargs[key]
+            old_value = getattr(self,key)
+            print('Changing {} from {} to {}'.format(key, old_value, new_value))
+            if isinstance(new_value, u.Quantity) & isinstance(old_value, u.Quantity):
+                new_value = new_value.to(old_value.unit)
+                new_value = np.array([new_value.value])*new_value.unit
+            elif isinstance(old_value, u.Quantity):
+                new_value = new_value * old_value.unit
+                new_value = np.array([new_value.value])*new_value.unit
+
+            print('It became {}'.format(new_value))
+            setattr(self, key, new_value)
+
         surf_grav_pl = (const.G * self.M_pl / self.R_pl**2).cgs
         self.logg_pl = np.log10(surf_grav_pl.value)
         
@@ -1147,36 +1190,11 @@ class Planet():
         self.logg = np.log10(surf_grav.value)
         self.gp = const.G * self.M_pl / self.R_pl**2
 
-        # --- Paramètres d'observations
-        self.observatoire = 'cfht'
-        try:
-            self.radec = [parametres['ra'].data.data*u.deg, parametres['dec'].data.data*u.deg]  # parametres['radec']
-        except AttributeError:
-            self.radec = [parametres['ra']*u.deg, parametres['dec']*u.deg]
-        # --- Paramètres transit
-        self.period = parametres['pl_orbper'].to(u.s) 
-        try:
-            self.mid_tr = parametres['pl_tranmid'].data * u.d  # from nasa exo archive
-        except (AttributeError, TypeError) as e:
-            self.mid_tr = parametres['pl_tranmid'].to(u.d)
-        self.trandur = (parametres['pl_trandur']/u.d*u.h).to(u.s) 
-
-        # --- Paramètres Orbitaux
-        self.excent = parametres['pl_orbeccen']
-        if self.excent.mask:
-            self.excent = 0
-        self.incl = parametres['pl_orbincl'].to(u.rad)
-        self.w = parametres['pl_orblper'].to(u.rad)+ (3*np.pi / 2 )* u.rad 
-        self.omega = np.radians(0)*u.rad
 
         # # - Paramètres atmosphériques approximatifs
         self.mu = 2.3 * const.u
-        self.rho = parametres['pl_dens']  # 5.5 *u.g/u.cm**3 # --- Jupiter : 1.33 g cm-3  /// Terre : 5.5 g cm-3
-        self.Tp = np.asarray(parametres['pl_eqt'],dtype=np.float64)*u.K
         self.H = (const.k_B * self.Tp / (self.mu * self.gp)).decompose()
-
         self.all_params = parametres
-
         self.sync_equat_rot_speed = (2*np.pi*self.R_pl/self.period).to(u.km/u.s)
 
         
@@ -1251,7 +1269,7 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
     tr_merge.iIn = np.concatenate(iIn_list)
     tr_merge.iOut = np.concatenate(iOut_list)
     
-    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx]).value
+    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx])#.value
     tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
     tr_merge.fl_norm = np.ma.concatenate([list_tr[str(tr_i)].fl_norm for tr_i in merge_tr_idx], axis=0)
     tr_merge.fl_Sref = np.ma.concatenate([list_tr[str(tr_i)].fl_Sref for tr_i in merge_tr_idx], axis=0)
@@ -1426,7 +1444,7 @@ def save_single_sequences(path, filename, tr,
 
     if bad_indexs is None:
         bad_indexs = []
-
+    print(path + filename + '_data_trs_' + filename_end + '.npz')
     if save_all is False:
         np.savez(path+filename+'_data_trs_'+filename_end,
              components_ = tr.pca.components_,
@@ -1446,12 +1464,18 @@ def save_single_sequences(path, filename, tr,
              sep = tr.sep,
              noise = tr.noise,
              N = tr.N,
-             t_start = tr.t_start.value,
-             # flux = tr.final/tr.noise,
+             t_start = tr.t_start,
+             flux = tr.flux,
+             uncorr = tr.uncorr,
+             blaze = tr.blaze,
+             tellu = tr.tellu,
              # s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
-             mask_flux = (tr.final/tr.noise).mask, 
+             mask_flux = (tr.flux).mask,
+             mask_uncorr = (tr.uncorr).mask,
+             mask_blaze = (tr.blaze).mask,
+             mask_tellu = (tr.tellu).mask,
              mask_noise = (tr.noise).mask,
-             mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
+             # mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
              mask_N = (tr.N).mask, 
              ratio = tr.ratio,
              reconstructed = tr.reconstructed,
@@ -1463,12 +1487,13 @@ def save_single_sequences(path, filename, tr,
              final = tr.final,
              mask_spec_trans = tr.spec_trans.mask,
              mask_final = tr.final.mask,
-             alpha_frac = tr.alpha_frac,
+             # alpha_frac = tr.alpha_frac,
+                                  filenames=tr.filenames,
              icorr = tr.icorr,
              bad_indexs = bad_indexs,
              clip_ts = tr.clip_ts,
              scaling = tr.scaling,
-             phase = tr.phase.value,
+             phase = tr.phase,
              SNR = tr.SNR,
              nu = tr.nu,
                  berv0=tr.berv0,
@@ -1499,12 +1524,18 @@ def save_single_sequences(path, filename, tr,
              sep = tr.sep,
              noise = tr.noise,
              N = tr.N,
-             t_start = tr.t_start.value,
-             # flux = tr.final/tr.noise,
+             t_start = tr.t_start,
+             flux = tr.flux,
+             uncorr = tr.uncorr,
+             blaze = tr.blaze,
+             tellu = tr.tellu,
              # s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
-             mask_flux = (tr.final/tr.noise).mask, 
+             mask_flux = (tr.flux).mask,
+             mask_uncorr = (tr.uncorr).mask,
+             mask_blaze = (tr.blaze).mask,
+             mask_tellu = (tr.tellu).mask,
              mask_noise = (tr.noise).mask,
-             mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
+             # mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
              mask_N = (tr.N).mask, 
              ratio = tr.ratio,
              reconstructed = tr.reconstructed,
@@ -1516,12 +1547,13 @@ def save_single_sequences(path, filename, tr,
              final = tr.final,
              mask_spec_trans = tr.spec_trans.mask,
              mask_final = tr.final.mask,
-             alpha_frac = tr.alpha_frac,
+             # alpha_frac = tr.alpha_frac,
+                 filenames = tr.filenames,
              icorr = tr.icorr,
              bad_indexs = bad_indexs,
              clip_ts = tr.clip_ts,
              scaling = tr.scaling,
-             phase = tr.phase.value,
+             phase = tr.phase,
                  berv0=tr.berv0,
                  AM=tr.AM,
                  RV_sys=tr.RV_sys,
@@ -1550,7 +1582,7 @@ def save_single_sequences(path, filename, tr,
              mask_recon_time = tr.recon_time.mask,
              )
 
-        print(path+filename+'_data_trs_'+filename_end+'.npz')
+
 
         
 # def load_fast_correl(path, filename, load_all=False, filename_end='', data_trs=None):
@@ -1614,17 +1646,19 @@ def load_single_sequences(path, filename, name, planet,
     tr.wv = np.mean(tr.wave, axis=0)
     tr.pca = pca
     tr.RV_const = data_tr['RV_const']
-    tr.params = data_tr['params']
-    tr.params[5] = int(tr.params[5])
+    tr.params = list(data_tr['params'])
+    for i_param in range(2,6):
+        tr.params[i_param] = int(tr.params[i_param])
     #     tr.vrp = data_tr['vrp']
     tr.sep = data_tr['sep'] * u.m
     tr.noise = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
     tr.N = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
+
     tr.t_start = data_tr['t_start']
     tr.t = data_tr['t_start'] * u.d
     tr.bad = data_tr['bad_indexs']
-    #     tr.flux = np.ma.array(data_tr['flux'],
-    #                      mask=data_tr['mask_flux'])
+    tr.flux = np.ma.array(data_tr['flux'],
+                     mask=data_tr['mask_flux'])
     #     tr.s2f = np.ma.array(data_tr['s2f'],
     #                     mask=data_tr['mask_s2f'])
 
@@ -1633,13 +1667,24 @@ def load_single_sequences(path, filename, name, planet,
     tr.ratio_recon = True
     tr.reconstructed = np.ma.array(data_tr['reconstructed'],
                                    mask=data_tr['mask_reconstructed'])
+    tr.uncorr = np.ma.array(data_tr['uncorr'],
+                                   mask=data_tr['mask_uncorr'])
+    tr.N0 = (~np.isnan(tr.uncorr)).sum(axis=-1)
+    tr.N_frac = np.nanmean(tr.N / tr.N0, axis=0).data  # 4088
+    tr.N_frac[np.isnan(tr.N_frac)] = 0
+    tr.blaze = np.ma.array(data_tr['blaze'],
+                               mask=data_tr['mask_blaze'])
     tr.mast_out = np.ma.array(data_tr['mast_out'],
                               mask=data_tr['mask_mast_out'])
     tr.final = np.ma.array(data_tr['final'],
                            mask=data_tr['mask_final'])
     tr.spec_trans = np.ma.array(data_tr['spec_trans'],
                                 mask=data_tr['mask_spec_trans'])
-    tr.alpha_frac = data_tr['alpha_frac']
+    tr.tellu = np.ma.array(data_tr['tellu'],
+                                mask=data_tr['mask_tellu'])
+    # tr.alpha_frac = data_tr['alpha_frac']
+
+    tr.filenames = data_tr['filenames']
 
     tr.clip_ts = data_tr['clip_ts']
     tr.scaling = data_tr['scaling']
@@ -1731,6 +1776,8 @@ def load_single_data_dict(path, filename, load_all=False, filename_end='', data_
                                                   mask=data_tr['mask_final'])
     data_trs[filename_end]['spec_trans'] = np.ma.array(data_tr['spec_trans'], 
                                                   mask=data_tr['mask_spec_trans'])
+    data_trs[filename_end]['tellu'] = np.ma.array(data_tr['tellu'],
+                                                       mask=data_tr['mask_tellu'])
     data_trs[filename_end]['alpha_frac'] = data_tr['alpha_frac']
     data_trs[filename_end]['icorr'] = data_tr['icorr']
     data_trs[filename_end]['clip_ts'] = data_tr['clip_ts']
@@ -2038,11 +2085,8 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
 
             merge_tr_idx = [int(tag_i) for tag_i in name_tag]
 
-            tr_merge = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, 
+            list_tr[name_tag]  = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags,
                                                coeffs, ld_model, kind_trans)
-
-            list_tr[name_tag] = tr_merge
-    
 
     return list_tr
 
@@ -2245,13 +2289,13 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
                                          n_pca=params[5],
                                          tresh=params[6], tresh_lim=params[7],
                                          last_tresh=params[8], last_tresh_lim=params[9],
-                                         n_comps=tr.n_comps,
+                                         n_comps=tr.n_spec-2,
                                          clip_ts=None, clip_ratio=None,
                                          iOut_temp='all', cont=False,
                                          cbp=True, poly_time=None,
-                                         flux_masked=tr.fl_masked,
-                                         flux_Sref=tr.fl_Sref, flux_norm=tr.fl_norm,
-                                         flux_norm_mo=tr.fl_norm_mo, master_out=tr.mast_out,
+                                         flux_masked=spec_trans_tr,
+                                         flux_Sref=spec_trans_tr, flux_norm=spec_trans_tr,
+                                         flux_norm_mo=spec_trans_tr, master_out=spec_trans_tr,
                                          spec_trans=spec_trans_tr,
                                          mask_var=False)[6]
 
@@ -2293,5 +2337,11 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
                                       vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
                                       vline=None, hline=2, kind='snr', return_snr=True)
 
+    if not hasattr(tr,'original_mask'):
+        tr.original_mask = tr.spec_trans.mask.copy()
     tr.final_cm = cmasked_flux_sky
     tr.custom_mask = cmasked_flux_sky.mask
+
+    del sky_mask, ccf_sky_clean, ccf_sky_tr, ccf_tellu_tr, tellu_mask, cmasked_flux_tr, ccf_tellu_clean, cmasked_flux_sky
+    del flux_mask, new_mask, sky_t, skynorm, spec_trans_tr, sky_tr, tile_sky_tr
+    gc.collect()

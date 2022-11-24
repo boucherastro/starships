@@ -1678,7 +1678,8 @@ def binning_model(wave0, model0, wv_borders):
 
 
 def quick_inject_clean(wave, flux, P_x, P_y, dv_pl, sep, R_star, A_star,
-                  R0=None, alpha=None, RV=0, dv_star=0, kind_trans='transmission'):
+                  R0=None, RV=0, dv_star=0,
+                       alpha=None,  kind_trans='transmission'):
 
     _, nord, _ = flux.shape
 #     wv = np.mean(wave, axis=0)

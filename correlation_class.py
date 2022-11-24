@@ -524,7 +524,7 @@ class Correlations():
     
 
     def full_plot(self, tr, icorr, wind=None, fit_gauss=False, 
-                  fig_larg=8, fig_haut=3, cmap='plasma', fig_name='', tag_max=False,
+                  fig_larg=8, fig_haut=3, cmap='plasma', path_fig='', fig_name='', tag_max=False,
                   Kp_slice=None, clim=None, get_logl=False, hline=None, save_fig='', show_legend=True):
 
         figs, (ax1,ax0,ax2) = plt.subplots(3, 1, figsize=(fig_larg, 3 * fig_haut), sharex=False)
@@ -679,7 +679,8 @@ class Correlations():
         ax2.set_position([pos.x0,pos2.y0,pos.width-0.02, pos2.height])
         
         if save_fig != '':
-            figs.savefig('/home/boucher/spirou/Figures/CCF_'+save_fig+'.pdf')
+            figs.savefig(path_fig + 'CCF_'+save_fig+'.pdf')
+            print('Saved file to : ', path_fig + 'CCF_'+save_fig+'.pdf')
 #             fig.savefig('/home/boucher/spirou/Figures/STEPS'+fig_name+'.pdf')
 
     def fit_gauss_1d(self, Kp=None):
@@ -875,7 +876,7 @@ class Correlations():
    
     def plot_PRF(self, tr, interp_grid=None, ccf=None, orders=None, RV=0., icorr=None, split_fig=[0], peak_center=None,
                      hlines=None, texts=None, kind='logl_corr', index=None, snr_1d=None, labels=None, clim=None, 
-                     fig_name='', extension='.pdf', id_pc=None, map_kind='snr', debug=False, remove_mean=False,
+                     path_fig='', fig_name='', extension='.pdf', id_pc=None, map_kind='snr', debug=False, remove_mean=False,
                  minus_kp=False, figwidth=10):
 
 #         if ccf is None:
@@ -1132,7 +1133,8 @@ class Correlations():
 #         fig.tight_layout()
         
         if fig_name != '':
-            fig.savefig('/home/boucher/spirou/Figures/fig_CCF_2D_'+fig_name+'.pdf')#, rasterize=True) 
+            fig.savefig(path_fig +'fig_CCF_2D_'+fig_name+'.pdf')#, rasterize=True)
+            print('Saved file to : ', path_fig + 'fig_CCF_2D_'+fig_name+'.pdf')
 
         
         # --- overplot all CCF ---
@@ -1379,7 +1381,7 @@ class Correlations():
         
             
     def ccf_map_plot(self, tr, fit_gauss=False, fig_larg=8, fig_haut=3, cmap='plasma', 
-                     Kp_slice=None, clim=None, save_fig='', map2d=None, minmax='max', label_curve='All Tr',
+                     Kp_slice=None, clim=None, path_fig = '',save_fig='', map2d=None, minmax='max', label_curve='All Tr',
                     snr_1d=None, labels=None, force_max_pos=None, fig_name='', tag_max=False):
         
         if map2d is None:
@@ -1505,7 +1507,8 @@ class Correlations():
             axi[1].legend(loc='best')
         
         if save_fig != '':
-            figs.savefig('/home/boucher/spirou/Figures/fig_CCF_map_'+save_fig+'.pdf')#, rasterize=True)            
+            figs.savefig(path_fig + 'fig_CCF_map_'+save_fig+'.pdf')#, rasterize=True)
+            print('Saved file to : ', path_fig + 'fig_CCF_map_'+save_fig+'.pdf')
 
     def ttest_value(self, tr, orders=np.arange(49), wind=None, vrp=None, plot=True, 
                     kind='corr', speed_limit=2.5, ccf0=None, peak_center=None, verbose=True,**kwargs):
