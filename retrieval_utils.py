@@ -1096,17 +1096,19 @@ def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
 
     if (params_id['wind_l'] is not None) or (params_id['wind_gauss'] is not None):
         if params_id['wind_r'] is None:
-            omega = [theta[nb_mols + params_id['wind_l']]]
+            if params_id['wind_l'] is not None :
+                omega = [theta[nb_mols + params_id['wind_l']]]
+            else:
+                omega = [theta[nb_mols + params_id['wind_gauss']]]
         else:
             omega = [theta[nb_mols + params_id['wind_l']], theta[nb_mols + params_id['wind_r']]]
 
+        rot_kwargs = {}
         if (params_id['wind_gauss'] is not None):
+
             rot_kwargs['gauss'] = True
             rot_kwargs['x0'] = 0
             rot_kwargs['fwhm'] = theta[nb_mols + params_id['wind_gauss']] * 1e3
-
-        else:
-            rot_kwargs = {}
 
     rotker = spectrum.RotKerTransitCloudy(theta[nb_mols + params_id['rpl']] * const.R_jup,
                                  planet.M_pl,

@@ -1247,7 +1247,7 @@ def get_blaze_file(path, file_list='list_tellu_corrected', onedim=False, blaze_d
 
  ##############################################################################   
 
-def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
+def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     
 
     icorr_list = []
@@ -1271,10 +1271,14 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
     
     tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx])#.value
     tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
-    tr_merge.fl_norm = np.ma.concatenate([list_tr[str(tr_i)].fl_norm for tr_i in merge_tr_idx], axis=0)
-    tr_merge.fl_Sref = np.ma.concatenate([list_tr[str(tr_i)].fl_Sref for tr_i in merge_tr_idx], axis=0)
-    tr_merge.fl_masked = np.ma.concatenate([list_tr[str(tr_i)].fl_masked for tr_i in merge_tr_idx], axis=0)
-    tr_merge.fl_norm_mo = np.ma.concatenate([list_tr[str(tr_i)].fl_norm_mo for tr_i in merge_tr_idx], axis=0)
+
+    if light is False:
+        tr_merge.fl_norm = np.ma.concatenate([list_tr[str(tr_i)].fl_norm for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_Sref = np.ma.concatenate([list_tr[str(tr_i)].fl_Sref for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_masked = np.ma.concatenate([list_tr[str(tr_i)].fl_masked for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_norm_mo = np.ma.concatenate([list_tr[str(tr_i)].fl_norm_mo for tr_i in merge_tr_idx], axis=0)
+        tr_merge.full_ts = np.ma.concatenate([list_tr[str(tr_i)].full_ts for tr_i in merge_tr_idx], axis=0)
+        tr_merge.rebuilt = np.ma.concatenate([list_tr[str(tr_i)].rebuilt for tr_i in merge_tr_idx], axis=0)
 
     if list_tr[str(merge_tr_idx[0])].mast_out.ndim == 2:
         tr_merge.mast_out = np.ma.mean([np.ma.masked_invalid(list_tr[str(tr_i)].mast_out) \
@@ -1283,9 +1287,7 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
         tr_merge.mast_out = np.ma.concatenate([list_tr[str(tr_i)].mast_out for tr_i in merge_tr_idx], axis=0)
 
     tr_merge.spec_trans = np.ma.concatenate([list_tr[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
-    tr_merge.full_ts = np.ma.concatenate([list_tr[str(tr_i)].full_ts for tr_i in merge_tr_idx], axis=0)
     tr_merge.final = np.ma.concatenate([list_tr[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
-    tr_merge.rebuilt = np.ma.concatenate([list_tr[str(tr_i)].rebuilt for tr_i in merge_tr_idx], axis=0)
     tr_merge.N = np.ma.concatenate([list_tr[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
     tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
     tr_merge.reconstructed = np.ma.concatenate([list_tr[str(tr_i)].reconstructed for tr_i in merge_tr_idx], axis=0)
@@ -2045,13 +2047,14 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
         
     return tr
 
-def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans):
+def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
 
     tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
 
-    tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
+    if light is False:
+        tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
 
-    merge_tr(tr_merge, list_tr, merge_tr_idx)
+    merge_tr(tr_merge, list_tr, merge_tr_idx, light=light)
     merge_velocity(tr_merge, list_tr, merge_tr_idx)
     
     return tr_merge
