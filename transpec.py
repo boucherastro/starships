@@ -33,7 +33,7 @@ def mask_deep_tellu(flux, tellu=None, path=None, tellu_list='list_tellu_tr',
         # Find the strong tellurics with a pad around in the order
         new_mask_tellu = np.empty_like(tellu)
         for iOrd in range(nord):
-            new_mask = [ext.get_mask_tell(tell, limit_mask, limit_buffer) for tell in tellu[:,iOrd,:]]
+            new_mask = [ext.get_mask_tell(tell, limit_mask, limit_buffer, pad_masked=True) for tell in tellu[:,iOrd,:]]
             new_mask = new_mask | flux[:,iOrd,:].mask
             new_mask_tellu[:,iOrd,:] = new_mask
 
@@ -584,15 +584,14 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         if flux_norm is None:
             hm.print_static('Normalizing by median. \n')
             flux_norm = flux/np.ma.median(np.clip(flux,0,None),axis=-1)[:,:,None]
-
-        if mask_var is True:
-            hm.print_static('Masking high variance pixels (quick fix for OH lines). \n')
-            new_mask = [ext.get_mask_noise(f, tresh, tresh_lim, gwidth=0.01, poly_ord=5) for f in flux_norm.swapaxes(0,1)]
-            new_mask = new_mask | flux_norm.mask
-            flux_norm = np.ma.array(flux_norm, mask=new_mask)
     else:
         if flux_norm is None:
             flux_norm = clean_bad_pixels_time(np.mean(wave,axis=0), flux, tresh=tresh)#, plot=False, , tresh_lim=tresh_lim)
+    if mask_var is True:
+        hm.print_static('Masking high variance pixels (quick fix for OH lines). \n')
+        new_mask = [ext.get_mask_noise(f, tresh, tresh_lim, gwidth=0.01, poly_ord=5) for f in flux_norm.swapaxes(0, 1)]
+        new_mask = new_mask | flux_norm.mask
+        flux_norm = np.ma.array(flux_norm, mask=new_mask)
         
     print('flux_norm all nan : {}'.format(flux_norm.mask.all()))    
     if flux_Sref is None:

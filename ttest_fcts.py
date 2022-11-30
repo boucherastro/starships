@@ -255,7 +255,7 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
         
     if prf is True:
 #         vrp_orb0 = rv_theo_nu(tr.Kp.value, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         vr_orb0 = -vrp_orb0*(tr.planet.M_pl/tr.planet.M_star).decompose().value
     
     if Kp_array is None:
@@ -272,7 +272,7 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
 #         if i == id_kp:
 #             print(Kp_array[i])
 #         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb = rv_theo_t(Kpi, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+        vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         vr_orb = -vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose().value
         if prf is True:
             vrp_orb -= vrp_orb0
@@ -330,7 +330,7 @@ def ttest_map_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=
         
     if prf is True:
 #         vrp_orb0 = rv_theo_nu(tr.Kp.value, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         vr_orb0 = -vrp_orb0*(tr.planet.M_pl/tr.planet.M_star).decompose().value
     
     if Kp_array is None:
@@ -346,7 +346,7 @@ def ttest_map_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=
         if i == id_kp:
             print(Kp_array[i])
 #         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb = rv_theo_t(Kpi, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+        vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         vr_orb = -vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose().value
         if prf is True:
             vrp_orb -= vrp_orb0
@@ -396,7 +396,7 @@ def ttest_fullmap_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), ic
         
     if prf is True:
 #         vrp_orb0 = rv_theo_nu(tr.Kp.value, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         vr_orb0 = -vrp_orb0*(tr.planet.M_pl/tr.planet.M_star).decompose().value
 
     if Kp_array is None:
@@ -412,7 +412,7 @@ def ttest_fullmap_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), ic
         if i == id_kp:
             print(Kp_array[i])
 #         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb = rv_theo_t(Kpi, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+        vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         vr_orb = -vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose().value
         if prf is True:
             vrp_orb -= vrp_orb0

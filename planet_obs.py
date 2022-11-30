@@ -15,20 +15,25 @@ from starships import transpec as ts
 from starships import homemade as hm
 from starships import spectrum as spectrum
 from starships.mask_tools import interp1d_masked
-from starships.correlation import calc_logl_BL_ord # calc_logl_OG_cst, calc_logl_OG_ord
+from starships.plotting_fcts import plot_all_orders_correl
+from starships.analysis import calc_snr_1d
+from starships.extract import get_mask_tell, get_mask_noise
+from starships.correlation import calc_logl_BL_ord, quick_correl_3dmod # calc_logl_OG_cst, calc_logl_OG_ord
 # from starships.analysis import make_quick_model
 # from starships.extract import quick_norm
 # from transit_prediction.masterfile import MasterFile 
 # from masterfile.archive import MasterFile
 from exofile.archive import ExoFile
+from scipy.interpolate import interp1d
 
 # from fits2wave import fits2wave
-from scipy.interpolate import InterpolatedUnivariateSpline
-from scipy.signal import medfilt
+# from scipy.interpolate import InterpolatedUnivariateSpline
+# from scipy.signal import medfilt
 # from tqdm import tqdm
-import os
+# import os
 from sklearn.decomposition import PCA
 from collections import OrderedDict
+import gc
 
 
 # def fits2wave(file_or_header):
@@ -249,6 +254,124 @@ def fake_noise(flux, gwidth=1):
     return noise / factor
 
 
+def gen_rv_sequence(self, p, plot=False, K=None):
+    if K is None:
+        K, vr, Kp, vrp = o.rv(self.nu, p.period, e=p.excent, i=p.incl, w=p.w, Mp=p.M_pl, Mstar=p.M_star)
+    else:
+        if isinstance(K, u.Quantity):
+            K = K.to(u.km / u.s)
+        else:
+            K = K * u.km / u.s
+        Kp = o.Kp_theo(K, p.M_star, p.M_pl)
+        vr = o.rv_theo_t(K, self.t, p.mid_tr, p.period, plnt=False)
+        vrp = o.rv_theo_t(Kp, self.t, p.mid_tr, p.period, plnt=True)
+
+    self.vrp = vrp.to('km/s').squeeze()  # km/s
+    self.vr = vr.to('km/s').squeeze()  # km/s   # np.zeros_like(vrp)  # ********
+    self.K, self.Kp = K.to('km/s').squeeze(), Kp.to('km/s').squeeze()
+
+    v_star = (vr + p.RV_sys).to('km/s').value
+    v_pl = (vrp + p.RV_sys).to('km/s').value
+    self.dv_pl = v_pl - self.berv  # +berv
+    self.dv_star = v_star - self.berv  # +berv
+
+    if plot is True:
+        full_seq = np.arange(self.t_start[0] - 1, self.t_start[-1] + 1, 0.05)
+        full_t = full_seq * u.d
+
+        full_nu = o.t2trueanom(p.period, full_t.to(u.d), t0=p.mid_tr, e=p.excent)
+
+        K_full, vr_full, Kp_full, vrp_full = o.rv(full_nu, p.period, e=p.excent, i=p.incl, w=p.w,
+                                                  Mp=p.M_pl, Mstar=p.M_star)
+        vrp_full = vrp_full.to('km/s')  # km/s
+        vr_full = vr_full.to('km/s')  # km/s   # np.zeros_like(vrp)  # ********
+
+        plt.figure()
+        plt.plot(full_t, vr_full + p.RV_sys)
+        plt.plot(self.t, self.vr + p.RV_sys, 'ro')
+
+
+def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=False):
+    self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.mid_tr, e=p.excent)
+
+    rp, x, y, z, self.sep, p.bRstar = o.position(self.nu, e=p.excent, i=p.incl, w=p.w, omega=p.omega,
+                                                 Rstar=p.R_star, P=p.period, ap=p.ap, Mp=p.M_pl, Mstar=p.M_star)
+
+    i_peri = np.searchsorted(self.t, p.mid_tr)
+
+    p.b = (p.bRstar / p.R_star).decompose()
+    out, part, total = o.transit(p.R_star, p.R_pl + p.H, self.sep,
+                                 z=z, nu=self.nu, r=np.array(rp.decompose()), i_tperi=i_peri, w=p.w)
+    #         print(out,part,total)
+
+    if kind_trans == 'transmission':
+        print('Transmission')
+        self.iOut = out
+        self.part = part
+        self.total = total
+        self.iIn = np.sort(np.concatenate([part, total]))
+    #             print(self.iIn.size, self.iOut.size)
+
+    elif kind_trans == 'emission':
+        print('Emission')
+        self.iOut = total
+        self.part = part
+        self.total = out
+        self.iIn = np.sort(np.concatenate([out]))
+
+    #             print(self.iIn.size, self.iOut.size)
+
+    self.iin, self.iout = o.where_is_the_transit(self.t, p.mid_tr, p.period, p.trandur)
+    self.iout_e, self.iin_e = o.where_is_the_transit(self.t, p.mid_tr + 0.5 * p.period, p.period, p.trandur)
+
+    if (self.part.size == 0) and (iin is True):
+        print('Taking iin and iout')
+        if kind_trans == 'transmission':
+            self.iIn = self.iin
+            self.iOut = self.iout
+        elif kind_trans == 'emission':
+            self.iIn = self.iin_e
+            self.iOut = self.iout_e
+
+    self.icorr = self.iIn
+
+    if plot is True:
+        fig, ax = plt.subplots(3, 1, sharex=True)
+        ax[2].plot(self.t, np.nanmean(self.SNR[:, :], axis=-1), 'o-')
+        if out.size > 0:
+            ax[0].plot(self.t[self.iOut], self.AM[self.iOut], 'ro')
+            #             ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'ro')
+            ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'ro')
+        if part.size > 0:
+            ax[0].plot(self.t[self.part], self.AM[self.part], 'go')
+            #             ax[1].plot(self.t[self.part], self.adc1[self.part],'go')
+            ax[2].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :], axis=-1), 'go')
+        if total.size > 0:
+            ax[0].plot(self.t[self.total], self.AM[self.total], 'bo')
+            #             ax[1].plot(self.t[self.total], self.adc1[self.total],'bo')
+            ax[2].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :], axis=-1), 'bo')
+        if self.iin.size > 0:
+            ax[0].plot(self.t[self.iIn], self.AM[self.iIn], 'g.')
+            #             ax[1].plot(self.t[self.iIn], self.adc1[self.iIn],'g.')
+            ax[2].plot(self.t[self.iIn], np.nanmean(self.SNR[self.iIn, :], axis=-1), 'g.')
+        if self.iout.size > 0:
+            ax[0].plot(self.t[self.iOut], self.AM[self.iOut], 'r.')
+            #             ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'r.')
+            ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'r.')
+
+        ax[0].set_ylabel('Airmass')
+        ax[1].set_ylabel('ADC1 angle')
+        ax[2].set_ylabel('Mean SNR')
+
+    self.alpha = hm.calc_tr_lightcurve(p, coeffs, self.t.value, ld_model=ld_model, kind_trans=kind_trans)
+    #         self.alpha = np.array([(hm.circle_overlap(p.R_star.to(u.m), p.R_pl.to(u.m), sep) / \
+    #                         p.A_star).value for sep in self.sep]).squeeze()
+    #         self.alpha = np.array([hm.circle_overlap(p.R_star, p.R_pl, sep).value for sep in self.sep])
+    self.alpha_frac = self.alpha / self.alpha.max()
+
+    self.kind_trans, self.coeffs, self.ld_model = kind_trans, coeffs, ld_model
+
+
 class Observations():
     
     """
@@ -260,14 +383,14 @@ class Observations():
     def __init__(self, wave=np.array([]), count=np.array([]), blaze=np.array([]),
                  headers = list_of_dict([]), headers_image = list_of_dict([]), headers_tellu = list_of_dict([]), 
                  tellu=np.array([]), uncorr=np.array([]), 
-                 name='', path='',filenames=[], planet=None, CADC=False, **kwargs):
+                 name='', path='',filenames=[], planet=None, pl_kwargs=None, CADC=False):
         
         self.name = name
         self.path=path
         
         # --- Get the system parameters from the ExoFile
         if planet is None:
-            self.planet = Planet(name)
+            self.planet = Planet(name, **pl_kwargs)
         else:
             self.planet=planet
         
@@ -402,7 +525,7 @@ class Observations():
                             uncorr=self.uncorr[transit_tag],
                             name=self.name, planet=self.planet , 
                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
-                            filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag], 
+                            # filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
                             CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl)
     
     def calc_sequence(self, plot=True, sequence=None, K=None, uncorr=False, iin=False, 
@@ -441,7 +564,7 @@ class Observations():
                     
                 self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0], 
                                  dtype='float') for order in range(49)]).T
-                self.berv = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
+                self.berv0 = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
             else:
 #                 obs_date = [date+' '+hour for date,hour in zip(self.headers_image.get_all('DATE-OBS')[0], \
 #                                                self.headers.get_all('UTIME')[0])]
@@ -462,7 +585,7 @@ class Observations():
                 except KeyError:
                     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:03}'.format(order))[0], \
                                          dtype='float') for order in range(49)]).T
-                self.berv = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
+                self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
             
             self.dt = np.array(np.array(self.headers.get_all('EXPTIME')[0], dtype='float') ).squeeze() * u.s
             self.AM = np.array(self.headers.get_all('AIRMASS')[0], dtype='float').squeeze()
@@ -473,7 +596,7 @@ class Observations():
         else : 
             self.t_start = sequence[0] * u.d
             self.SNR = sequence[1]
-            self.berv = sequence[2]
+            self.berv0 = sequence[2]
             self.dt = sequence[3] * u.s
 
             self.AM = sequence[4]
@@ -485,6 +608,8 @@ class Observations():
             self.flux = self.count/(self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None])
         else:
             self.flux = self.count
+            
+        self.berv= self.berv0.copy()
         light_curve = np.ma.sum(np.ma.sum(self.count, axis=-1), axis=-1)
         self.light_curve = light_curve / np.nanmax(light_curve)
         self.t = self.t_start #+ self.dt/2
@@ -508,110 +633,113 @@ class Observations():
             self.noise = None
             
         # ---- Transit model
-
-        self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.mid_tr, e=p.excent)
-
-        rp, x, y, z, self.sep, p.bRstar = o.position(self.nu, e=p.excent, i=p.incl, w=p.w, omega=p.omega,
-                                                Rstar=p.R_star, P=p.period, ap=p.ap, Mp=p.M_pl, Mstar=p.M_star)
-
-        i_peri = np.searchsorted(self.t, p.mid_tr)
-
-        p.b = (p.bRstar / p.R_star).decompose()
-        out, part, total = o.transit(p.R_star, p.R_pl + p.H, self.sep, 
-                                     z=z, nu=self.nu, r=np.array(rp.decompose()), i_tperi=i_peri, w=p.w) 
-        #         print(out,part,total)
-
-        if kind_trans == 'transmission':
-            print('Transmission')
-            self.iOut = out
-            self.part = part
-            self.total = total
-            self.iIn = np.sort(np.concatenate([part,total]))
-        #             print(self.iIn.size, self.iOut.size)
-
-
-
-        elif kind_trans == 'emission':
-            print('Emission')
-            self.iOut = total
-            self.part = part
-            self.total = out
-            self.iIn = np.sort(np.concatenate([out]))
-
-        #             print(self.iIn.size, self.iOut.size)
-
-        self.iin, self.iout = o.where_is_the_transit(self.t, p.mid_tr, p.period, p.trandur)
-        self.iout_e, self.iin_e = o.where_is_the_transit(self.t, p.mid_tr+0.5*p.period, p.period, p.trandur)
-
-        if (self.part.size == 0) and (iin is True) :
-            print('Taking iin and iout')
-            if kind_trans == 'transmission':
-                self.iIn = self.iin
-                self.iOut = self.iout
-            elif kind_trans == 'emission':
-                self.iIn = self.iin_e
-                self.iOut = self.iout_e
-        
-        self.icorr = self.iIn
-        
-        if plot is True:
-            fig, ax = plt.subplots(3,1, sharex=True)
-            ax[2].plot(self.t, np.nanmean(self.SNR[:, :],axis=-1),'o-')
-            if out.size > 0 :
-                ax[0].plot(self.t[self.iOut],self.AM[self.iOut],'ro')
-                ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'ro')
-                ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :],axis=-1),'ro')
-            if part.size > 0 :
-                ax[0].plot(self.t[self.part],self.AM[self.part],'go')
-                ax[1].plot(self.t[self.part], self.adc1[self.part],'go')
-                ax[2].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :],axis=-1),'go')
-            if total.size > 0 :
-                ax[0].plot(self.t[self.total],self.AM[self.total],'bo')
-                ax[1].plot(self.t[self.total], self.adc1[self.total],'bo')
-                ax[2].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :],axis=-1),'bo')
-            if self.iin.size > 0 :    
-                ax[0].plot(self.t[self.iIn], self.AM[self.iIn],'g.')
-                ax[1].plot(self.t[self.iIn], self.adc1[self.iIn],'g.')
-                ax[2].plot(self.t[self.iIn], np.nanmean(self.SNR[self.iIn, :],axis=-1),'g.')
-            if self.iout.size > 0 :  
-                ax[0].plot(self.t[self.iOut], self.AM[self.iOut],'r.')
-                ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'r.')
-                ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :],axis=-1),'r.')
-
-
-            ax[0].set_ylabel('Airmass')
-            ax[1].set_ylabel('ADC1 angle')
-            ax[2].set_ylabel('Mean SNR')
-        
-        
-        
-        self.alpha = hm.calc_tr_lightcurve(p, coeffs, self.t.value, ld_model=ld_model, kind_trans=kind_trans)
-#         self.alpha = np.array([(hm.circle_overlap(p.R_star.to(u.m), p.R_pl.to(u.m), sep) / \
-#                         p.A_star).value for sep in self.sep]).squeeze()
-#         self.alpha = np.array([hm.circle_overlap(p.R_star, p.R_pl, sep).value for sep in self.sep])
-        self.alpha_frac = self.alpha/self.alpha.max()
-    
+#
+#         self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.mid_tr, e=p.excent)
+#
+#         rp, x, y, z, self.sep, p.bRstar = o.position(self.nu, e=p.excent, i=p.incl, w=p.w, omega=p.omega,
+#                                                 Rstar=p.R_star, P=p.period, ap=p.ap, Mp=p.M_pl, Mstar=p.M_star)
+#
+#         i_peri = np.searchsorted(self.t, p.mid_tr)
+#
+#         p.b = (p.bRstar / p.R_star).decompose()
+#         out, part, total = o.transit(p.R_star, p.R_pl + p.H, self.sep,
+#                                      z=z, nu=self.nu, r=np.array(rp.decompose()), i_tperi=i_peri, w=p.w)
+#         #         print(out,part,total)
+#
+#         if kind_trans == 'transmission':
+#             print('Transmission')
+#             self.iOut = out
+#             self.part = part
+#             self.total = total
+#             self.iIn = np.sort(np.concatenate([part,total]))
+#         #             print(self.iIn.size, self.iOut.size)
+#
+#
+#
+#         elif kind_trans == 'emission':
+#             print('Emission')
+#             self.iOut = total
+#             self.part = part
+#             self.total = out
+#             self.iIn = np.sort(np.concatenate([out]))
+#
+#         #             print(self.iIn.size, self.iOut.size)
+#
+#         self.iin, self.iout = o.where_is_the_transit(self.t, p.mid_tr, p.period, p.trandur)
+#         self.iout_e, self.iin_e = o.where_is_the_transit(self.t, p.mid_tr+0.5*p.period, p.period, p.trandur)
+#
+#         if (self.part.size == 0) and (iin is True) :
+#             print('Taking iin and iout')
+#             if kind_trans == 'transmission':
+#                 self.iIn = self.iin
+#                 self.iOut = self.iout
+#             elif kind_trans == 'emission':
+#                 self.iIn = self.iin_e
+#                 self.iOut = self.iout_e
+#
+#         self.icorr = self.iIn
+#
+#         if plot is True:
+#             fig, ax = plt.subplots(3,1, sharex=True)
+#             ax[2].plot(self.t, np.nanmean(self.SNR[:, :],axis=-1),'o-')
+#             if out.size > 0 :
+#                 ax[0].plot(self.t[self.iOut],self.AM[self.iOut],'ro')
+#                 ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'ro')
+#                 ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :],axis=-1),'ro')
+#             if part.size > 0 :
+#                 ax[0].plot(self.t[self.part],self.AM[self.part],'go')
+#                 ax[1].plot(self.t[self.part], self.adc1[self.part],'go')
+#                 ax[2].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :],axis=-1),'go')
+#             if total.size > 0 :
+#                 ax[0].plot(self.t[self.total],self.AM[self.total],'bo')
+#                 ax[1].plot(self.t[self.total], self.adc1[self.total],'bo')
+#                 ax[2].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :],axis=-1),'bo')
+#             if self.iin.size > 0 :
+#                 ax[0].plot(self.t[self.iIn], self.AM[self.iIn],'g.')
+#                 ax[1].plot(self.t[self.iIn], self.adc1[self.iIn],'g.')
+#                 ax[2].plot(self.t[self.iIn], np.nanmean(self.SNR[self.iIn, :],axis=-1),'g.')
+#             if self.iout.size > 0 :
+#                 ax[0].plot(self.t[self.iOut], self.AM[self.iOut],'r.')
+#                 ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'r.')
+#                 ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :],axis=-1),'r.')
+#
+#
+#             ax[0].set_ylabel('Airmass')
+#             ax[1].set_ylabel('ADC1 angle')
+#             ax[2].set_ylabel('Mean SNR')
+#
+#
+#
+#         self.alpha = hm.calc_tr_lightcurve(p, coeffs, self.t.value, ld_model=ld_model, kind_trans=kind_trans)
+# #         self.alpha = np.array([(hm.circle_overlap(p.R_star.to(u.m), p.R_pl.to(u.m), sep) / \
+# #                         p.A_star).value for sep in self.sep]).squeeze()
+# #         self.alpha = np.array([hm.circle_overlap(p.R_star, p.R_pl, sep).value for sep in self.sep])
+#         self.alpha_frac = self.alpha/self.alpha.max()
+#
+        gen_transit_model(self, p, kind_trans, coeffs, ld_model, plot=plot)
         # --- Radial velocities
-        
-        if K is None:
-            K, vr, Kp, vrp = o.rv(self.nu, p.period, e=p.excent, i=p.incl, w=p.w, Mp=p.M_pl, Mstar=p.M_star)
-        else:
-            if isinstance(K, u.Quantity):
-                 K= K.to(u.km/u.s)
-            else:
-                 K= K*u.km/u.s
-            Kp = o.Kp_theo(K, p.M_star, p.M_pl)
-            vr = o.rv_theo_t(K, self.t, p.mid_tr, p.period, plnt=False)
-            vrp = o.rv_theo_t(Kp, self.t, p.mid_tr, p.period, plnt=True)
 
-        self.vrp = vrp.to('km/s').squeeze()  # km/s
-        self.vr = vr.to('km/s').squeeze()  # km/s   # np.zeros_like(vrp)  # ********
-        self.K, self.Kp = K.to('km/s').squeeze(), Kp.to('km/s').squeeze()
-
-        v_star = (vr + p.RV_sys).to('km/s').value
-        v_pl = (vrp + p.RV_sys).to('km/s').value
-        self.dv_pl = v_pl - self.berv  #+berv
-        self.dv_star = v_star - self.berv  #+berv
+        gen_rv_sequence(self, p, plot=False)
+        #
+        # if K is None:
+        #     K, vr, Kp, vrp = o.rv(self.nu, p.period, e=p.excent, i=p.incl, w=p.w, Mp=p.M_pl, Mstar=p.M_star)
+        # else:
+        #     if isinstance(K, u.Quantity):
+        #          K= K.to(u.km/u.s)
+        #     else:
+        #          K= K*u.km/u.s
+        #     Kp = o.Kp_theo(K, p.M_star, p.M_pl)
+        #     vr = o.rv_theo_t(K, self.t, p.mid_tr, p.period, plnt=False)
+        #     vrp = o.rv_theo_t(Kp, self.t, p.mid_tr, p.period, plnt=True)
+        #
+        # self.vrp = vrp.to('km/s').squeeze()  # km/s
+        # self.vr = vr.to('km/s').squeeze()  # km/s   # np.zeros_like(vrp)  # ********
+        # self.K, self.Kp = K.to('km/s').squeeze(), Kp.to('km/s').squeeze()
+        #
+        # v_star = (vr + p.RV_sys).to('km/s').value
+        # v_pl = (vrp + p.RV_sys).to('km/s').value
+        # self.dv_pl = v_pl - self.berv  #+berv
+        # self.dv_star = v_star - self.berv  #+berv
     
 #         if plot is True:
 #             full_seq = np.arange(self.t_start[0].value-1, self.t_start[-1].value+1, 0.05)
@@ -629,7 +757,7 @@ class Observations():
 #             plt.plot(self.t, self.vr+p.RV_sys, 'ro')
 
 #         self.phase = (((self.t_start - p.mid_tr - p.period/2) % p.period)/p.period) - 0.5
-        self.phase = ((self.t-p.mid_tr)/p.period).decompose()
+        self.phase = ((self.t-p.mid_tr)/p.period).decompose().value
         self.phase -= np.round(self.phase.mean())
         if kind_trans == 'emission':
             if (self.phase < 0).all():
@@ -664,16 +792,16 @@ class Observations():
         self.spec_trans, self.full_ts, self.ts_norm, \
         self.final, self.rebuilt, \
         self.pca, self.fl_Sref, self.fl_masked, \
-        ratio, last_mask, self.recon_time = ts.build_trans_spectrum4(self.wave, flux, 
-                                     self.berv, self.planet.RV_sys, self.vr, self.iOut, 
-                                     path=self.path, tellu=self.tellu, noise=noise, 
+        ratio, last_mask, self.recon_time = ts.build_trans_spectrum4(self.wave, flux,
+                                     self.berv, self.planet.RV_sys, self.vr, self.iOut,
+                                     path=self.path, tellu=self.tellu, noise=noise,
                                     lim_mask=params[0], lim_buffer=params[1],
                                     mo_box=params[2], mo_gauss_box=params[4],
                                     n_pca=params[5],
                                     tresh=params[6], tresh_lim=params[7],
-                                    last_tresh=params[8], last_tresh_lim=params[9], 
+                                    last_tresh=params[8], last_tresh_lim=params[9],
                                     n_comps=self.n_comps,
-                                    clip_ts=clip_ts, clip_ratio=clip_ratio, 
+                                    clip_ts=clip_ts, clip_ratio=clip_ratio,
                                     poly_time=poly_time, **kwargs)
         
 #         self.n_comps = n_comps
@@ -724,7 +852,7 @@ class Observations():
         else:
             self.RV_sys = RV
             
-        self.berv = -self.berv
+        self.berv = -self.berv0
         self.mid_id = int(np.ceil(self.n_spec/2)-1)
         self.mid_berv = self.berv[self.mid_id]
         self.mid_vr = self.vr[self.mid_id].value
@@ -986,10 +1114,11 @@ class Observations():
 
 
 class Planet():
-    def __init__(self, name, parametres=None):
+    def __init__(self, name, parametres=None, observatory='cfht', **kwargs):
         self.name = name
         
         if parametres is None:
+            print('Getting {} from ExoFile'.format(name))
             parametres = ExoFile.load(use_alt_file=True).by_pl_name(name)
 
         #  --- Propriétés du système
@@ -997,20 +1126,61 @@ class Planet():
         self.M_star = parametres['st_mass'].to(u.kg)
         self.RV_sys = parametres['st_radv'].to(u.km/u.s)
         self.Teff = parametres['st_teff'].to(u.K)
-        try :
-            self.vsini= parametres['st_vsin'].data.data*u.m/u.s
-        except AttributeError:
-            self.vsini= parametres['st_vsin'].to(u.m/u.s)
 
-        #--- Propriétés de la planète
-        try :
-            self.R_pl = (parametres['pl_radj'].data*const.R_jup).data*u.m
-            self.M_pl = (parametres['pl_bmassj'].data*const.M_jup).data*u.kg
-            self.ap = (parametres['pl_orbsmax'].data*const.au).data*u.m
+        try:
+            self.vsini = parametres['st_vsin'].data.data * u.m / u.s
+        except AttributeError:
+            self.vsini = parametres['st_vsin'].to(u.m / u.s)
+
+        # --- Propriétés de la planète
+        try:
+            self.R_pl = (parametres['pl_radj'].data * const.R_jup).data * u.m
+            self.M_pl = (parametres['pl_bmassj'].data * const.M_jup).data * u.kg
+            self.ap = (parametres['pl_orbsmax'].data * const.au).data * u.m
         except (AttributeError, TypeError) as e:
             self.R_pl = parametres['pl_radj'].to(u.m)
             self.M_pl = parametres['pl_bmassj'].to(u.kg)
             self.ap = parametres['pl_orbsmax'].to(u.m)
+        self.rho = parametres['pl_dens']  # 5.5 *u.g/u.cm**3 # --- Jupiter : 1.33 g cm-3  /// Terre : 5.5 g cm-3
+        self.Tp = np.asarray(parametres['pl_eqt'], dtype=np.float64) * u.K
+
+        # --- Paramètres d'observations
+        self.observatoire = observatory
+        try:
+            self.radec = [parametres['ra'].data.data * u.deg,
+                          parametres['dec'].data.data * u.deg]  # parametres['radec']
+        except AttributeError:
+            self.radec = [parametres['ra'] * u.deg, parametres['dec'] * u.deg]
+        # --- Paramètres transit
+        self.period = parametres['pl_orbper'].to(u.s)
+        try:
+            self.mid_tr = parametres['pl_tranmid'].data * u.d  # from nasa exo archive
+        except (AttributeError, TypeError) as e:
+            self.mid_tr = parametres['pl_tranmid'].to(u.d)
+        self.trandur = (parametres['pl_trandur'] / u.d * u.h).to(u.s)
+
+        # --- Paramètres Orbitaux
+        self.excent = parametres['pl_orbeccen']
+        if self.excent.mask:
+            self.excent = 0.0
+        self.incl = parametres['pl_orbincl'].to(u.rad)
+        self.w = parametres['pl_orblper'].to(u.rad) + (3 * np.pi / 2) * u.rad
+        self.omega = np.radians(0) * u.rad
+
+        for key in list(kwargs.keys()):
+            new_value = kwargs[key]
+            old_value = getattr(self,key)
+            print('Changing {} from {} to {}'.format(key, old_value, new_value))
+            if isinstance(new_value, u.Quantity) & isinstance(old_value, u.Quantity):
+                new_value = new_value.to(old_value.unit)
+                new_value = np.array([new_value.value])*new_value.unit
+            elif isinstance(old_value, u.Quantity):
+                new_value = new_value * old_value.unit
+                new_value = np.array([new_value.value])*new_value.unit
+
+            print('It became {}'.format(new_value))
+            setattr(self, key, new_value)
+
         surf_grav_pl = (const.G * self.M_pl / self.R_pl**2).cgs
         self.logg_pl = np.log10(surf_grav_pl.value)
         
@@ -1020,36 +1190,11 @@ class Planet():
         self.logg = np.log10(surf_grav.value)
         self.gp = const.G * self.M_pl / self.R_pl**2
 
-        # --- Paramètres d'observations
-        self.observatoire = 'cfht'
-        try:
-            self.radec = [parametres['ra'].data.data*u.deg, parametres['dec'].data.data*u.deg]  # parametres['radec']
-        except AttributeError:
-            self.radec = [parametres['ra']*u.deg, parametres['dec']*u.deg]
-        # --- Paramètres transit
-        self.period = parametres['pl_orbper'].to(u.s) 
-        try:
-            self.mid_tr = parametres['pl_tranmid'].data * u.d  # from nasa exo archive
-        except (AttributeError, TypeError) as e:
-            self.mid_tr = parametres['pl_tranmid'].to(u.d)
-        self.trandur = (parametres['pl_trandur']/u.d*u.h).to(u.s) 
-
-        # --- Paramètres Orbitaux
-        self.excent = parametres['pl_orbeccen']
-        if self.excent.mask:
-            self.excent = 0
-        self.incl = parametres['pl_orbincl'].to(u.rad)
-        self.w = parametres['pl_orblper'].to(u.rad)+ (3*np.pi / 2 )* u.rad 
-        self.omega = np.radians(0)*u.rad
 
         # # - Paramètres atmosphériques approximatifs
         self.mu = 2.3 * const.u
-        self.rho = parametres['pl_dens']  # 5.5 *u.g/u.cm**3 # --- Jupiter : 1.33 g cm-3  /// Terre : 5.5 g cm-3
-        self.Tp = np.asarray(parametres['pl_eqt'],dtype=np.float64)*u.K
         self.H = (const.k_B * self.Tp / (self.mu * self.gp)).decompose()
-
         self.all_params = parametres
-
         self.sync_equat_rot_speed = (2*np.pi*self.R_pl/self.period).to(u.km/u.s)
 
         
@@ -1102,7 +1247,7 @@ def get_blaze_file(path, file_list='list_tellu_corrected', onedim=False, blaze_d
 
  ##############################################################################   
 
-def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
+def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     
 
     icorr_list = []
@@ -1124,12 +1269,16 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
     tr_merge.iIn = np.concatenate(iIn_list)
     tr_merge.iOut = np.concatenate(iOut_list)
     
-    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx]).value
+    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx])#.value
     tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
-    tr_merge.fl_norm = np.ma.concatenate([list_tr[str(tr_i)].fl_norm for tr_i in merge_tr_idx], axis=0)
-    tr_merge.fl_Sref = np.ma.concatenate([list_tr[str(tr_i)].fl_Sref for tr_i in merge_tr_idx], axis=0)
-    tr_merge.fl_masked = np.ma.concatenate([list_tr[str(tr_i)].fl_masked for tr_i in merge_tr_idx], axis=0)
-    tr_merge.fl_norm_mo = np.ma.concatenate([list_tr[str(tr_i)].fl_norm_mo for tr_i in merge_tr_idx], axis=0)
+
+    if light is False:
+        tr_merge.fl_norm = np.ma.concatenate([list_tr[str(tr_i)].fl_norm for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_Sref = np.ma.concatenate([list_tr[str(tr_i)].fl_Sref for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_masked = np.ma.concatenate([list_tr[str(tr_i)].fl_masked for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_norm_mo = np.ma.concatenate([list_tr[str(tr_i)].fl_norm_mo for tr_i in merge_tr_idx], axis=0)
+        tr_merge.full_ts = np.ma.concatenate([list_tr[str(tr_i)].full_ts for tr_i in merge_tr_idx], axis=0)
+        tr_merge.rebuilt = np.ma.concatenate([list_tr[str(tr_i)].rebuilt for tr_i in merge_tr_idx], axis=0)
 
     if list_tr[str(merge_tr_idx[0])].mast_out.ndim == 2:
         tr_merge.mast_out = np.ma.mean([np.ma.masked_invalid(list_tr[str(tr_i)].mast_out) \
@@ -1138,9 +1287,7 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None):
         tr_merge.mast_out = np.ma.concatenate([list_tr[str(tr_i)].mast_out for tr_i in merge_tr_idx], axis=0)
 
     tr_merge.spec_trans = np.ma.concatenate([list_tr[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
-    tr_merge.full_ts = np.ma.concatenate([list_tr[str(tr_i)].full_ts for tr_i in merge_tr_idx], axis=0)
     tr_merge.final = np.ma.concatenate([list_tr[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
-    tr_merge.rebuilt = np.ma.concatenate([list_tr[str(tr_i)].rebuilt for tr_i in merge_tr_idx], axis=0)
     tr_merge.N = np.ma.concatenate([list_tr[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
     tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
     tr_merge.reconstructed = np.ma.concatenate([list_tr[str(tr_i)].reconstructed for tr_i in merge_tr_idx], axis=0)
@@ -1294,11 +1441,12 @@ def split_transits(obs_obj, transit_tag, mid_idx,
 
 
 
-def save_single_sequences(path, filename, tr, save_all=False, filename_end='', bad_indexs=None):
+def save_single_sequences(path, filename, tr,
+                          save_all=False, filename_end='', bad_indexs=None):
 
     if bad_indexs is None:
         bad_indexs = []
-
+    print(path + filename + '_data_trs_' + filename_end + '.npz')
     if save_all is False:
         np.savez(path+filename+'_data_trs_'+filename_end,
              components_ = tr.pca.components_,
@@ -1314,16 +1462,22 @@ def save_single_sequences(path, filename, tr, save_all=False, filename_end='', b
              RV_const = tr.RV_const,
              params = tr.params,
              wave = tr.wave,
-             vrp = tr.vrp,
+             # vrp = tr.vrp,
              sep = tr.sep,
              noise = tr.noise,
              N = tr.N,
-             t_start = tr.t_start.value,
-             flux = tr.final/tr.noise,
-             s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
-             mask_flux = (tr.final/tr.noise).mask, 
+             t_start = tr.t_start,
+             flux = tr.flux,
+             uncorr = tr.uncorr,
+             blaze = tr.blaze,
+             tellu = tr.tellu,
+             # s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
+             mask_flux = (tr.flux).mask,
+             mask_uncorr = (tr.uncorr).mask,
+             mask_blaze = (tr.blaze).mask,
+             mask_tellu = (tr.tellu).mask,
              mask_noise = (tr.noise).mask,
-             mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
+             # mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
              mask_N = (tr.N).mask, 
              ratio = tr.ratio,
              reconstructed = tr.reconstructed,
@@ -1335,11 +1489,23 @@ def save_single_sequences(path, filename, tr, save_all=False, filename_end='', b
              final = tr.final,
              mask_spec_trans = tr.spec_trans.mask,
              mask_final = tr.final.mask,
-             alpha_frac = tr.alpha_frac,
+             # alpha_frac = tr.alpha_frac,
+                                  filenames=tr.filenames,
              icorr = tr.icorr,
              bad_indexs = bad_indexs,
              clip_ts = tr.clip_ts,
              scaling = tr.scaling,
+             phase = tr.phase,
+             SNR = tr.SNR,
+             nu = tr.nu,
+                 berv0=tr.berv0,
+                 AM=tr.AM,
+                 RV_sys = tr.RV_sys,
+                kind_trans = tr.kind_trans,
+                 coeffs = tr.coeffs,
+                 ld_model = tr.ld_model,
+                 # iIn = tr.iIn,
+                 # iOut = tr.iOut,
              )
     else:
         np.savez(path+filename+'_data_trs_'+filename_end,
@@ -1356,16 +1522,22 @@ def save_single_sequences(path, filename, tr, save_all=False, filename_end='', b
              RV_const = tr.RV_const,
              params = tr.params,
              wave = tr.wave,
-             vrp = tr.vrp,
+             # vrp = tr.vrp,
              sep = tr.sep,
              noise = tr.noise,
              N = tr.N,
-             t_start = tr.t_start.value,
-             flux = tr.final/tr.noise,
-             s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
-             mask_flux = (tr.final/tr.noise).mask, 
+             t_start = tr.t_start,
+             flux = tr.flux,
+             uncorr = tr.uncorr,
+             blaze = tr.blaze,
+             tellu = tr.tellu,
+             # s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
+             mask_flux = (tr.flux).mask,
+             mask_uncorr = (tr.uncorr).mask,
+             mask_blaze = (tr.blaze).mask,
+             mask_tellu = (tr.tellu).mask,
              mask_noise = (tr.noise).mask,
-             mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
+             # mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
              mask_N = (tr.N).mask, 
              ratio = tr.ratio,
              reconstructed = tr.reconstructed,
@@ -1377,11 +1549,23 @@ def save_single_sequences(path, filename, tr, save_all=False, filename_end='', b
              final = tr.final,
              mask_spec_trans = tr.spec_trans.mask,
              mask_final = tr.final.mask,
-             alpha_frac = tr.alpha_frac,
+             # alpha_frac = tr.alpha_frac,
+                 filenames = tr.filenames,
              icorr = tr.icorr,
              bad_indexs = bad_indexs,
              clip_ts = tr.clip_ts,
              scaling = tr.scaling,
+             phase = tr.phase,
+                 berv0=tr.berv0,
+                 AM=tr.AM,
+                 RV_sys=tr.RV_sys,
+                kind_trans = tr.kind_trans,
+                 coeffs = tr.coeffs,
+                 ld_model = tr.ld_model,
+                 # iIn = tr.iIn,
+                 # iOut = tr.iOut,
+             SNR = tr.SNR,
+             nu = tr.nu,
              fl_norm = tr.fl_norm,
              fl_norm_mo = tr.fl_norm_mo,
              full_ts = tr.full_ts,
@@ -1400,34 +1584,156 @@ def save_single_sequences(path, filename, tr, save_all=False, filename_end='', b
              mask_recon_time = tr.recon_time.mask,
              )
 
-        print(path+filename+'_data_trs_'+filename_end+'.npz')
+
 
         
-def load_fast_correl(path, filename, load_all=False, filename_end='', data_trs=None):
-    
-    if data_trs is None:
-        data_trs = {}
-    #     flux = []
+# def load_fast_correl(path, filename, load_all=False, filename_end='', data_trs=None):
+#
+#     if data_trs is None:
+#         data_trs = {}
+#     #     flux = []
+#
+#     data_trs[filename_end] = {}
+#
+#     data_tr = np.load(path+filename+'_data_trs_'+filename_end+'.npz')
+#
+#     data_trs[filename_end]['RV_const'] = data_tr['RV_const']
+#     data_trs[filename_end]['params'] = data_tr['params']
+#     data_trs[filename_end]['vrp'] = data_tr['vrp']*u.km/u.s
+#     data_trs[filename_end]['sep'] = data_tr['sep']*u.m
+#     data_trs[filename_end]['noise'] = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
+#     data_trs[filename_end]['N'] = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
+#     data_trs[filename_end]['t_start'] = data_tr['t_start']
+#     data_trs[filename_end]['alpha_frac'] = data_tr['alpha_frac']
+#     data_trs[filename_end]['icorr'] = data_tr['icorr']
+#     data_trs[filename_end]['clip_ts'] = data_tr['clip_ts']
+#
+#
+#     return data_trs
 
-    data_trs[filename_end] = {}
 
-    data_tr = np.load(path+filename+'_data_trs_'+filename_end+'.npz')
+def load_single_sequences(path, filename, name, planet,
+                          load_all=False, filename_end='', plot=True):
+    #     data_trs[filename_end] = {}
 
-    data_trs[filename_end]['RV_const'] = data_tr['RV_const']
-    data_trs[filename_end]['params'] = data_tr['params']
-    data_trs[filename_end]['vrp'] = data_tr['vrp']*u.km/u.s
-    data_trs[filename_end]['sep'] = data_tr['sep']*u.m
-    data_trs[filename_end]['noise'] = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
-    data_trs[filename_end]['N'] = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
-    data_trs[filename_end]['t_start'] = data_tr['t_start']
-    data_trs[filename_end]['alpha_frac'] = data_tr['alpha_frac']
-    data_trs[filename_end]['icorr'] = data_tr['icorr']
-    data_trs[filename_end]['clip_ts'] = data_tr['clip_ts']
+    data_tr = np.load(path + filename + '_data_trs_' + filename_end + '.npz')
 
+    pca = PCA(data_tr['n_components_'])
+    pca.components_ = data_tr['components_']
+    pca.explained_variance_ = data_tr['explained_variance_']
+    pca.explained_variance_ratio_ = data_tr['explained_variance_ratio_']
+    pca.singular_values_ = data_tr['singular_values_']
+    pca.mean_ = data_tr['mean_']
+    pca.n_components_ = data_tr['n_components_']
+    pca.n_features_ = data_tr['n_features_']
+    pca.n_samples_ = data_tr['n_samples_']
+    pca.noise_variance_ = data_tr['noise_variance_']
+    pca.n_features_in_ = data_tr['n_features_in_']
+
+    tr = Observations(
+        wave=data_tr['wave'],
+        #                             count=self.count[transit_tag],
+        #                             blaze=self.blaze[transit_tag],
+        #                             tellu=self.tellu[transit_tag],
+        #                             uncorr=self.uncorr[transit_tag],
+        name=name,
+        planet=planet,
+        #                             path=self.path,
+        #         filenames=np.array(self.filenames)[transit_tag],
+        #                             filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
+        #                             CADC=self.CADC,
+        #         headers_image=new_headers_im, headers_tellu=new_headers_tl
+    )
+
+    tr.wv = np.mean(tr.wave, axis=0)
+    tr.pca = pca
+    tr.RV_const = data_tr['RV_const']
+    tr.params = list(data_tr['params'])
+    for i_param in range(2,6):
+        tr.params[i_param] = int(tr.params[i_param])
+    #     tr.vrp = data_tr['vrp']
+    tr.sep = data_tr['sep'] * u.m
+    tr.noise = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
+    tr.N = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
+
+    tr.t_start = data_tr['t_start']
+    tr.t = data_tr['t_start'] * u.d
+    tr.bad = data_tr['bad_indexs']
+    tr.flux = np.ma.array(data_tr['flux'],
+                     mask=data_tr['mask_flux'])
+    #     tr.s2f = np.ma.array(data_tr['s2f'],
+    #                     mask=data_tr['mask_s2f'])
+
+    tr.ratio = np.ma.array(data_tr['ratio'],
+                           mask=data_tr['mask_ratio'])
+    tr.ratio_recon = True
+    tr.reconstructed = np.ma.array(data_tr['reconstructed'],
+                                   mask=data_tr['mask_reconstructed'])
+    tr.uncorr = np.ma.array(data_tr['uncorr'],
+                                   mask=data_tr['mask_uncorr'])
+    tr.N0 = (~np.isnan(tr.uncorr)).sum(axis=-1)
+    tr.N_frac = np.nanmean(tr.N / tr.N0, axis=0).data  # 4088
+    tr.N_frac[np.isnan(tr.N_frac)] = 0
+    tr.blaze = np.ma.array(data_tr['blaze'],
+                               mask=data_tr['mask_blaze'])
+    tr.mast_out = np.ma.array(data_tr['mast_out'],
+                              mask=data_tr['mask_mast_out'])
+    tr.final = np.ma.array(data_tr['final'],
+                           mask=data_tr['mask_final'])
+    tr.spec_trans = np.ma.array(data_tr['spec_trans'],
+                                mask=data_tr['mask_spec_trans'])
+    tr.tellu = np.ma.array(data_tr['tellu'],
+                                mask=data_tr['mask_tellu'])
+    # tr.alpha_frac = data_tr['alpha_frac']
+
+    tr.filenames = data_tr['filenames']
+
+    tr.clip_ts = data_tr['clip_ts']
+    tr.scaling = data_tr['scaling']
+
+    tr.n_spec, tr.nord, tr.npix = tr.final.shape
+    tr.phase = data_tr['phase']
+
+    tr.icorr = data_tr['icorr']
+    #     tr.iIn = data_tr['iIn']
+    #     tr.iOut = data_tr['iOut']
+
+    tr.AM = data_tr['AM']
+    tr.berv0 = data_tr['berv0']
+    tr.berv = data_tr['berv0']
+    tr.SNR = data_tr['SNR']
+    tr.nu = data_tr['nu']
+
+    if load_all:
+        tr.fl_norm = np.ma.array(data_tr['fl_norm'],
+                                 mask=data_tr['mask_fl_norm'])
+        tr.fl_norm_mo = np.ma.array(data_tr['fl_norm_mo'],
+                                    mask=data_tr['mask_fl_norm_mo'])
+        tr.full_ts = np.ma.array(data_tr['full_ts'],
+                                 mask=data_tr['mask_full_ts'])
+        tr.ts_norm = np.ma.array(data_tr['ts_norm'],
+                                 mask=data_tr['mask_ts_norm'])
+        tr.rebuilt = np.ma.array(data_tr['rebuilt'],
+                                 mask=data_tr['mask_rebuilt'])
+        tr.fl_Sref = np.ma.array(data_tr['fl_Sref'],
+                                 mask=data_tr['mask_fl_Sref'])
+        tr.fl_masked = np.ma.array(data_tr['fl_masked'],
+                                   mask=data_tr['mask_fl_masked'])
+        tr.recon_time = np.ma.array(data_tr['recon_time'],
+                                    mask=data_tr['mask_recon_time'])
+
+    # ---- Transit model
+    gen_transit_model(tr, planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
+
+    # --- Radial velocities
+
+    gen_rv_sequence(tr, planet, plot=False)
+
+    tr.norv_sequence(RV=data_tr['RV_sys'])
+
+    return tr
         
-    return data_trs
-        
-def load_single_sequences(path, filename, load_all=False, filename_end='', data_trs=None):
+def load_single_data_dict(path, filename, load_all=False, filename_end='', data_trs=None):
     
     if data_trs is None:
         data_trs = {}
@@ -1472,10 +1778,16 @@ def load_single_sequences(path, filename, load_all=False, filename_end='', data_
                                                   mask=data_tr['mask_final'])
     data_trs[filename_end]['spec_trans'] = np.ma.array(data_tr['spec_trans'], 
                                                   mask=data_tr['mask_spec_trans'])
+    data_trs[filename_end]['tellu'] = np.ma.array(data_tr['tellu'],
+                                                       mask=data_tr['mask_tellu'])
     data_trs[filename_end]['alpha_frac'] = data_tr['alpha_frac']
     data_trs[filename_end]['icorr'] = data_tr['icorr']
     data_trs[filename_end]['clip_ts'] = data_tr['clip_ts']
-#     data_trs[filename_end]['scaling'] = data_tr['scaling']
+    data_trs[filename_end]['scaling'] = data_tr['scaling']
+
+    data_trs[filename_end]['phase'] = data_tr['phase']
+    data_trs[filename_end]['iIn'] = data_tr['iIn']
+    data_trs[filename_end]['iOut'] = data_tr['iOut']
 
     if load_all:
         data_trs[filename_end]['fl_norm'] = np.ma.array(data_tr['fl_norm'], 
@@ -1543,14 +1855,14 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  mask_ratio = (list_tr[tr_key].ratio).mask,
                  mask_reconstructed = (list_tr[tr_key].reconstructed).mask,
                  mask_mast_out = (list_tr[tr_key].mast_out).mask,
-                 spec_trans = list_tr[tr_key].spec_trans,
-                 final = list_tr[tr_key].final,
-                 mask_spec_trans = list_tr[tr_key].spec_trans.mask,
-                 mask_final = list_tr[tr_key].final.mask,
-             alpha_frac = list_tr[tr_key].alpha_frac,
-             icorr = list_tr[tr_key].icorr,
-             clip_ts = list_tr[tr_key].clip_ts,
-             scaling = list_tr[tr_key].scaling,
+                 # spec_trans = list_tr[tr_key].spec_trans,
+                 # final=list_tr[tr_key].final,
+                 # mask_spec_trans=list_tr[tr_key].spec_trans.mask,
+                 # mask_final=list_tr[tr_key].final.mask,
+                 # alpha_frac=list_tr[tr_key].alpha_frac,
+                 # icorr=list_tr[tr_key].icorr,
+                 # clip_ts=list_tr[tr_key].clip_ts,
+                 # scaling=list_tr[tr_key].scaling,
                  )
         else:
             np.savez(path+filename+'_data_trs_'+str(i_tr),
@@ -1662,16 +1974,17 @@ def load_sequences(path, filename, do_tr, load_all=False):
                                                            mask=data_tr['mask_reconstructed'])
         data_trs[str(i_tr)]['mast_out'] = np.ma.array(data_tr['mast_out'], 
                                                       mask=data_tr['mask_mast_out'])
-        data_trs[str(i_tr)]['final'] = np.ma.array(data_tr['final'], 
-                                                      mask=data_tr['mask_final'])
-        data_trs[str(i_tr)]['spec_trans'] = np.ma.array(data_tr['spec_trans'], 
-                                                      mask=data_tr['mask_spec_trans'])
-        data_trs[str(i_tr)]['alpha_frac'] = data_tr['alpha_frac']
-        data_trs[str(i_tr)]['icorr'] = data_tr['icorr']
-        data_trs[str(i_tr)]['clip_ts'] = data_tr['clip_ts']
-        data_trs[str(i_tr)]['scaling'] = data_tr['scaling']
-        
+
         if load_all:
+            data_trs[str(i_tr)]['final'] = np.ma.array(data_tr['final'],
+                                                       mask=data_tr['mask_final'])
+            data_trs[str(i_tr)]['spec_trans'] = np.ma.array(data_tr['spec_trans'],
+                                                            mask=data_tr['mask_spec_trans'])
+            data_trs[str(i_tr)]['alpha_frac'] = data_tr['alpha_frac']
+            data_trs[str(i_tr)]['icorr'] = data_tr['icorr']
+            data_trs[str(i_tr)]['clip_ts'] = data_tr['clip_ts']
+            data_trs[str(i_tr)]['scaling'] = data_tr['scaling']
+
             data_trs[str(i_tr)]['fl_norm'] = np.ma.array(data_tr['fl_norm'], 
                                                       mask=data_tr['mask_fl_norm'])
             data_trs[str(i_tr)]['fl_norm_mo'] = np.ma.array(data_tr['fl_norm_mo'], 
@@ -1734,13 +2047,14 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
         
     return tr
 
-def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans):
+def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
 
     tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
 
-    tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
+    if light is False:
+        tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
 
-    merge_tr(tr_merge, list_tr, merge_tr_idx)
+    merge_tr(tr_merge, list_tr, merge_tr_idx, light=light)
     merge_velocity(tr_merge, list_tr, merge_tr_idx)
     
     return tr_merge
@@ -1774,11 +2088,263 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
 
             merge_tr_idx = [int(tag_i) for tag_i in name_tag]
 
-            tr_merge = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, 
+            list_tr[name_tag]  = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags,
                                                coeffs, ld_model, kind_trans)
 
-            list_tr[name_tag] = tr_merge
-    
-
     return list_tr
-  
+
+
+
+### --- Telluric custom masking
+
+
+def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
+                           thresh=None, plot=False, pad_to=None,
+                           snr_floor=None,
+                           masking_spectra=None, correl_spectra=None,
+                           kind='tellu'):
+    new_mask_pclean = np.empty_like(pclean)
+    ccf_pclean_new = ccf_pclean.copy()  # np.empty_like(ccf_pclean)
+    if kind == 'tellu':
+        add_to_mask = 0.025
+    elif kind == 'sky':
+        add_to_mask = 0.05
+    print('add_to_mask', add_to_mask)
+    if pad_to is None:
+        if kind == 'tellu':
+            pad_to = 0.97
+        elif kind == 'sky':
+            pad_to = 0.999
+    print('pad_to', pad_to)
+    if thresh is None:
+        if kind == 'tellu':
+            thresh = 1.9
+        elif kind == 'sky':
+            thresh = 2.0
+    print('thresh', thresh)
+
+    if snr_floor is None:
+        if kind == 'tellu':
+            snr_floor = 0.9
+        elif kind == 'sky':
+            snr_floor = 1.0
+    print('snr_floor', snr_floor)
+
+    if masking_spectra is None:
+        masking_spectra = pclean
+    if correl_spectra is None:
+        correl_spectra = pclean
+
+    for iOrd in range(tr.nord):
+        #     print(iOrd)
+        limit_mask = tr.params[0]
+        #     flux_ord = flux[:,iOrd,None,:]
+
+        _, rv_snr, _, snr_i, _ = calc_snr_1d(np.abs(ccf_pclean[:, iOrd]),
+                                             corrRV0, np.zeros_like(tr.vrp), RV_sys=0.0)
+
+        #         param, pcov = curve_fit(gauss, ydata=snr_i, xdata=rv_snr, p0=[5,3,0])
+        #         print('sig = {}, amp = {}, x0 = {}'.format(*param))
+
+        fct_snr = interp1d(rv_snr, snr_i)
+        snr_i_0 = np.max(snr_i[100 - 3:100 + 3 + 1])  # fct_snr(0.0)
+        hm.print_static(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
+
+        if plot:
+            fig, axs = plt.subplots(2, 2, figsize=(6, 7), sharex=True)
+            axs[0, 0].pcolormesh(corrRV0, tr.phase, np.abs(ccf_pclean[:, iOrd]))
+            axs[0, 0].set_title(str(iOrd))
+            axs[1, 0].plot(rv_snr, snr_i)
+            axs[1, 0].axvline(0.0)
+            axs[1, 0].axhline(snr_i_0)
+        #             axs[1,0].plot(rv_snr, gauss(rv_snr,*param))
+
+        last_snr_i = snr_i_0.copy()
+        #         print("last",last_snr_i)
+
+        new_mask = flux[:, iOrd].mask
+
+        if (snr_i_0 > thresh):
+            print(snr_i_0, snr_floor, limit_mask, pad_to)
+            while (snr_i_0 > snr_floor) and (limit_mask < pad_to):
+
+                limit_mask += add_to_mask
+                hm.print_static(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
+
+                new_mask = [get_mask_tell(np.ma.masked_invalid(tell),
+                                          limit_mask, pad_to) for tell in masking_spectra[:, iOrd, :]]
+                new_mask = new_mask | flux[:, iOrd].mask
+                flux_ord = np.ma.array(flux[:, iOrd], mask=new_mask)[:, None]
+
+                ccf_pclean_ord = quick_correl_3dmod(tr.wave[:, iOrd, None],
+                                                         flux_ord,
+                                                         corrRV0,
+                                                         tr.wave[:, iOrd, None],
+                                                         correl_spectra[:, iOrd, None])
+
+                _, rv_snr, _, snr_i, _ = calc_snr_1d(np.abs(ccf_pclean_ord).squeeze(),
+                                                     corrRV0, np.zeros_like(tr.vrp), RV_sys=0.0)
+                ccf_pclean_new[:, iOrd] = ccf_pclean_ord.squeeze()
+
+                fct_snr = interp1d(rv_snr, snr_i)
+                snr_i_0 = np.max(snr_i[100 - 3:100 + 3 + 1])  # fct_snr(0.0)
+
+                if kind == 'tellu':
+                    if snr_i_0 == last_snr_i:
+                        #                     print("new_snr == last",snr_i_0, last_snr_i, 'add 0.05')
+                        if snr_i_0 >= 5:
+                            add_to_mask = 0.1
+                        else:
+                            add_to_mask = 0.05
+                    else:
+                        #                     print("new_snr != last",snr_i_0, last_snr_i, 'add 0.025')
+                        if snr_i_0 >= 5:
+                            add_to_mask = 0.05
+                        else:
+                            add_to_mask = 0.025
+                elif kind == 'sky':
+                    if snr_i_0 == last_snr_i:
+                        #                     print("new_snr == last",snr_i_0, last_snr_i, 'add 0.05')
+                        if limit_mask + 0.1 < 0.97:
+                            add_to_mask = 0.1
+                        else:
+                            add_to_mask = 0.05
+                        if limit_mask >= 0.95:
+                            add_to_mask = 0.002
+                        if limit_mask >= 0.98:
+                            add_to_mask = 0.001
+                    else:
+                        #                     print("new_snr != last",snr_i_0, last_snr_i, 'add 0.025')
+                        if snr_i_0 >= 3:
+                            add_to_mask = 0.05
+                        else:
+                            add_to_mask = 0.025
+                        if limit_mask >= 0.95:
+                            add_to_mask = 0.002
+                        if limit_mask >= 0.98:
+                            add_to_mask = 0.001
+
+                last_snr_i = snr_i_0
+
+        if kind == 'tellu':
+            new_mask = [get_mask_tell(tell, limit_mask + 0.025, pad_to) for tell in tr.pclean[:, iOrd, :]]
+            new_mask = new_mask | flux[:, iOrd].mask
+        #         flux_ord = np.ma.array(flux[:,iOrd], mask=new_mask)[:,None]
+        print(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
+
+        if plot:
+            axs[0, 1].pcolormesh(corrRV0, tr.phase, np.abs(ccf_pclean_new[:, iOrd]))
+            axs[1, 1].plot(rv_snr, snr_i)
+            axs[1, 1].axvline(0.0)
+            axs[1, 1].axhline(snr_i_0)
+
+        #         pltr.figure()
+        #         pltr.pcolormesh(corrRV0, tr.phase, np.abs(ccf_pclean_ord).squeeze())
+
+        new_mask_pclean[:, iOrd, :] = new_mask | flux[:, iOrd].mask
+
+    new_flux = np.ma.array(flux, mask=new_mask_pclean)
+
+    return new_mask_pclean, new_flux, ccf_pclean_new
+
+
+# for tr in [t1,t2,t3]:
+def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
+    if not (hasattr(tr, 'pclean') | hasattr(tr, 'sky')):
+        sky = []
+        tellu = []
+        #     with open(path + file_list) as f:
+
+        for file in tr.filenames:
+            blocks = file.split('_')
+            filename = '_'.join(blocks[0:2]) + '_tellu_pclean_' + blocks[-1]
+
+            print(filename)
+
+            sky_model = fits.getdata(tr.path + filename, ext=4)
+            tell_model = fits.getdata(tr.path + filename, ext=3)
+
+            sky.append(np.ma.masked_invalid(sky_model))
+            tellu.append(np.ma.masked_invalid(tell_model))
+
+        tr.sky = np.ma.masked_invalid(sky)
+        tr.pclean = np.ma.masked_invalid(tellu)
+
+    sky_t = np.ma.masked_invalid(tr.sky)
+    skynorm = sky_t / np.ma.max(sky_t)
+    skydown = 1 - skynorm
+    plt.figure()
+    plt.plot(skydown[0, 34])
+
+    spec_trans_tr = (tr.uncorr / tr.pclean) / tr.blaze / tr.reconstructed
+
+    sky_tr = spec_trans_tr - np.ma.median(spec_trans_tr, axis=-1)[:, :, None]
+    sky_tr = sky_tr / np.ma.max(sky_tr)
+    sky_tr = 1 - sky_tr
+    tile_sky_tr = np.tile(np.ma.mean(sky_tr, axis=0), (tr.n_spec, 1, 1))
+
+    params = tr.params
+    flux_mask = ts.build_trans_spectrum4(tr.wave, spec_trans_tr,
+                                         tr.berv, tr.planet.RV_sys, tr.vr, tr.iOut,
+                                         tellu=tr.tellu, noise=tr.noise,
+                                         lim_mask=params[0], lim_buffer=params[1],
+                                         mo_box=params[2], mo_gauss_box=params[4],
+                                         n_pca=params[5],
+                                         tresh=params[6], tresh_lim=params[7],
+                                         last_tresh=params[8], last_tresh_lim=params[9],
+                                         n_comps=tr.n_spec-2,
+                                         clip_ts=None, clip_ratio=None,
+                                         iOut_temp='all', cont=False,
+                                         cbp=True, poly_time=None,
+                                         flux_masked=spec_trans_tr,
+                                         flux_Sref=spec_trans_tr, flux_norm=spec_trans_tr,
+                                         flux_norm_mo=spec_trans_tr, master_out=spec_trans_tr,
+                                         spec_trans=spec_trans_tr,
+                                         mask_var=False)[6]
+
+    #     flux_mask = tr.final.copy()
+    new_mask = [get_mask_noise(f, 4, 3, gwidth=0.01, poly_ord=5) for f in flux_mask.swapaxes(0, 1)]
+    new_mask = new_mask | flux_mask.mask
+    flux_mask = np.ma.array(flux_mask, mask=new_mask)
+
+    # --- Tellu masking ---
+
+    ccf_tellu_tr = quick_correl_3dmod(tr.wave, flux_mask, corrRV0, tr.wave, tr.pclean)
+
+    tellu_mask, cmasked_flux_tr, ccf_tellu_clean = mask_custom_pclean_ord(tr, flux_mask, tr.pclean,
+                                                                          ccf_tellu_tr, corrRV0, plot=False)
+
+    if plot_clean:
+        ccf_tellu_clean = quick_correl_3dmod(tr.wave, cmasked_flux_tr,
+                                                  corrRV0, tr.wave, tr.pclean)
+        _ = plot_all_orders_correl(corrRV0, np.abs(ccf_tellu_clean), tr,
+                                      icorr=None, logl=False, sharey=True,
+                                      vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
+                                      vline=None, hline=2, kind='snr', return_snr=True)
+
+        # --- Sky masking ---
+
+    ccf_sky_tr = quick_correl_3dmod(tr.wave, cmasked_flux_tr, corrRV0,
+                                         tr.wave, skydown)
+
+    sky_mask, cmasked_flux_sky, ccf_sky_clean = mask_custom_pclean_ord(tr, cmasked_flux_tr, sky_tr,
+                                                                       ccf_sky_tr, corrRV0, kind='sky',
+                                                                       thresh=2.0, plot=False, pad_to=pad_to,
+                                                                       masking_spectra=skydown, correl_spectra=skydown)
+
+    if plot_clean:
+        ccf_sky_clean = quick_correl_3dmod(tr.wave, cmasked_flux_sky,
+                                                corrRV0, tr.wave, skydown)
+        _ = plot_all_orders_correl(corrRV0, np.abs(ccf_sky_clean), tr,
+                                      icorr=None, logl=False, sharey=True,
+                                      vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
+                                      vline=None, hline=2, kind='snr', return_snr=True)
+
+    if not hasattr(tr,'original_mask'):
+        tr.original_mask = tr.spec_trans.mask.copy()
+    tr.final_cm = cmasked_flux_sky
+    tr.custom_mask = cmasked_flux_sky.mask
+
+    del sky_mask, ccf_sky_clean, ccf_sky_tr, ccf_tellu_tr, tellu_mask, cmasked_flux_tr, ccf_tellu_clean, cmasked_flux_sky
+    del flux_mask, new_mask, sky_t, skynorm, spec_trans_tr, sky_tr, tile_sky_tr
+    gc.collect()

@@ -591,50 +591,12 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
                        'TiO', 'VO', 'OH', 'Na', 'K']
     
     if kind_res == "low":
-
         species_all0 = prt.select_mol_list(list_mols, list_values=None, kind_res='low', 
                                           change_line_list=change_line_list, 
                                            add_line_list=add_line_list)
-#         for mol in list_mols:
-#             species_all0[mol] = [1e-99]
-#                             'H2O_HITEMP': [1e-99], 
-#                            'CO_all_iso_HITEMP':[1e-99],
-#                           'CO2':[1e-99],
-#                               'FeH':[1e-99],
-#                               'C2H2': [1e-99],
-#                             'CH4': [1e-99],
-#                             'HCN': [1e-99],
-#                             'NH3': [1e-99],
-#                             'TiO_all_Plez': [1e-99],
-#                                 'OH': [1e-99],
-#                                 'VO': [1e-99],
-#                                 'Na_allard' : [1e-99],
-#                                 'K_allard' : [1e-99]
-#                               })
     elif kind_res == "high":
-#         if list_mols is None:
-#             list_mols=['H2O_main_iso', 'CO_all_iso', 'CO2_main_iso', 'FeH_main_iso', \
-#                        'CH4_main_iso', 'HCN_main_iso', 'NH3_main_iso', 'C2H2_main_iso',\
-#                        'TiO_all_iso', 'VO', 'OH_SCARLET', 'Na', 'K']
-#         species_all0 = OrderedDict({})
         species_all0 = prt.select_mol_list(list_mols, list_values=None, kind_res='high')
-#         for mol in list_mols:
-#             species_all0[mol] = [1e-99]
-#                         'H2O_main_iso': [1e-99], 
-#                        'CO_all_iso':[1e-99],
-#                       'CO2_main_iso':[1e-99],
-#                            'FeH_main_iso':[1e-99],
-#                           'C2H2_main_iso': [1e-99], 
-#                             'CH4_main_iso': [1e-99], 
-#                             'HCN_main_iso': [1e-99], 
-#                             'NH3_main_iso': [1e-99], 
-#                             'TiO_all_iso': [1e-99],
-#                             'OH_SCARLET': [1e-99],
-#                             'VO': [1e-99],
-#                             'Na' : [1e-99],
-#                             'K' : [1e-99]
-#                             })
-    
+
     if nb_mols is None:
         nb_mols = len(list_mols)
         
@@ -659,48 +621,8 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
         radius = planet.R_pl
 
     temp_params['gravity'] = (const.G * planet.M_pl / (radius)**2).cgs.value
-    
-    
-        
-#     print(temp_params['kappa_IR'], temp_params['gamma'])
-
-#     temperature = nc.guillot_global(pressures, 10**kappa_IR, 10**gamma, gravity, T_int, T_equ)
 
     temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP)
-#     if kind_temp == 'iso' :
-#         temperature = temp_params['T_eq']*np.ones_like(temp_params['pressures'])
-#     elif kind_temp == 'modif':
-#         if TP is True:
-#             temp_params['delta'] = 10**params[-4]
-#             temp_params['gamma'] = 10**params[-3]
-#             temp_params['ptrans'] = 10**params[-2]
-#             temp_params['alpha'] = params[-1]
-#         temperature = nc.guillot_modif(temp_params['pressures'], 
-#                                          temp_params['delta'], 
-#                                          temp_params['gamma'], 
-#                                          temp_params['T_int'], 
-#                                          temp_params['T_eq'],
-#                                          temp_params['ptrans'], 
-#                                          temp_params['alpha'])
-#     else:
-        
-#         if TP is True:
-#             temp_params['kappa_IR'] = 10**params[-2]
-#             temp_params['gamma'] = 10**params[-1]
-#         temperature = nc.guillot_global(temp_params['pressures'], 
-#                                      temp_params['kappa_IR'], 
-#                                      temp_params['gamma'], 
-#                                      temp_params['gravity'], 
-#                                      temp_params['T_int'], 
-#                                      temp_params['T_eq'])
-        
-#     plt.plot(temperature, np.log10(temp_params['pressures']))
-#     else:
-#         gravity = (const.G * planet.M_pl / (radius)**2).cgs.value
-#         temperature = nc.guillot_global(pressures, 10**kappa_IR, 10**gamma, gravity, T_int, T_equ)
-#     plt.figure()
-#     plt.plot(temperature, pressures)
-#     plt.figure()
 
     if scatt is True:
         gamma_scat = params[-2]
@@ -1168,6 +1090,58 @@ def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
                                                   T_eq=errors[nb_mols][0], pressures=1) ))
 
 
+def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
+                 left_val=1., right_val=1.,
+                 fig=None, color='dodgerblue', label='Instrum. * Rot. (S)', **kwargs):
+
+    if (params_id['wind_l'] is not None) or (params_id['wind_gauss'] is not None):
+        if params_id['wind_r'] is None:
+            if params_id['wind_l'] is not None :
+                omega = [theta[nb_mols + params_id['wind_l']]]
+            else:
+                omega = [theta[nb_mols + params_id['wind_gauss']]]
+        else:
+            omega = [theta[nb_mols + params_id['wind_l']], theta[nb_mols + params_id['wind_r']]]
+
+        rot_kwargs = {}
+        if (params_id['wind_gauss'] is not None):
+
+            rot_kwargs['gauss'] = True
+            rot_kwargs['x0'] = 0
+            rot_kwargs['fwhm'] = theta[nb_mols + params_id['wind_gauss']] * 1e3
+
+    rotker = spectrum.RotKerTransitCloudy(theta[nb_mols + params_id['rpl']] * const.R_jup,
+                                 planet.M_pl,
+                                 theta[nb_mols + params_id['temp']] * u.K,
+                                 np.array(omega) / u.day,
+                                 resol,
+                                 left_val=left_val, right_val=right_val,
+                                 step_smooth=250., v_mid=0., **rot_kwargs, **kwargs)
+
+    res_elem = rotker.res_elem
+    v_grid, kernel, cloud = rotker.get_ker(n_os=1000)
+
+    gauss_ker0 = hm.gauss(v_grid, 0.0, FWHM=res_elem)
+    gauss_ker = gauss_ker0 / gauss_ker0.sum()
+    _, ker_degraded = rotker.degrade_ker(n_os=1000)
+
+    if fig is None:
+        fig = plt.figure(figsize=(7, 5))
+        label1 = 'Instrum. res. elem.'
+        label2 = 'Rot. kernel (S)'
+        lines = plt.plot(v_grid / 1e3, gauss_ker, color="k",
+                         label=label1)
+        plt.axvline(res_elem / 2e3, linestyle='--', color='gray')
+        plt.axvline(-res_elem / 2e3, linestyle='--', color='gray')
+    else:
+        label2 = None
+
+    new_line = plt.plot(v_grid / 1e3, kernel, color=color,
+                        label=label2, zorder=10, linestyle=':', alpha=0.7)
+    new_line = plt.plot(v_grid / 1e3, ker_degraded, color=color,
+                        label=label, zorder=12, alpha=0.9)
+    plt.legend()
+    return fig
 
 
 # def calc_best_mod(params, atmos_obj, gamma_scat=-1.71, kappa_factor=0.36):

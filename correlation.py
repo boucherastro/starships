@@ -324,18 +324,20 @@ def nolog2log(nolog_L, N, sum_N=True):  #, sumit=False, axis=0
 
 
 def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flux, s2f, 
-                             vrp_orb=None, vr_orb=None, resol=64000, 
-                             nolog=True, inj_alpha='ones', alpha=None, kind_trans="emission"):
+                             vrp_orb=None, vr_orb=None, #resol=64000, inj_alpha='ones',
+                             nolog=True,  alpha=None, kind_trans="emission"):
         
     model_seq = gen_model_sequence_noinj([RV, vrp_orb-vr_orb, data_tr['RV_const']], 
                                          data_tr['wave'], data_tr['sep'], 
                                          data_tr['pca'], int(data_tr['params'][5]), data_tr['noise'], 
                                          planet, wave_mod[20:-20], model[20:-20], 
-                                        kind_trans=kind_trans, alpha=alpha, resol=resol)
+                                        kind_trans=kind_trans, alpha=alpha,# resol=resol
+                                         )
     
 #     model_seq = gen_model_sequence_retrieval([RV, vrp_orb-vr_orb, data_tr['RV_const']], data_tr, 
 #                                              planet, wave_mod[20:-20], model[20:-20], 
-#                                         kind_trans=kind_trans, alpha=alpha, resol=resol) 
+#                                         kind_trans=kind_trans, alpha=alpha,# resol=resol
+    #                                         )
 
     mod = model_seq/data_tr['noise']
 
@@ -355,8 +357,8 @@ def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flu
     
     
 def gen_model_sequence_noinj(velocities, data_wave, data_sep, data_pca, data_npc, data_noise, 
-                             planet, model_wave, model_spec, resol=64000, 
-                       debug=False, alpha=None, norm=True, **kwargs):
+                             planet, model_wave, model_spec, #resol=64000,norm=True,debug=False,
+                            alpha=None,  **kwargs):
     # --- inject model in an empty sequence of ones
     flux_inj, _ = quick_inject_clean(data_wave, np.ones_like(data_wave), 
                                                   model_wave, model_spec, 
@@ -370,8 +372,8 @@ def gen_model_sequence_noinj(velocities, data_wave, data_sep, data_pca, data_npc
     return model_seq
 
 
-def gen_model_sequence_retrieval(velocities, data_tr, planet, model_wave, model_spec, resol=64000, 
-                       debug=False, alpha=None, norm=True, **kwargs):
+def gen_model_sequence_retrieval(velocities, data_tr, planet, model_wave, model_spec, #resol=64000, debug=False,
+                                 alpha=None, norm=True, **kwargs):
     
     flux_inj, _ = quick_inject_clean(data_tr['wave'], data_tr['reconstructed'], 
                                                   model_wave, model_spec, 
@@ -455,14 +457,15 @@ def unload_data(data_obj, kind_obj,
         params0 = data_obj.params
         scaling = data_obj.scaling
         wave, vrp, icorr, clip_ts = data_obj.wave, data_obj.vrp, data_obj.icorr, data_obj.clip_ts
-        t_start, RV_const, sep = data_obj.t_start.value, data_obj.RV_const, data_obj.sep
+        t_start, RV_const, sep = data_obj.t_start, data_obj.RV_const, data_obj.sep
 #         nu = data_obj.nu
     return spec_trans, pca, final, N, noise, alpha, ratio, \
             params0, wave, vrp, icorr, clip_ts, t_start, RV_const, sep, scaling
 
 
 def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_mod, models, 
-                                 resol, kind_trans, final=None, spec_trans=None, noise=None, ratio=None,
+                                 # resol,
+                     kind_trans, final=None, spec_trans=None, noise=None, ratio=None,
                                  pca=None, alpha=None, inj_alpha='ones',
                                  get_GG=True, vrp_kind='t', nolog=True, 
                                  change_noise=False, force_npc=None, **kwargs):
@@ -561,11 +564,13 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                     model_seq = gen_model_sequence_noinj([vrad, vrp_orb-vr_orb, RV_const], 
                                          wave, sep, pca, int(params[5]), noise, 
                                          planet, wave_mod[20:-20], specMod[20:-20], 
-                                         kind_trans=kind_trans, alpha=alpha, resol=resol, **kwargs)
+                                         kind_trans=kind_trans, alpha=alpha, #resol=resol,
+                                                         **kwargs)
     
 #                     model_seq = gen_model_sequence_retrieval([RV, vrp_orb-vr_orb, data_tr['RV_const']], data_tr, 
 #                                                              planet, wave_mod[20:-20], specMod[20:-20], 
-#                                                         kind_trans=kind_trans, alpha=alpha, resol=resol, **kwargs)
+#                                                         kind_trans=kind_trans, alpha=alpha, #resol=resol,
+#                                                         **kwargs)
 
                     if get_GG is True:
                         mod = model_seq/noise
@@ -592,9 +597,11 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
     return out
     
 
-def gen_model_sequence(theta, tr, model_wave, model_spec, n_pcs=None, resol=64000, 
-                       debug=False, pca=None, norm=True, alpha=None, 
-                       reconstructed=None, ratio=None, blaze=None, master_out=None, iOut=None,
+def gen_model_sequence(theta, tr, model_wave, model_spec, n_pcs=None,
+                       # resol=64000, blaze=None, debug=False, iOut=None,
+                       pca=None, norm=True, alpha=None,
+                       reconstructed=None, ratio=None,
+                       master_out=None,
                        **kwargs):
     
     vrad, vrp_orb, v_star = theta
@@ -635,9 +642,10 @@ def gen_model_sequence(theta, tr, model_wave, model_spec, n_pcs=None, resol=6400
 # import matplotlib.pyplot as plt
 
 def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, modelTD0, 
-                                 resol, final=None, spec_trans=None, noise=None, 
+                                 # resol,
+                                 final=None, spec_trans=None, noise=None,
                                  nolog=True, pca=None, norm=True, alpha=None, inj_alpha='ones',
-                                 get_GG=True, RVconst = 0.0,
+                                 get_GG=True, RVconst = 0.0, new_mask=None,
                                  vrp_kind='t',  master_out=None, iOut=None, ratio=None,
                                  reconstructed=None, change_noise=False, force_npc=None, **kwargs):
     
@@ -687,16 +695,20 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
                                 clip_ts=tr.clip_ts, clip_ratio=tr.clip_ratio, cont=False)
             #last_mask=False, n_comps=tr.n_comps, 
 
-            rebuilt = tr.rebuilt
+            # rebuilt = tr.rebuilt
             final = np.ma.array(tr.final, mask=tr.last_mask) 
             pca = tr.pca
+            # reconstructed=tr.reconstructed
             
         if get_GG is True:
             flux = final/noise
     #         flux -= np.ma.mean(flux, axis=-1)[:,:,None]
         else:
             flux = final
-        
+
+        if new_mask is not None:
+            flux = np.ma.array(flux, mask=new_mask)
+
         s2f_sig = np.ma.sum(flux**2, axis=-1)
         
 #         if (get_bl is True) | (sfsg is True):
@@ -715,7 +727,7 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
                 if vrp_kind == 'nu':
                     vrp_orb = rv_theo_nu(Kpi, tr.nu*u.rad, tr.planet.w, plnt=True).value
                 elif vrp_kind == 't':
-                    vrp_orb = rv_theo_t(Kpi, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+                    vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
 
                 vr_orb = -vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose().value
 
@@ -725,11 +737,10 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
                                              n_pc, i+1,len(Kp_array),Kpi, f+1, modelTD0.shape[0], v+1,corrRV.size))
     
                     model_seq = gen_model_sequence([vrad, vrp_orb-vr_orb, RVconst], tr, modelWave0, specMod,  
-                                                   pca=pca,
-                                                   n_pcs=n_pc_mod, resol=resol, norm=norm, 
+                                                   pca=pca, n_pcs=n_pc_mod, norm=norm,
                                                    reconstructed=reconstructed, ratio=ratio, 
-                                                   #blaze=blaze, debug=debug,  
-                                                   master_out=master_out, iOut=iOut, alpha=alpha, **kwargs)
+                                                   #blaze=blaze, debug=debug,  iOut=iOut,#resol=resol,
+                                                   master_out=master_out, alpha=alpha, **kwargs)
 
                     if get_GG is True:
                         mod = model_seq/noise
@@ -837,7 +848,7 @@ def quick_calc_logl_injred_class_parts(tr, Kp_array, corrRV, n_pcas, modelWave0,
                 if vrp_kind == 'nu':
                     vrp_orb = rv_theo_nu(Kpi, tr.nu*u.rad, tr.planet.w, plnt=True).value
                 elif vrp_kind == 't':
-                    vrp_orb = rv_theo_t(Kpi, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+                    vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         
 #                 if mid_id_nu is not None:
 #                     vrp_orb = vrp_orb - rv_theo_nu(Kpi, mid_id_nu*u.rad, tr.planet.w, plnt=True).value
@@ -849,9 +860,10 @@ def quick_calc_logl_injred_class_parts(tr, Kp_array, corrRV, n_pcas, modelWave0,
                                              n_pc, i+1,len(Kp_array),Kpi, f+1, modelTD0.shape[0], v+1,corrRV.size))
 
                     model_seq = gen_model_sequence([vrad, vrp_orb-vr_orb, RVconst], tr, modelWave0, specMod, pca=pca,
-                                                   n_pcs=n_pc, resol=resol, debug=debug, norm=norm, 
-                                                   reconstructed=reconstructed, ratio=ratio, blaze=blaze, 
-                                                   master_out=master_out, iOut=iOut, alpha=alpha, **kwargs)     
+                                                   n_pcs=n_pc,  norm=norm,
+                                                   # resol=resol,blaze=blaze, iOut=iOut,debug=debug,
+                                                   reconstructed=reconstructed, ratio=ratio,
+                                                   master_out=master_out,  alpha=alpha, **kwargs)
                     if get_GG is True:
                         mod = model_seq/noise
                     else:

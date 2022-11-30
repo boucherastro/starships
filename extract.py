@@ -437,7 +437,7 @@ def col_remove(flux):
     # Return with good shape
     return out.swapaxes(0, 1).reshape(shape)
 
-def get_mask_tell(tell, tresh, pad_tresh):
+def get_mask_tell(tell, tresh, pad_tresh, pad_masked=False):
     
     if tell.mask.all():
         return tell.mask
@@ -456,13 +456,14 @@ def get_mask_tell(tell, tresh, pad_tresh):
    
     while True:
         temp_mask = np.convolve(new_mask, [1,1,1], 'same').astype(bool)
-        temp_mask = (temp_mask & (tell.data < 0.97))
+        temp_mask = (temp_mask & (tell.data < pad_tresh))
         if (temp_mask == new_mask).all():
             break
         new_mask = temp_mask
     
     # --- Will automatically mask 3 pixels each sides of already masked tellurics
-    mask_inv = np.convolve(mask_inv, [1,1,1,1,1,1,1], 'same').astype(bool)
+    if pad_masked:
+        mask_inv = np.convolve(mask_inv, [1,1,1,1,1,1,1], 'same').astype(bool)
         
     return new_mask | mask_inv
 
