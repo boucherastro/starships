@@ -90,8 +90,9 @@ def alpha2nb(char):
 import batman 
 from astropy.modeling.physical_models import BlackBody as bb
 
-def calc_tr_lightcurve(planet, coeffs, time, 
-                       fl_ratio=0.0001, t0 = 0.5, ld_model='linear', kind_trans='transmission'):
+def calc_tr_lightcurve(planet, coeffs, time, T0,
+                       # fl_ratio=0.0001, t0 = 0.5,
+                       ld_model='linear', kind_trans='transmission', secondary=False):
     params = batman.TransitParams()
     params.t0 = planet.mid_tr.value                       #time of inferior conjunction
     params.per = planet.period.to(u.d).value                      #orbital period
@@ -119,7 +120,9 @@ def calc_tr_lightcurve(planet, coeffs, time,
         bb_pl = bb(planet.Tp)
         fl_ratio = bb_pl(1.4*u.um)/bb_star(1.4*u.um)
         params.fp = fl_ratio
-        params.t_secondary = planet.mid_tr.value #+ 0.5*planet.period.to(u.d).value
+        params.t_secondary = T0.value
+        # if tag == 'secondary':
+        #     params.t_secondary += 0.5*planet.period.to(u.d).value
     else:
         transittype = "primary"
     m = batman.TransitModel(params, time, transittype=transittype)    #initializes model

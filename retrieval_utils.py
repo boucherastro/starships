@@ -1093,6 +1093,8 @@ def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
 def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
                  left_val=1., right_val=1.,
                  fig=None, color='dodgerblue', label='Instrum. * Rot. (S)', **kwargs):
+    if params_id['cloud_r'] is not None:
+        right_val = theta[nb_mols + params_id['cloud_r']]
 
     if (params_id['wind_l'] is not None) or (params_id['wind_gauss'] is not None):
         if params_id['wind_r'] is None:
@@ -1125,20 +1127,26 @@ def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
     gauss_ker = gauss_ker0 / gauss_ker0.sum()
     _, ker_degraded = rotker.degrade_ker(n_os=1000)
 
+    if (params_id['rv'] is not None):
+        rv_shift = theta[nb_mols + params_id['rv']]
+    else:
+        rv_shift = 0.0
+
+
     if fig is None:
         fig = plt.figure(figsize=(7, 5))
         label1 = 'Instrum. res. elem.'
         label2 = 'Rot. kernel (S)'
-        lines = plt.plot(v_grid / 1e3, gauss_ker, color="k",
+        plt.plot(v_grid / 1e3, gauss_ker, color="k",
                          label=label1)
         plt.axvline(res_elem / 2e3, linestyle='--', color='gray')
         plt.axvline(-res_elem / 2e3, linestyle='--', color='gray')
     else:
         label2 = None
 
-    new_line = plt.plot(v_grid / 1e3, kernel, color=color,
+    plt.plot(v_grid / 1e3 + rv_shift, kernel, color=color,
                         label=label2, zorder=10, linestyle=':', alpha=0.7)
-    new_line = plt.plot(v_grid / 1e3, ker_degraded, color=color,
+    plt.plot(v_grid / 1e3 + rv_shift, ker_degraded, color=color,
                         label=label, zorder=12, alpha=0.9)
     plt.legend()
     return fig
@@ -1874,4 +1882,272 @@ def plot_corner(sample_all, labels, param_no_zero=4, maxs=None, errors=None, plo
 #     plt.ylabel(labels[param_y])
     
     
-    
+# def lnprob(theta, ):
+#     total = 0.
+#
+#     total += log_prior_params(theta, nb_mols, params_id, params_prior)
+#
+#     #     print('Prior ',total)
+#
+#     if not np.isfinite(total):
+#         #         print('prior -inf')
+#         return -np.inf
+#
+#     if params_id['cloud'] is not None:
+#         pcloud = 10 ** (theta[nb_mols + params_id['cloud']])  # in bars
+#     else:
+#         pcloud = None
+#
+#     if params_id['rpl'] is not None:
+#         rpl = theta[nb_mols + params_id['rpl']]
+#         temp_params['gravity'] = (const.G * planet.M_pl / (rpl * const.R_jup) ** 2).cgs.value
+#     else:
+#         rpl = planet.R_pl.to(u.R_jup).value
+#
+#     if params_id['tp_kappa'] is not None:
+#         kappa = 10 ** theta[nb_mols + params_id['tp_kappa']]
+#     else:
+#         kappa = temp_params['kappa_IR']
+#
+#     if params_id['tp_gamma'] is not None:
+#         gamma = 10 ** theta[nb_mols + params_id['tp_gamma']]
+#     else:
+#         gamma = temp_params['gamma']
+#
+#     if params_id['tp_delta'] is not None:
+#         delta = 10 ** theta[nb_mols + params_id['tp_delta']]
+#     else:
+#         delta = temp_params['delta']
+#
+#     if params_id['tp_ptrans'] is not None:
+#         ptrans = 10 ** theta[nb_mols + params_id['tp_ptrans']]
+#     else:
+#         ptrans = temp_params['ptrans']
+#
+#     if params_id['tp_alpha'] is not None:
+#         alpha = theta[nb_mols + params_id['tp_alpha']]
+#     else:
+#         alpha = temp_params['alpha']
+#
+#     if params_id['scat_gamma'] is not None:
+#         gamma_scat = theta[nb_mols + params_id['scat_gamma']]
+#     else:
+#         gamma_scat = None
+#
+#     if params_id['scat_factor'] is not None:
+#         factor = theta[nb_mols + params_id['scat_factor']]  # * (5.31e-31*u.m**2/u.u).cgs.value
+#     else:
+#         factor = None
+#
+#     if (params_id['wind_l'] is not None) or (params_id['wind_gauss'] is not None):
+#         if params_id['wind_r'] is None:
+#             omega = [theta[nb_mols + params_id['wind_l']]]
+#         else:
+#             omega = [theta[nb_mols + params_id['wind_l']], theta[nb_mols + params_id['wind_r']]]
+#
+#         rot_kwargs = {
+#             'rot_params': [rpl * const.R_jup, planet.M_pl,
+#                            theta[nb_mols + params_id['temp']] * u.K,
+#                            omega]
+#         }
+#         if (params_id['wind_gauss'] is not None):
+#             rot_kwargs['gauss'] = True
+#             rot_kwargs['x0'] = 0
+#             rot_kwargs['fwhm'] = theta[nb_mols + params_id['wind_gauss']] * 1e3
+#
+#     else:
+#         rot_kwargs = {'rot_params': None}
+#
+#     #     if plot:
+#     #         plt.figure(figsize=(16,8))
+#
+#     # --- Generating the temperature profile
+#     if kind_temp == "modif":
+#         temperatures = guillot_modif(temp_params['pressures'], delta, gamma,
+#                                      temp_params['T_int'],
+#                                      theta[nb_mols + params_id['temp']],
+#                                      ptrans, alpha)
+#     elif kind_temp == 'iso':
+#         temperatures = theta[nb_mols + params_id['temp']] * np.ones_like(temp_params['pressures'])
+#     else:
+#         temperatures = guillot_global(temp_params['pressures'],
+#                                       kappa, gamma, temp_params['gravity'],
+#                                       temp_params['T_int'],
+#                                       theta[nb_mols + params_id['temp']])
+#
+#     ####################
+#     # --- HIGH RES --- #
+#     ####################
+#
+#     if (retrieval_type == 'JR') or (retrieval_type == 'HRR'):
+#         #         print('High res')
+#
+#         atmos_high, species_high = prt_high
+#
+#         # --- Updating the abundances
+#         for i_mol, mol in enumerate(list(species_high.keys())[:len(list_mols)]):
+#             species_high[mol] = 10 ** (theta[i_mol])
+#
+#         if continuum_opacities is not None:
+#             if 'H-' in continuum_opacities:
+#                 species_high['H-'] = 10 ** theta[nb_mols - 1]
+#                 species_high['H'] = 10 ** (-99.)
+#                 species_high['e-'] = 10 ** (-6.0)
+#
+#         #         print(species_high)
+#
+#         # --- Generating the model
+#         wv_high, model = prt.retrieval_model_plain(atmos_high, species_high, planet, temp_params['pressures'],
+#                                                    temperatures, temp_params['gravity'], P0, pcloud,
+#                                                    rpl * const.R_jup.cgs.value, planet.R_star.cgs.value,
+#                                                    kind_trans=kind_trans, dissociation=dissociation,
+#                                                    fct_star=fct_star,
+#                                                    gamma_scat=gamma_scat, kappa_factor=factor)
+#
+#         if not np.isfinite(model[100:-100]).all():
+#             print("NaN in high res model spectrum encountered")
+#             return -np.inf
+#
+#         # --- Downgrading and broadening the model (if broadening is included)
+#         wv_high, model_high = prt.prepare_model(wv_high, model, int(1e6 / opacity_sampling),
+#                                                 Raf=instrum['resol'], **rot_kwargs)
+#         #         print(wv_high, model_high)
+#
+#         if plot:
+#             plt.plot(wv_high, model_high, alpha=0.3)
+#
+#         logl_i = []
+#         # --- Computing the logL for all sequences
+#         for tr_i in data_trs.keys():
+#             #             print(tr_i)
+#             vrp_orb = rv_theo_t(theta[nb_mols + params_id['kp']], \
+#                                 data_trs[tr_i]['t_start'] * u.d, planet.mid_tr, planet.period, plnt=True).value
+#             logl_tr = corr.calc_log_likelihood_grid_retrieval(theta[nb_mols + params_id['rv']],
+#                                                               data_trs[tr_i], planet, wv_high, model_high,
+#                                                               data_trs[tr_i]['flux'], data_trs[tr_i]['s2f'],
+#                                                               vrp_orb=vrp_orb, vr_orb=-vrp_orb * Kp_scale,
+#                                                               # resol=instrum['resol'],
+#                                                               nolog=nolog,
+#                                                               # inj_alpha=inj_alpha,
+#                                                               alpha=np.ones_like(data_trs[tr_i]['t_start']),
+#                                                               kind_trans=kind_trans)
+#
+#             #             print(data_trs[tr_i]['flux'][0])
+#             if not np.isfinite(logl_tr).all():
+#                 return -np.inf
+#
+#             logl_i.append(logl_tr)
+#         #             print(logl_tr)
+#         # --- Computing the total logL
+#         #         spirou_logl = corr.sum_logl(np.concatenate(np.array(logl_i), axis=0),
+#         #                                data_info['trall_icorr'], orders, data_info['trall_N'],
+#         #                                axis=0, del_idx=data_info['bad_indexs'],
+#         #                                      nolog=True, alpha=data_info['trall_alpha_frac'])
+#         #         total += spirou_logl.copy()
+#         total += corr.sum_logl(np.concatenate(np.array(logl_i), axis=0),
+#                                data_info['trall_icorr'], orders, data_info['trall_N'],
+#                                axis=0, del_idx=data_info['bad_indexs'],
+#                                nolog=True, alpha=data_info['trall_alpha_frac'])
+#
+#     #         print('SPIRou', spirou_logl)
+#     #         print('SPIRou', total)
+#     ###################
+#     # --- LOW RES --- #
+#     ###################
+#     if ((retrieval_type == 'JR') and (spitzer is not None)) or (retrieval_type == 'LRR') or (prt_low is not None):
+#         #         print('Low res')
+#
+#         atmos_low, species_low = prt_low
+#
+#         # --- Updating the abundances
+#         for i_mol, mol in enumerate(list(species_low.keys())[:len(list_mols)]):
+#             species_low[mol] = 10 ** (theta[i_mol])
+#
+#         if continuum_opacities is not None:
+#             if 'H-' in continuum_opacities:
+#                 species_low['H-'] = 10 ** theta[nb_mols - 1]
+#                 species_low['H'] = 10 ** (-99.)
+#                 species_low['e-'] = 10 ** (-6.0)
+#         #         print(species_low)
+#
+#         # --- Generating the model
+#         wv_low, model_low = \
+#             prt.retrieval_model_plain(atmos_low, species_low, planet, temp_params['pressures'],
+#                                       temperatures, temp_params['gravity'], P0, pcloud,
+#                                       rpl * const.R_jup.cgs.value, planet.R_star.cgs.value,
+#                                       kind_trans=kind_trans, dissociation=dissociation,
+#                                       fct_star=fct_star_low,
+#                                       gamma_scat=gamma_scat, kappa_factor=factor)
+#
+#         if np.sum(np.isnan(model_low)) > 0:
+#             print("NaN in low res model spectrum encountered")
+#             return -np.inf
+#
+#         if plot:
+#             plt.plot(wv_low, model_low)
+#
+#         if spitzer is not None:
+#             #             print('Spitzer')
+#             spit_wave, spit_data, spit_data_err, wave_sp, fct_sp = spitzer
+#             if plot:
+#                 plt.errorbar(spit_wave, spit_data, spit_data_err,
+#                              color='k', marker='.', linestyle='none', zorder=32)
+#
+#             spit_mod = []
+#             for wave_i, fct_i in zip(wave_sp, fct_sp):
+#                 # --- Computing the model broadband point
+#                 cond = (wv_low >= wave_i[0]) & (wv_low <= wave_i[-1])
+#                 spit_mod.append(np.average(model_low[cond], weights=fct_i(wv_low[cond])))
+#
+#             if plot:
+#                 plt.plot(spit_wave, np.array(spit_mod), '.')
+#             # --- Computing the logL
+#             #             spitzer_logl = -1/2*corr.calc_chi2(spit_data, spit_data_err, np.array(spit_mod))
+#             #             total += spitzer_logl.copy()
+#             total += -1 / 2 * corr.calc_chi2(spit_data, spit_data_err, np.array(spit_mod))
+#
+#     #             print('Spitzer', spitzer_logl)
+#     if (retrieval_type == 'JR') or (retrieval_type == 'LRR'):
+#         #         print('HST')
+#
+#         if (retrieval_type == 'JR') and (spitzer is None):
+#             # --- If no Spitzer or STIS data is included, only the high res model is generated
+#             # and this is the model that will be downgraded for WFC3
+#             wv_low, model_low = wv_high, model_high
+#             Rbf = instrum['resol']
+#             R_sampling = int(1e6 / opacity_sampling)
+#         else:
+#             Rbf = 1000
+#             R_sampling = 1000
+#         #         print(Rbf)
+#         for instrument in hst.keys():
+#             hst_wave, hst_data, hst_data_err, hst_res = hst[instrument]
+#             #             print(hst_wave, hst_data, hst_data_err, hst_res)
+#
+#             cond = (wv_low >= hst_wave[0] - 0.05) & (wv_low <= hst_wave[-1] + 0.05)
+#
+#             _, resamp_prt = spectrum.resampling(wv_low[cond], model_low[cond],
+#                                                 Raf=hst_res, Rbf=Rbf, sample=wv_low[cond])
+#             binned_prt_hst = spectrum.box_binning(resamp_prt, R_sampling / hst_res)
+#             fct_prt = interp1d(wv_low[cond], binned_prt_hst)
+#             mod = fct_prt(hst_wave)
+#             #             print(mod)
+#             if plot:
+#                 plt.plot(wv_low[cond], model_low[cond])
+#                 plt.errorbar(hst_wave, hst_data, hst_data_err,
+#                              color='k', marker='.', linestyle='none', zorder=32)
+#                 plt.plot(hst_wave, mod, '.')
+#                 plt.xlim(None, 2.0)
+#             # --- Computing the logL
+#             #             hst_logl = -1/2*corr.calc_chi2(hst_data, hst_data_err, mod)
+#             #             total += hst_logl.copy()
+#             total += -1 / 2 * corr.calc_chi2(hst_data, hst_data_err, mod)
+#
+#         del wv_low, model_low
+#
+#     if retrieval_type != 'LRR':
+#         del wv_high, model_high
+#
+#     gc.collect()
+#
+#     return total

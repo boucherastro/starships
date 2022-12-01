@@ -297,6 +297,21 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
     rp, x, y, z, self.sep, p.bRstar = o.position(self.nu, e=p.excent, i=p.incl, w=p.w, omega=p.omega,
                                                  Rstar=p.R_star, P=p.period, ap=p.ap, Mp=p.M_pl, Mstar=p.M_star)
 
+
+    phase = ((self.t - p.mid_tr) / p.period).decompose().value
+    phase -= np.round(phase.mean())
+    if kind_trans == 'emission':
+        if (phase < 0).all():
+            phase += 1.0
+    self.phase
+
+    tag = ['primary', 'secondary'][np.argmin([np.abs(np.mean(phase) - 0), np.abs(np.mean(phase) - 0.5)])]
+    if tag == 'primary':
+        T0 = p.mid_tr
+    elif tag == 'secondary':
+        T0 = p.mid_tr + 0.5 * p.period.to(u.d)
+        z = None
+
     i_peri = np.searchsorted(self.t, p.mid_tr)
 
     p.b = (p.bRstar / p.R_star).decompose()
@@ -336,34 +351,34 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
     self.icorr = self.iIn
 
     if plot is True:
-        fig, ax = plt.subplots(3, 1, sharex=True)
-        ax[2].plot(self.t, np.nanmean(self.SNR[:, :], axis=-1), 'o-')
+        fig, ax = plt.subplots(2, 1, sharex=True)
+        ax[1].plot(self.t, np.nanmean(self.SNR[:, :], axis=-1), 'o-')
         if out.size > 0:
             ax[0].plot(self.t[self.iOut], self.AM[self.iOut], 'ro')
             #             ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'ro')
-            ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'ro')
+            ax[1].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'ro')
         if part.size > 0:
             ax[0].plot(self.t[self.part], self.AM[self.part], 'go')
             #             ax[1].plot(self.t[self.part], self.adc1[self.part],'go')
-            ax[2].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :], axis=-1), 'go')
+            ax[1].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :], axis=-1), 'go')
         if total.size > 0:
             ax[0].plot(self.t[self.total], self.AM[self.total], 'bo')
             #             ax[1].plot(self.t[self.total], self.adc1[self.total],'bo')
-            ax[2].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :], axis=-1), 'bo')
+            ax[1].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :], axis=-1), 'bo')
         if self.iin.size > 0:
             ax[0].plot(self.t[self.iIn], self.AM[self.iIn], 'g.')
             #             ax[1].plot(self.t[self.iIn], self.adc1[self.iIn],'g.')
-            ax[2].plot(self.t[self.iIn], np.nanmean(self.SNR[self.iIn, :], axis=-1), 'g.')
+            ax[1].plot(self.t[self.iIn], np.nanmean(self.SNR[self.iIn, :], axis=-1), 'g.')
         if self.iout.size > 0:
             ax[0].plot(self.t[self.iOut], self.AM[self.iOut], 'r.')
             #             ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'r.')
-            ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'r.')
+            ax[1].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'r.')
 
         ax[0].set_ylabel('Airmass')
-        ax[1].set_ylabel('ADC1 angle')
-        ax[2].set_ylabel('Mean SNR')
+        # ax[1].set_ylabel('ADC1 angle')
+        ax[1].set_ylabel('Mean SNR')
 
-    self.alpha = hm.calc_tr_lightcurve(p, coeffs, self.t.value, ld_model=ld_model, kind_trans=kind_trans)
+    self.alpha = hm.calc_tr_lightcurve(p, coeffs, self.t, T0, ld_model=ld_model, kind_trans=kind_trans)
     #         self.alpha = np.array([(hm.circle_overlap(p.R_star.to(u.m), p.R_pl.to(u.m), sep) / \
     #                         p.A_star).value for sep in self.sep]).squeeze()
     #         self.alpha = np.array([hm.circle_overlap(p.R_star, p.R_pl, sep).value for sep in self.sep])
@@ -757,11 +772,12 @@ class Observations():
 #             plt.plot(self.t, self.vr+p.RV_sys, 'ro')
 
 #         self.phase = (((self.t_start - p.mid_tr - p.period/2) % p.period)/p.period) - 0.5
-        self.phase = ((self.t-p.mid_tr)/p.period).decompose().value
-        self.phase -= np.round(self.phase.mean())
-        if kind_trans == 'emission':
-            if (self.phase < 0).all():
-                self.phase += 1.0
+
+#         self.phase = ((self.t-p.mid_tr)/p.period).decompose().value
+#         self.phase -= np.round(self.phase.mean())
+#         if kind_trans == 'emission':
+#             if (self.phase < 0).all():
+#                 self.phase += 1.0
 
         self.wv = np.mean(self.wave, axis=0)     
         
@@ -1269,7 +1285,9 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     tr_merge.iIn = np.concatenate(iIn_list)
     tr_merge.iOut = np.concatenate(iOut_list)
     
-    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx])#.value
+    tr_merge.alpha_frac = np.concatenate([list_tr[str(tr_i)].alpha_frac for tr_i in merge_tr_idx])
+    tr_merge.t_start = np.concatenate([list_tr[str(tr_i)].t_start for tr_i in merge_tr_idx])
+    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx]) #.value
     tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
 
     if light is False:
@@ -1315,57 +1333,7 @@ def merge_velocity(tr_merge, list_tr, merge_tr_idx):
     tr_merge.RV_const = np.concatenate([list_tr[str(tr_i)].RV_const* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
     
-# def merge_tr_old(trb1,trb2,tr_merge, params=None):
-#     tr_merge.icorr = np.concatenate((trb1.icorr, trb1.n_spec + trb2.icorr))
-#     tr_merge.phase = np.concatenate((trb1.phase, trb2.phase)).value
-# #     tr_merge.phase = np.concatenate((trb1.phase, trb2.phase), axis=0).value
-    
-#     tr_merge.noise = np.ma.concatenate((trb1.noise, trb2.noise), axis=0)
-#     tr_merge.fl_norm = np.ma.concatenate((trb1.fl_norm, trb2.fl_norm), axis=0)
-#     tr_merge.fl_Sref = np.ma.concatenate((trb1.fl_Sref, trb2.fl_Sref), axis=0)
-#     tr_merge.fl_masked = np.ma.concatenate((trb1.fl_masked, trb2.fl_masked), axis=0)
-#     tr_merge.fl_norm_mo = np.ma.concatenate((trb1.fl_norm_mo, trb2.fl_norm_mo), axis=0)
-    
-#     if trb1.mast_out.ndim == 2:
-#         tr_merge.mast_out = np.ma.mean(np.ma.array([np.ma.masked_invalid(trb1.mast_out),
-#                                                 np.ma.masked_invalid(trb2.mast_out)]), axis=0)
-#     elif trb1.mast_out.ndim == 3:
-#         tr_merge.mast_out = np.ma.concatenate((trb1.mast_out, trb2.mast_out), axis=0)
 
-#     tr_merge.spec_trans = np.ma.concatenate((trb1.spec_trans, trb2.spec_trans), axis=0)
-#     tr_merge.full_ts = np.ma.concatenate((trb1.full_ts, trb2.full_ts), axis=0)
-# #     tr_merge.chose = np.ma.concatenate((trb1.chose, trb2.chose), axis=0)
-#     tr_merge.final = np.ma.concatenate((trb1.final, trb2.final), axis=0)
-#     tr_merge.final_std = np.ma.concatenate((trb1.final_std, trb2.final_std), axis=0)
-#     tr_merge.rebuilt = np.ma.concatenate((trb1.rebuilt, trb2.rebuilt), axis=0)
-# #     tr_merge.pca = tr.pca  # np.concatenate((trb1.pca, trb2.pca), axis=0)
-#     tr_merge.N = np.ma.concatenate((trb1.N, trb2.N), axis=0)
-#     tr_merge.N_frac = np.min(np.array([trb1.N_frac,trb2.N_frac]),axis=0)
-#     tr_merge.reconstructed = np.ma.concatenate((trb1.reconstructed, trb2.reconstructed), axis=0)
-#     tr_merge.ratio = np.ma.concatenate((trb1.ratio, trb2.ratio), axis=0)
-# #     tr_merge.recon_all = np.ma.concatenate((trb1.recon_all, trb2.recon_all), axis=0)
-#     if params is None:
-#         tr_merge.params = trb1.params
-        
-        
-# def merge_velocity_old(trb1,trb2,tr_merge):
-#     tr_merge.mid_vrp = np.concatenate((trb1.mid_vrp*np.ones_like(trb1.vrp.value),
-#                                        trb2.mid_vrp*np.ones_like(trb2.vrp.value)))
-#     tr_merge.RV_sys = np.concatenate((trb1.RV_sys*np.ones_like(trb1.vrp.value),
-#                                       trb2.RV_sys*np.ones_like(trb2.vrp.value)))
-#     tr_merge.mid_berv = np.concatenate((trb1.mid_berv*np.ones_like(trb1.vrp.value),
-#                                         trb2.mid_berv*np.ones_like(trb2.vrp.value)))
-#     tr_merge.mid_vr = np.concatenate((trb1.mid_vr*np.ones_like(trb1.vrp.value),
-#                                       trb2.mid_vr*np.ones_like(trb2.vrp.value)))
-#     tr_merge.berv = np.concatenate((trb1.berv*np.ones_like(trb1.vrp.value),
-#                                     trb2.berv*np.ones_like(trb2.vrp.value)))
-#     tr_merge.vrp = np.concatenate((trb1.vrp*np.ones_like(trb1.vrp.value),
-#                                    trb2.vrp*np.ones_like(trb2.vrp.value)))
-#     tr_merge.vr = np.concatenate((trb1.vr*np.ones_like(trb1.vrp.value),
-#                                   trb2.vr*np.ones_like(trb2.vrp.value)))
-#     tr_merge.RV_const = np.concatenate((trb1.RV_const*np.ones_like(trb1.vrp.value),
-#                                         trb2.RV_const*np.ones_like(trb2.vrp.value)))
-#     # t12.phase = np.concatenate((t1.phase,t2.phase)).value
 
 def split_transits(obs_obj, transit_tag, mid_idx, 
                    params0=[0.85, 0.97, 51, 41, 3, 1, 2.0, 1.0, 3.0, 1.0],
@@ -2053,6 +2021,9 @@ def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_
 
     if light is False:
         tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
+    # else:
+    #     tr_merge.dt =
+
 
     merge_tr(tr_merge, list_tr, merge_tr_idx, light=light)
     merge_velocity(tr_merge, list_tr, merge_tr_idx)
