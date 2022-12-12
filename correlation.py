@@ -468,7 +468,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                      kind_trans, final=None, spec_trans=None, noise=None, ratio=None,
                                  pca=None, alpha=None, inj_alpha='ones',
                                  get_GG=True, vrp_kind='t', nolog=True, 
-                                 change_noise=False, force_npc=None, **kwargs):
+                                 change_noise=False, force_npc=None, filename=None, **kwargs):
     
     if models.ndim < 2:
         models = models[None,:]
@@ -487,11 +487,13 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
 #         logl_BL = np.ma.zeros((tr.n_spec, tr.nord, Kp_array.size, corrRV.size, len(n_pcas), modelTD0.shape[0]))
     correl = np.ma.zeros((n_spec, nord, Kp_array.size, corrRV.size, len(n_pcas), models.shape[0]))
     logl_BL_sig = np.ma.zeros((n_spec, nord, Kp_array.size, corrRV.size, len(n_pcas), models.shape[0]))
-    
+
+    print('Starting with {} PCs'.format(params0[5]))
+
     for n, n_pc in enumerate(n_pcas):
 #         print('n',n)
-        
-        params = params0.copy()
+        print('Computing with'.format(n_pc))
+        # params = params0.copy()
         if (int(params[5]) != n_pc) or (change_noise is True):
             print(' Previous N_pc = {}, changing to {}  '.format(int(params[5]), n_pc))
             params[5] = n_pc
@@ -523,9 +525,11 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
 #             pca = tr.pca
             if kind_obj == 'seq':
                 data_obj.params = params
+                # params0 = params
                 data_obj.N = N
             elif kind_obj == 'dict':
                 data_obj['params'] = params
+                # params0 = params
                 data_obj['N'] = N
             
         if get_GG is True:
@@ -593,6 +597,10 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
     out.append(logl_BL_sig)
 #     if get_bl is True:
 #         out.append(logl_BL)
+
+    if filename is not None:
+        save_logl_seq(filename, correl, logl_BL_sig,
+                      wave_mod[20:-20], specMod[20:-20], n_pcas, Kp_array, corrRV, kind_trans)
     
     return out
     
@@ -647,7 +655,8 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
                                  nolog=True, pca=None, norm=True, alpha=None, inj_alpha='ones',
                                  get_GG=True, RVconst = 0.0, new_mask=None,
                                  vrp_kind='t',  master_out=None, iOut=None, ratio=None,
-                                 reconstructed=None, change_noise=False, force_npc=None, **kwargs):
+                                 reconstructed=None, change_noise=False, force_npc=None,
+                                 filename=None, **kwargs):
     
     if modelTD0.ndim < 2:
         modelTD0 = modelTD0[None,:]
@@ -769,6 +778,9 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
     out.append(logl_BL_sig)
 #     if get_bl is True:
 #         out.append(logl_BL)
+    if filename is not None:
+        save_logl_seq(filename, correl, logl_BL_sig,
+                      wave_mod[20:-20], specMod[20:-20], n_pcas, Kp_array, corrRV, kind_trans)
     
     return out
 
@@ -944,3 +956,13 @@ def calc_logl_split_transits(trb1, trb2, Kp_array, corrRV0, n_pcas, Wave0, Model
         return merge, merge_sig
 
 
+def save_logl_seq(filename, corr, logl, wave_mod, model, n_pcas, Kp_array, corrRV0, kind_trans):
+    np.savez(filename, corr=corr, logl=logl, wave_mod=wave_mod, model=model,
+             n_pcas=n_pcas, Kp_array=Kp_array, corrRV0=corrRV0, kind_trans=kind_trans)
+    print('Saved correl at :', filename)
+
+
+def load_logl_seq(filename):
+    print('Loading correl from :', filename + '.npz')
+    data = np.load(filename + '.npz')
+    return data['corr'], data['logl'], data['Kp_array'], data['n_pcas'], data['corrRV0'], data

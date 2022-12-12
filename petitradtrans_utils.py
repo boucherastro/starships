@@ -880,12 +880,12 @@ def gen_cases_file(planet, temps, cloudTop, haze, P0, MMW, R_pl, species, cases_
 
 
 def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None,
-                  left_val=1., right_val=1.,
+                  # left_val=1., right_val=1.,
                   **kwargs):
     if rot_params is not None:
         rot_ker = RotKerTransitCloudy(rot_params[0], rot_params[1], rot_params[2],
                                       np.array(rot_params[3]) / u.day, Raf,
-                                      left_val=left_val, right_val=right_val,
+                                      # left_val=left_val, right_val=right_val,
                                       step_smooth=250., v_mid=0., **kwargs)
     #     if rot_params is not None:
     #         R_pl, M_pl, T_pl, freq, right_cl = rot_params

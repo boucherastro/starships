@@ -50,14 +50,14 @@ def mask_deep_tellu(flux, tellu=None, path=None, tellu_list='list_tellu_tr',
     return flux_masked
 
 
-def unberv(wave, flux_masked, berv, RV_sys, vr, clip=False):  #, norm=False
+def unberv(wave, flux_masked, berv, vr):  #, norm=False
     
     n_spec, nord, _ = flux_masked.shape
     
     if isinstance(berv, u.Quantity):
         berv = berv.to(u.km/u.s).value
-    if isinstance(RV_sys, u.Quantity):
-        RV_sys = RV_sys.to(u.km/u.s).value
+    # if isinstance(RV_sys, u.Quantity):
+    #     RV_sys = RV_sys.to(u.km/u.s).value
     if isinstance(vr, u.Quantity):
         vr = vr.to(u.km/u.s).value
 
@@ -68,7 +68,7 @@ def unberv(wave, flux_masked, berv, RV_sys, vr, clip=False):  #, norm=False
     flux_Sref = np.ones_like(flux_masked) * np.nan
     
     
-    shifts = hm.calc_shift(-(berv+RV_sys+vr), kind='rel')
+    shifts = hm.calc_shift(-(berv+vr), kind='rel')
     print('')
     for n in range(n_spec):
         for iOrd in range(nord):
@@ -567,10 +567,10 @@ def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34,
 #                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
 #                           spec_trans=None, full_ts=None, unberv_it=True, wave_mo=None, template=None):
 def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
-                          lim_mask=0.5, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True, new_mask_tellu=None,
-                          mask_var=True, last_mask=True, iOut_temp=None, plot=False,  #kind_mo_lp='filter',
+                          lim_mask=0.5, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True,
+                          mask_var=True, last_mask=True, iOut_temp=None, plot=False,
                           mo_box=51, mo_gauss_box=5, n_pca=1, n_comps=10, clip_ratio=None, clip_ts=None,
-                          poly_time=None, kind_mo="median", cont=False, cbp=False,  ##blaze=None,
+                          poly_time=None, kind_mo="median", cont=False, cbp=False,
                           tresh=3., tresh_lim=1., last_tresh=3, last_tresh_lim=1, noise=None, somme=False, norm=True,
                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
                           spec_trans=None, clean_ts=None, unberv_it=True):
@@ -598,9 +598,9 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         hm.print_static('Shifting everything in the stellar ref. frame and normalizing by the median \n')
         if unberv_it is True:
             print('Spectra ', end="")
-            flux_Sref = unberv(wave, flux_norm, berv, RV_sys, vr, clip=False)
+            flux_Sref = unberv(wave, flux_norm, berv, vr)
             print('Telluriques ', end="")
-            tellu_Sref = unberv(wave, tellu, berv, RV_sys, vr, clip=False)
+            tellu_Sref = unberv(wave, tellu, berv, vr)
         else:
             flux_Sref = flux_norm
             tellu_Sref = tellu

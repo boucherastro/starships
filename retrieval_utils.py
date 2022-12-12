@@ -1152,6 +1152,85 @@ def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
     return fig
 
 
+def gen_params_id0(**kwargs):
+    params_id = {
+        'temp': None,
+        'cloud': None,
+        'rpl': None,
+        'kp': None,
+        'rv': None,
+        'wind_l': None,
+        'wind_r': None,
+        'cloud_r': None,
+        'wind_gauss': None,
+        'tp_kappa': None,
+        'tp_delta': None,
+        'tp_gamma': None,
+        'tp_ptrans': None,
+        'tp_alpha': None,
+        'scat_gamma': None,
+        'scat_factor': None
+    }
+    for key in list(kwargs.keys()):
+        params_id[key] = kwargs[key]
+
+    return params_id
+
+
+def gen_params_id(list_params):
+    params_id = {
+        'temp': None,
+        'cloud': None,
+        'rpl': None,
+        'kp': None,
+        'rv': None,
+        'wind_l': None,
+        'wind_r': None,
+        'cloud_r': None,
+        'wind_gauss': None,
+        'tp_kappa': None,
+        'tp_delta': None,
+        'tp_gamma': None,
+        'tp_ptrans': None,
+        'tp_alpha': None,
+        'scat_gamma': None,
+        'scat_factor': None
+    }
+    count = 0
+    for param in list_params:
+        params_id[param] = count
+        count += 1
+
+    return params_id
+
+
+def gen_params_id_p(params_priors):
+    params_id = {
+        'temp': None,
+        'cloud': None,
+        'rpl': None,
+        'kp': None,
+        'rv': None,
+        'wind_l': None,
+        'wind_r': None,
+        'cloud_r': None,
+        'wind_gauss': None,
+        'tp_kappa': None,
+        'tp_delta': None,
+        'tp_gamma': None,
+        'tp_ptrans': None,
+        'tp_alpha': None,
+        'scat_gamma': None,
+        'scat_factor': None
+    }
+    count = 0
+    for param in list(params_priors.keys()):
+        if (param != 'abund'):
+            params_id[param] = count
+            count += 1
+
+    return params_id
+
 # def calc_best_mod(params, atmos_obj, gamma_scat=-1.71, kappa_factor=0.36):
     
 #     species_low = OrderedDict({'H2O_HITEMP': [10**params[0]],

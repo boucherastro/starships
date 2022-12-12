@@ -1404,8 +1404,8 @@ class Correlations():
         self.get_curve_at_slice(tr.Kp, minmax=minmax)
         print(r'Max SNR = {:.2f}$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
         print('')
-        hm.printmd(r'Max SNR = **{:.2f}**$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
-        print('')
+        # hm.printmd(r'Max SNR = **{:.2f}**$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
+        # print('')
         
         if force_max_pos is None:
             pos_max = self.pos
@@ -1702,3 +1702,46 @@ def plot_ccf_timeseries(t, rv_star, correlation, plot_gauss=True, plot_spline=Tr
     
 
     return tc, pos_ga, pos_err_ga, pos_sp
+
+
+def plot_ccflogl(tr, ccf, logl, corrRV0, Kp_array, n_pcas,
+                 swapaxes=None, orders=np.arange(49),
+                 indexs=None, icorr=None, RV=0.0, split_fig=False, **kwargs):
+
+    if split_fig is False:
+        split_fig = []
+
+    if swapaxes is not None:
+        ccf = np.swapaxes(ccf, *swapaxes)
+        logl = np.swapaxes(logl, *swapaxes)
+
+    ccf_obj = Correlations(ccf, kind="logl", rv_grid=corrRV0,
+                           n_pcas=n_pcas, kp_array=Kp_array)
+    ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr)
+    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR')
+
+    logl_obj = Correlations(logl, kind="logl", rv_grid=corrRV0,
+                            n_pcas=n_pcas, kp_array=np.array([0]))
+    logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True, icorr=icorr)
+
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe',
+                             kind_courbe='abs', title='logL abs')
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe',
+                             kind_courbe='bic', title=r'$\log_{10} \Delta$ BIC')
+
+    print(ccf_obj.npc_val)
+    print(logl_obj.npc_max_abs)
+    print(logl_obj.npc_bic)
+    print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
+
+    for id_pc in range(len(n_pcas)):
+        ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
+                         kind='logl_corr', index=indexs, remove_mean=False,
+                         #                         hlines=[[2,t1.phase[t1.iIn[0]], ':', 'w'],
+                         #                                 [1,t2.phase[t2.iIn[0]], ':','w'], ],
+                         #                      texts=[[2, corrRV0[4], t1.phase[-9],'Tr1'],[1, corrRV0[4], t2.phase[-6],'Tr2']],
+                         #                           fig_name='corr12_kelt20', extension='.pdf',
+                         map_kind='snr', id_pc=id_pc, figwidth=9, **kwargs)
+        ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp),
+                            plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
+    return ccf_obj, logl_obj

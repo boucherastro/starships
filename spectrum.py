@@ -798,8 +798,7 @@ class RotKerTransitCloudy:
             kernel[~idx_minus] = _get_rot_ker_tr_v(*args)
         else:
             kernel = _get_rot_ker_tr_v(v_grid, omega, r_p, z_h)
-        # normalize
-        kernel /= kernel.sum()
+
         # Get cloud transmission function
         idx_valid = (kernel > 0)
         if idx_valid.sum() <= 1:
@@ -807,6 +806,10 @@ class RotKerTransitCloudy:
         clouds = np.ones_like(kernel) * np.nan
         clouds[idx_valid] = box_smoothed_step(v_grid[idx_valid], *clouds_args)
         kernel[idx_valid] = kernel[idx_valid] * clouds[idx_valid]
+
+        # normalize
+        kernel /= kernel.sum()
+
         return v_grid, kernel, clouds
     
     def get_ker_vphi(self, n_os=1000, pad=7):

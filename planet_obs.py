@@ -298,17 +298,16 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
                                                  Rstar=p.R_star, P=p.period, ap=p.ap, Mp=p.M_pl, Mstar=p.M_star)
 
 
-    phase = ((self.t - p.mid_tr) / p.period).decompose().value
-    phase -= np.round(phase.mean())
+    self.phase = ((self.t - p.mid_tr) / p.period).decompose().value
+    self.phase -= np.round(self.phase.mean())
     if kind_trans == 'emission':
-        if (phase < 0).all():
-            phase += 1.0
-    self.phase
+        if (self.phase < 0).all():
+            self.phase += 1.0
 
-    tag = ['primary', 'secondary'][np.argmin([np.abs(np.mean(phase) - 0), np.abs(np.mean(phase) - 0.5)])]
-    if tag == 'primary':
-        T0 = p.mid_tr
-    elif tag == 'secondary':
+    tag = ['primary', 'secondary'][np.argmin([np.abs(np.mean(self.phase) - 0), np.abs(np.mean(self.phase) - 0.5)])]
+    # if tag == 'primary':
+    T0 = p.mid_tr
+    if tag == 'secondary':
         T0 = p.mid_tr + 0.5 * p.period.to(u.d)
         z = None
 
@@ -398,14 +397,17 @@ class Observations():
     def __init__(self, wave=np.array([]), count=np.array([]), blaze=np.array([]),
                  headers = list_of_dict([]), headers_image = list_of_dict([]), headers_tellu = list_of_dict([]), 
                  tellu=np.array([]), uncorr=np.array([]), 
-                 name='', path='',filenames=[], planet=None, pl_kwargs=None, CADC=False):
+                 name='', path='',filenames=[], planet=None, CADC=False, pl_kwargs=None):
         
         self.name = name
         self.path=path
         
         # --- Get the system parameters from the ExoFile
         if planet is None:
-            self.planet = Planet(name, **pl_kwargs)
+            if pl_kwargs is not None:
+                self.planet = Planet(name, **pl_kwargs)
+            else:
+                self.planet = Planet(name)
         else:
             self.planet=planet
         
@@ -588,7 +590,7 @@ class Observations():
 #                                 format='jd').jd.squeeze() * u.d
                 if time_type == 'BJD':
                     self.t_start = Time(np.array(self.headers_image.get_all('BJD')[0], dtype='float'), 
-                                format='jd').jd.squeeze() * u.d
+                                format='jd').jd.squeeze() #* u.d
                 elif time_type == 'MJD':
                     self.t_start = Time((np.array(self.headers_image.get_all('MJDATE')[0], dtype='float') + \
                                         np.array(self.headers_image.get_all('MJDEND')[0], dtype='float')) / 2, 
@@ -609,7 +611,7 @@ class Observations():
             self.adc2 = np.array(self.headers.get_all('SBADC2_P')[0], dtype='float').squeeze()
             self.SNR = np.clip(self.SNR, 0,None)
         else : 
-            self.t_start = sequence[0] * u.d
+            self.t_start = sequence[0] #* u.d
             self.SNR = sequence[1]
             self.berv0 = sequence[2]
             self.dt = sequence[3] * u.s
@@ -1284,9 +1286,11 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     tr_merge.icorr = np.concatenate(icorr_list)
     tr_merge.iIn = np.concatenate(iIn_list)
     tr_merge.iOut = np.concatenate(iOut_list)
+    tr_merge.n_spec = np.sum([list_tr[str(tr_i)].n_spec for tr_i in merge_tr_idx])
     
     tr_merge.alpha_frac = np.concatenate([list_tr[str(tr_i)].alpha_frac for tr_i in merge_tr_idx])
     tr_merge.t_start = np.concatenate([list_tr[str(tr_i)].t_start for tr_i in merge_tr_idx])
+    tr_merge.t = tr_merge.t_start*u.d
     tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx]) #.value
     tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
 
@@ -1307,7 +1311,10 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     tr_merge.spec_trans = np.ma.concatenate([list_tr[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
     tr_merge.final = np.ma.concatenate([list_tr[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
     tr_merge.N = np.ma.concatenate([list_tr[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
-    tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
+    try:
+        tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
+    except:
+        print('Did not find N_frac key.')
     tr_merge.reconstructed = np.ma.concatenate([list_tr[str(tr_i)].reconstructed for tr_i in merge_tr_idx], axis=0)
     tr_merge.ratio = np.ma.concatenate([list_tr[str(tr_i)].ratio for tr_i in merge_tr_idx], axis=0)
     if params is None:
@@ -1458,7 +1465,7 @@ def save_single_sequences(path, filename, tr,
              mask_spec_trans = tr.spec_trans.mask,
              mask_final = tr.final.mask,
              # alpha_frac = tr.alpha_frac,
-                                  filenames=tr.filenames,
+             filenames=tr.filenames,
              icorr = tr.icorr,
              bad_indexs = bad_indexs,
              clip_ts = tr.clip_ts,
@@ -1637,13 +1644,20 @@ def load_single_sequences(path, filename, name, planet,
     tr.ratio_recon = True
     tr.reconstructed = np.ma.array(data_tr['reconstructed'],
                                    mask=data_tr['mask_reconstructed'])
-    tr.uncorr = np.ma.array(data_tr['uncorr'],
+    try:
+        tr.uncorr = np.ma.array(data_tr['uncorr'],
                                    mask=data_tr['mask_uncorr'])
-    tr.N0 = (~np.isnan(tr.uncorr)).sum(axis=-1)
-    tr.N_frac = np.nanmean(tr.N / tr.N0, axis=0).data  # 4088
-    tr.N_frac[np.isnan(tr.N_frac)] = 0
-    tr.blaze = np.ma.array(data_tr['blaze'],
+        tr.N0 = (~np.isnan(tr.uncorr)).sum(axis=-1)
+        tr.N_frac = np.nanmean(tr.N / tr.N0, axis=0).data  # 4088
+        tr.N_frac[np.isnan(tr.N_frac)] = 0
+    except KeyError:
+        print('Did not find Uncorr key.')
+        print('Not computing N0 and N_frac.')
+    try:
+        tr.blaze = np.ma.array(data_tr['blaze'],
                                mask=data_tr['mask_blaze'])
+    except KeyError:
+        print('Did not find Blaze key.')
     tr.mast_out = np.ma.array(data_tr['mast_out'],
                               mask=data_tr['mask_mast_out'])
     tr.final = np.ma.array(data_tr['final'],
@@ -1653,8 +1667,10 @@ def load_single_sequences(path, filename, name, planet,
     tr.tellu = np.ma.array(data_tr['tellu'],
                                 mask=data_tr['mask_tellu'])
     # tr.alpha_frac = data_tr['alpha_frac']
-
-    tr.filenames = data_tr['filenames']
+    try:
+        tr.filenames = data_tr['filenames']
+    except KeyError:
+        print('Did not find Filenames key.')
 
     tr.clip_ts = data_tr['clip_ts']
     tr.scaling = data_tr['scaling']
@@ -1810,7 +1826,7 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  sep = list_tr[tr_key].sep,
                  noise = list_tr[tr_key].noise,
                  N = list_tr[tr_key].N,
-                 t_start = list_tr[tr_key].t_start.value,
+                 t_start = list_tr[tr_key].t_start, #.value,
                  flux = list_tr[tr_key].final/list_tr[tr_key].noise,
                  s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
                  mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask, 
@@ -1851,7 +1867,7 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  sep = list_tr[tr_key].sep,
                  noise = list_tr[tr_key].noise,
                  N = list_tr[tr_key].N,
-                 t_start = list_tr[tr_key].t_start.value,
+                 t_start = list_tr[tr_key].t_start, #.value,
                  flux = list_tr[tr_key].final/list_tr[tr_key].noise,
                  s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
                  mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask, 
@@ -1985,7 +2001,7 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
     if polynome is not None:
     #                 print("P(O-2) = ", polynome[tag-1])
         if polynome:
-            poly_time = tr.t_start.value  # tr.AM
+            poly_time = tr.t_start  # .value  # tr.AM
         else:
             poly_time = None
     else:
@@ -2313,8 +2329,9 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
 
     if not hasattr(tr,'original_mask'):
         tr.original_mask = tr.spec_trans.mask.copy()
-    tr.final_cm = cmasked_flux_sky
+    tr.final = cmasked_flux_sky
     tr.custom_mask = cmasked_flux_sky.mask
+    tr.spec_trans.mask = cmasked_flux_sky.mask
 
     del sky_mask, ccf_sky_clean, ccf_sky_tr, ccf_tellu_tr, tellu_mask, cmasked_flux_tr, ccf_tellu_clean, cmasked_flux_sky
     del flux_mask, new_mask, sky_t, skynorm, spec_trans_tr, sky_tr, tile_sky_tr
