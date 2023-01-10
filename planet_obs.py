@@ -573,11 +573,11 @@ class Observations():
             if self.CADC is False:
                 if time_type == 'BJD':
                     self.t_start = Time(np.array(self.headers.get_all('BJD')[0], dtype='float'), 
-                                format='jd').jd.squeeze() * u.d
+                                format='jd').jd.squeeze()# * u.d
                 elif time_type == 'MJD':
                     self.t_start = Time((np.array(self.headers.get_all('MJDATE')[0], dtype='float') + \
                                         np.array(self.headers.get_all('MJDEND')[0], dtype='float')) / 2, 
-                                format='jd').jd.squeeze() * u.d
+                                format='jd').jd.squeeze()# * u.d
                     
                 self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0], 
                                  dtype='float') for order in range(49)]).T
@@ -594,7 +594,7 @@ class Observations():
                 elif time_type == 'MJD':
                     self.t_start = Time((np.array(self.headers_image.get_all('MJDATE')[0], dtype='float') + \
                                         np.array(self.headers_image.get_all('MJDEND')[0], dtype='float')) / 2, 
-                                format='jd').jd.squeeze() * u.d
+                                format='jd').jd.squeeze() #* u.d
 
                 try:
                     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
@@ -629,7 +629,7 @@ class Observations():
         self.berv= self.berv0.copy()
         light_curve = np.ma.sum(np.ma.sum(self.count, axis=-1), axis=-1)
         self.light_curve = light_curve / np.nanmax(light_curve)
-        self.t = self.t_start #+ self.dt/2
+        self.t = self.t_start.copy() * u.d #+ self.dt/2
         
         self.N0f= (~np.isnan(self.flux)).sum(axis=-1)
         self.N0= (~np.isnan(self.uncorr)).sum(axis=-1)
@@ -1442,6 +1442,7 @@ def save_single_sequences(path, filename, tr,
              noise = tr.noise,
              N = tr.N,
              t_start = tr.t_start,
+             dt=tr.dt.value,
              flux = tr.flux,
              uncorr = tr.uncorr,
              blaze = tr.blaze,
@@ -1502,6 +1503,7 @@ def save_single_sequences(path, filename, tr,
              noise = tr.noise,
              N = tr.N,
              t_start = tr.t_start,
+             dt=tr.dt.value,
              flux = tr.flux,
              uncorr = tr.uncorr,
              blaze = tr.blaze,
@@ -1633,6 +1635,7 @@ def load_single_sequences(path, filename, name, planet,
 
     tr.t_start = data_tr['t_start']
     tr.t = data_tr['t_start'] * u.d
+    tr.dt = data_tr['dt']*u.s,
     tr.bad = data_tr['bad_indexs']
     tr.flux = np.ma.array(data_tr['flux'],
                      mask=data_tr['mask_flux'])
@@ -1993,8 +1996,8 @@ def load_sequences(path, filename, do_tr, load_all=False):
 def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
                      coeffs, ld_model, kind_trans, RV_sys, polynome=None, 
                      ratio_recon=False, cont=False, cbp=True, noise_npc=None, **kwargs_build_ts):
-    
-    tr = obs.select_transit(transit_tag)
+    if transit_tag is not None:
+        tr = obs.select_transit(transit_tag)
     tr.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
     tr.norv_sequence(RV=RV_sys)
 
@@ -2329,6 +2332,9 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
 
     if not hasattr(tr,'original_mask'):
         tr.original_mask = tr.spec_trans.mask.copy()
+
+    tr.OG_final_mask = tr.final.mask.copy()
+    tr.OG_spec_trans_mask = tr.spec_trans.mask.copy()
     tr.final = cmasked_flux_sky
     tr.custom_mask = cmasked_flux_sky.mask
     tr.spec_trans.mask = cmasked_flux_sky.mask

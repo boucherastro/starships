@@ -498,9 +498,11 @@ def mol_frac(params, solar_ab, stellar_ab,
     print('')
 #     if sol_ab is not None:
     for i in range(nb_mol):
-        print('{} = {:.4e} = 10^({:.4f}) = 10^ {:.4f} sol = 10^{:.4f} *'.format(mols[i],abunds[i], params[i], 
-                                                           np.log10(abunds/solar_ab[:nb_mol])[i],
-                                                          np.log10(abunds/stellar_ab[:nb_mol])[i]))
+        print('{} = {:.4e} = 10^({:.4f}) // 10^ {:.4f} = {:.4f} sol // 10^{:.4f} = {:.4f} *'.format(mols[i],
+                                                                                                        abunds[i],
+                                                                                                        params[i],
+                                                  np.log10(abunds/solar_ab[:nb_mol])[i], (abunds/solar_ab[:nb_mol])[i],
+                                              np.log10(abunds/stellar_ab[:nb_mol])[i], (abunds/stellar_ab[:nb_mol])[i]))
     print('')
     if errors is not None:
         for i in range(nb_mol):
@@ -733,15 +735,20 @@ def downgrade_mod(wlen, flux_lambda, down_wave, Rbf=1000, Raf=75):
     return fct_prt(down_wave)
 
 
-def read_walkers_file(filename, discard=0, id_params=None, param_no_zero=0):
+def read_walkers_file(filename, discard=0, discard_after=None,
+                      id_params=None,
+                      param_no_zero=0):
 
     with h5py.File(filename, "r") as f:
 
-        samples = f['mcmc']['chain']
+        if discard_after is None:
+            samples = f['mcmc']['chain']
+        else:
+            samples = f['mcmc']['chain'][:discard_after]
         if id_params is not None:
             samples = samples[:,:, id_params]
 
-        ndim=np.array(samples).shape[-1]
+        # ndim=np.array(samples).shape[-1]
 #         if labels is None:
 #             labels = ['' for i in range(ndim)]
 
@@ -754,6 +761,29 @@ def read_walkers_file(filename, discard=0, id_params=None, param_no_zero=0):
             print('Completed {}/{}'.format(completed[0],samples.shape[0]))
 
     return cut_sample
+
+def read_walkers_prob(filename, discard=0, discard_after=None):
+
+    with h5py.File(filename, "r") as f:
+
+        if discard_after is None:
+            fin_pos = f['mcmc']['chain'][discard:]
+            logl = f['mcmc']['log_prob'][discard:]
+        else:
+            fin_pos = f['mcmc']['chain'][discard:discard_after]
+            logl = f['mcmc']['log_prob'][discard:discard_after]
+
+    # --- merge all walkers
+    flat_logl = np.reshape(logl, (fin_pos.shape[0] * fin_pos.shape[1]))  # .shape
+    flat_fin_pos = np.reshape(fin_pos, (fin_pos.shape[0] * fin_pos.shape[1], fin_pos.shape[-1]))  # .shape
+
+    # --- place walker in order from worst [0] to best[-1] logL
+    ord_pos = flat_fin_pos[np.argsort(flat_logl)]
+    ord_logl = flat_logl[np.argsort(flat_logl)]
+
+    # autocorr = emcee.autocorr.integrated_time(fin_pos, tol=tol)
+
+    return ord_pos, ord_logl
 
 
 def single_max_dist(samp, bins='auto', start=0, end=-1, bin_size=6, plot=False):
@@ -1080,14 +1110,14 @@ def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
     plt.fill_betweenx(np.log10(temp_params['pressures']), temperature_down, temperature_up, 
                       alpha=0.15, color=color, zorder=zorder)
 
-    t1bar = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, pressures=1)
+    t1bar = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, pressures=1)[0]
 
 #     print(t1bar, kappa_IR, gamma, gravity, T_int, errors[nb_mols][1])
     print('T @ 1 bar = {:.0f} + {:.0f} - {:.0f} '.format(t1bar,
                                calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
-                                               T_eq=errors[nb_mols][1], pressures=1)-t1bar,
+                                               T_eq=errors[nb_mols][1], pressures=1)[0]-t1bar,
                            t1bar -calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
-                                                  T_eq=errors[nb_mols][0], pressures=1) ))
+                                                  T_eq=errors[nb_mols][0], pressures=1)[0] ))
 
 
 def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
@@ -1095,6 +1125,10 @@ def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
                  fig=None, color='dodgerblue', label='Instrum. * Rot. (S)', **kwargs):
     if params_id['cloud_r'] is not None:
         right_val = theta[nb_mols + params_id['cloud_r']]
+    if params_id['rpl'] is not None:
+        radius = theta[nb_mols + params_id['rpl']]
+    else:
+        radius = planet.R_pl.to(u.R_jup).value
 
     if (params_id['wind_l'] is not None) or (params_id['wind_gauss'] is not None):
         if params_id['wind_r'] is None:
@@ -1112,7 +1146,7 @@ def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
             rot_kwargs['x0'] = 0
             rot_kwargs['fwhm'] = theta[nb_mols + params_id['wind_gauss']] * 1e3
 
-    rotker = spectrum.RotKerTransitCloudy(theta[nb_mols + params_id['rpl']] * const.R_jup,
+    rotker = spectrum.RotKerTransitCloudy(radius * const.R_jup,
                                  planet.M_pl,
                                  theta[nb_mols + params_id['temp']] * u.K,
                                  np.array(omega) / u.day,

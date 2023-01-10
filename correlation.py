@@ -489,11 +489,11 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
     logl_BL_sig = np.ma.zeros((n_spec, nord, Kp_array.size, corrRV.size, len(n_pcas), models.shape[0]))
 
     print('Starting with {} PCs'.format(params0[5]))
-
+    params = params0.copy()
     for n, n_pc in enumerate(n_pcas):
 #         print('n',n)
         print('Computing with'.format(n_pc))
-        # params = params0.copy()
+
         if (int(params[5]) != n_pc) or (change_noise is True):
             print(' Previous N_pc = {}, changing to {}  '.format(int(params[5]), n_pc))
             params[5] = n_pc

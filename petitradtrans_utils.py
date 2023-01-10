@@ -593,6 +593,9 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
     else:
         R_pl = rp.cgs.value
 
+    if R_pl.ndim >0:
+        R_pl = R_pl[0]
+
     gravity = (const.G * planet.M_pl / R_pl ** 2).cgs.value
     if rstar is None:
         R_star = planet.R_star.cgs.value
@@ -647,6 +650,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
                                                           gravity, P0, cloud, R_pl, R_star,
                                                           vmrh2he=vmrh2he, kind_trans=kind_trans,
                                                           dissociation=dissociation, fct_star=fct_star,
+                                                          plot_abundance=plot_abundance,
                                                           **kwargs)
         if kind_trans == 'transmission':
             atmos_full_spectrum = atmos_full_spectrum * 1e6  # to put in ppm
@@ -717,7 +721,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
             file_name += '_cloud{:.2f}'.format(cloud * u.bar.to(u.Pa))
 
         if rp is not None:
-            file_name += '_Rp{:.2f}'.format(R_pl * u.cm.to(u.R_jup))
+            print((R_pl * u.cm).to(u.R_jup).value)
+            file_name += '_Rp{:.2f}'.format((R_pl * u.cm).to(u.R_jup).value)
         if path is not None:
             print('Saving...')
             np.save(path + 'PRT_' + file_name + '_' + kind_trans + filetag, atmos_full_spectrum)
@@ -903,7 +908,7 @@ def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None,
 
 def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures,
                           gravity, P0, cloud, R_pl, R_star,
-                          kappa_factor=None, gamma_scat=None, vmrh2he=None,
+                          kappa_factor=None, gamma_scat=None, vmrh2he=None, plot_abundance=False,
                           kind_trans='transmission', dissociation=False, fct_star=None, **kwargs):
     if vmrh2he is None:
         vmrh2he = [0.85, 0.15]
@@ -915,7 +920,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
     abundances, MMW = gen_abundances([*species.keys()], [*species.values()],
                                      pressures, temperatures,
                                      verbose=False, vmrh2he=vmrh2he,
-                                     dissociation=dissociation, plot=False)
+                                     dissociation=dissociation, plot=plot_abundance)
 
     if kind_trans == 'transmission':
         atmos_object.calc_transm(temperatures, abundances, gravity, MMW,

@@ -1704,44 +1704,91 @@ def plot_ccf_timeseries(t, rv_star, correlation, plot_gauss=True, plot_spline=Tr
     return tc, pos_ga, pos_err_ga, pos_sp
 
 
-def plot_ccflogl(tr, ccf, logl, corrRV0, Kp_array, n_pcas,
-                 swapaxes=None, orders=np.arange(49),
-                 indexs=None, icorr=None, RV=0.0, split_fig=False, **kwargs):
+def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
+                 swapaxes=None, orders=np.arange(49), map=False, id_pc0=None, RV_limit=None,
+                 indexs=None, icorr=None, RV=0.0, split_fig=False, vlines=[0], **kwargs):
 
     if split_fig is False:
         split_fig = []
 
     if swapaxes is not None:
-        ccf = np.swapaxes(ccf, *swapaxes)
-        logl = np.swapaxes(logl, *swapaxes)
+        ccf_map = np.swapaxes(ccf_map, *swapaxes)
+        logl_map = np.swapaxes(logl_map, *swapaxes)
 
-    ccf_obj = Correlations(ccf, kind="logl", rv_grid=corrRV0,
-                           n_pcas=n_pcas, kp_array=Kp_array)
+    if icorr is None:
+        icorr = tr.iIn
+
+    if RV_limit is None:
+        RV_limit = corrRV0.max()
+
+    ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
+                                 n_pcas=n_pcas, kp_array=Kp_array)
     ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr)
-    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR')
+    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines)
 
-    logl_obj = Correlations(logl, kind="logl", rv_grid=corrRV0,
-                            n_pcas=n_pcas, kp_array=np.array([0]))
-    logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True, icorr=icorr)
+    logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
+                                  n_pcas=n_pcas, kp_array=Kp_array)
+    logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr)
 
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe',
-                             kind_courbe='abs', title='logL abs')
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe',
-                             kind_courbe='bic', title=r'$\log_{10} \Delta$ BIC')
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines)
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
+                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines)
 
     print(ccf_obj.npc_val)
     print(logl_obj.npc_max_abs)
     print(logl_obj.npc_bic)
     print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
 
-    for id_pc in range(len(n_pcas)):
+
+    if id_pc0 is not None:
         ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
-                         kind='logl_corr', index=indexs, remove_mean=False,
-                         #                         hlines=[[2,t1.phase[t1.iIn[0]], ':', 'w'],
-                         #                                 [1,t2.phase[t2.iIn[0]], ':','w'], ],
-                         #                      texts=[[2, corrRV0[4], t1.phase[-9],'Tr1'],[1, corrRV0[4], t2.phase[-6],'Tr2']],
-                         #                           fig_name='corr12_kelt20', extension='.pdf',
-                         map_kind='snr', id_pc=id_pc, figwidth=9, **kwargs)
+                         kind='logl_corr', index=indexs,  # remove_mean=False,
+                         map_kind='snr', id_pc=id_pc0, figwidth=9, **kwargs)
         ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp),
                             plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
+        if map is True:
+            ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=np.arange(49),
+                              kp0=0, RV_limit=corrRV0.max() - 20, kp_step=5, rv_step=2, RV=None, speed_limit=3,
+                              icorr=tr.iIn,
+                              equal_var=False)
+    else:
+        for id_pc in range(len(n_pcas)):
+            ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
+                             kind='logl_corr', index=indexs,  # remove_mean=False,
+                             map_kind='snr', id_pc=id_pc, figwidth=9, **kwargs)
+            ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp),
+                                plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
+            if map is True:
+                ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
+                                  kp0=0, RV_limit=RV_limit, kp_step=5, rv_step=2, RV=None, speed_limit=3,
+                                  icorr=tr.iIn,
+                                  equal_var=False)
+                t_value = ccf_obj.ttest_map_tval
+                ccf = ccf_obj.map_prf
+                vrp = np.zeros_like(tr.vrp) + tr.RV_const  # +tr.mid_vrp.value
+                _,_ = pf.plot_ttest_map_hist(tr, ccf_obj.rv_grid, ccf.copy(),  ccf_obj.ttest_map_kp, ccf_obj.ttest_map_rv,
+                                                    t_value * (-3) / t_value.min(), ccf_obj.ttest_map_params,
+                                                    orders=orders, plot_trail=True, masked=True, ccf=ccf.copy(),
+                                                    vrp=np.zeros_like(vrp), RV=ccf_obj.pos, hist=True,
+                                                    fig_name='', path_fig=None)
     return ccf_obj, logl_obj
+
+# def plot_ccflogl_test(t, ccf_map, logl_map, n_pcas, corrRV0, indexs, Kp_array, RV=0.0, orders=np.arange(49)):
+#     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
+#                                  n_pcas=n_pcas, kp_array=Kp_array)
+#     ccf_obj.calc_logl(t, orders=orders, index=indexs, N=None, nolog=False, icorr=t.iIn)
+#     ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR')
+#
+#     logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
+#                                   n_pcas=n_pcas, kp_array=Kp_array)
+#     logl_obj.calc_logl(t, orders=orders, index=indexs, N=t.N, nolog=True,  icorr=t.iIn)
+#     # logl_obj.plot_multi_npca(RV_sys=t1.RV_sys, title='logL SNR')
+#
+#     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs')
+#     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
+#                                   title=r'$\log_{10} \Delta$ BIC')
+#
+#     print(ccf_obj.npc_val)
+#     print(logl_obj.npc_max_abs)
+#     print(logl_obj.npc_bic)
+#     print(2*(logl_obj.npc_max_abs-logl_obj.npc_max_abs[0]))
