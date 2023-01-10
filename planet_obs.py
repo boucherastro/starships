@@ -1998,6 +1998,8 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
                      ratio_recon=False, cont=False, cbp=True, noise_npc=None, **kwargs_build_ts):
     if transit_tag is not None:
         tr = obs.select_transit(transit_tag)
+    else:
+        tr = obs
     tr.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
     tr.norv_sequence(RV=RV_sys)
 
