@@ -2,6 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+from pathlib import Path
 import astropy.units as u
 from astropy.time import Time
 from astropy.io import fits
@@ -35,6 +36,14 @@ from sklearn.decomposition import PCA
 from collections import OrderedDict
 import gc
 
+
+# Constants
+DEFAULT_LISTS_FILENAMES = {False: {'file_list': 'list_e2ds',
+                                   'file_list_tcorr': 'list_tellu_corrected',
+                                   'file_list_recon': 'list_tellu_recon'},
+                           True: {'file_list': 'list_s1d',
+                                  'file_list_tcorr': 'list_tellu_corrected_1d',
+                                  'file_list_recon': 'list_tellu_recon_1d'}}
 
 # def fits2wave(file_or_header):
 #     info = """
@@ -133,7 +142,11 @@ def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=No
     filenames = []
     blaze0 = None
 
-    with open(path + file_list) as f:
+    path = Path(path)
+    blaze_path = Path(blaze_path)
+    file_list = Path(file_list)
+
+    with open(path / file_list) as f:
 
         for file in f:
             filename = file.split('\n')[0]
@@ -142,7 +155,7 @@ def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=No
                 print(filename)
 
             filenames.append(filename)
-            hdul = fits.open(path + filename)
+            hdul = fits.open(path / Path(filename))
         
             # --- If not 1D spectra (so if they are E2DS) ---
             if onedim is False: 
@@ -158,7 +171,7 @@ def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=No
 
                 try:
                     wv_file = wv_default or hdul[0].header['WAVEFILE']
-                    with fits.open(path + wv_file) as f:
+                    with fits.open(path / Path(wv_file)) as f:
                         wvsol = f[0].data
                 except (KeyError,FileNotFoundError) as e:
                     wvsol = fits2wave(image, header)
@@ -170,11 +183,11 @@ def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=No
                     blaze_file = blaze_default or header['CDBBLAZE']
                 except KeyError:
                     blaze_file = header['CDBBLAZE']
-                
+
                 if ver06 is False:
-                    blaze0 = fits.getdata(blaze_path + blaze_file, ext=1)
+                    blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
                 else:
-                    with fits.open(blaze_path + blaze_file) as f:
+                    with fits.open(blaze_path / Path(blaze_file)) as f:
 #                         header = fits.getheader(filename, ext=0) 
                         blaze0 = f[0].data
 #                         print(blaze)
@@ -184,7 +197,7 @@ def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=No
             else:
                 headers.append(hdul[1].header)
 
-                data = Table.read(path+filename)
+                data = Table.read(path / Path(filename))
                 wvsol = data['wavelength'][None,:]
                 count.append(data['flux'][None,:])
         #         eflux = data['eflux']
@@ -400,7 +413,7 @@ class Observations():
                  name='', path='',filenames=[], planet=None, CADC=False, pl_kwargs=None):
         
         self.name = name
-        self.path=path
+        self.path = Path(path)
         
         # --- Get the system parameters from the ExoFile
         if planet is None:
@@ -424,7 +437,7 @@ class Observations():
         self.CADC = CADC
 
                      
-    def fetch_data(self, path, onedim=False, CADC=False, sanit=False, **kwargs):
+    def fetch_data(self, path, onedim=False, CADC=False, list_filenames=None, sanit=False, **kwargs):
         
         """
         Retrieve all the relevent data in path 
@@ -432,50 +445,52 @@ class Observations():
         """
         
         self.CADC = CADC
-        
-        if onedim is False:
-            file_list = 'list_e2ds'
-            file_list_tcorr = 'list_tellu_corrected'
-            file_list_recon = 'list_tellu_recon'
-#             if sanit is True:
-#                 file_list = 'list_e2ds_sanit'
-#                 file_list_tcorr = 'list_sanit'
-#                 file_list_recon = 'list_tellu_recon_sanit'
-            
+
+        if list_filenames is None:
+            list_filenames = dict()
         else:
-            file_list = 'list_s1d'
-            file_list_tcorr = 'list_tellu_corrected_1d'
-            file_list_recon = 'list_tellu_recon_1d'
+            # Check if keys in list_filenames are valid
+            valid_keys = list(DEFAULT_LISTS_FILENAMES[onedim].keys())
+            for key in list_filenames:
+                if not key in valid_keys:
+                    msg = f'{key} found in `list_filenames` is not valid. '
+                    msg += f'Possible keys are {valid_keys}'
+                    raise ValueError(f'{key} found in `list_filenames` is not valid.')
+
+        # Fill absent values with default values
+        list_filenames = {**DEFAULT_LISTS_FILENAMES[onedim], **list_filenames}
         
-        if CADC is False:
+        if CADC:
 
-            print('Fetching data')
-            headers, wv, count, blaze, filenames = read_all_sp(path, file_list_tcorr, onedim=onedim, **kwargs)
-
-#             self.headers = headers
-#             self.wave = np.array(wv)
-#             self.count = np.ma.masked_invalid(count)
-#             self.blaze = np.ma.masked_array(blaze)
-#             self.filenames  = filenames
-
-            print("Fetching the tellurics")
-            _, _, tellu, _, _ = read_all_sp(path, file_list_recon, onedim=onedim, **kwargs)
-
-            print("Fetching the uncorrected spectra")
-            
-            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_all_sp(path, file_list, onedim=onedim, **kwargs)
-
-        else:
             print('Fetching data')
             headers, headers_image, headers_tellu, \
-            wv, count, blaze, tellu, filenames = read_all_sp_CADC(path, 'list_tellu_corrected')
-            
+            wv, count, blaze, tellu, filenames = read_all_sp_CADC(path, list_filenames['file_list_tcorr'])
+
             self.headers_image, self.headers_tellu = headers_image, headers_tellu
-            
+
             print("Fetching the uncorrected spectra")
-            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_CADC(path, 'list_e2ds')
-           
-            
+            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_CADC(path, list_filenames['file_list'])
+
+        else:
+            print('Fetching data')
+            print(f"File: {list_filenames['file_list_tcorr']}")
+            headers, wv, count, blaze, filenames = read_all_sp(path, list_filenames['file_list_tcorr'], onedim=onedim, **kwargs)
+
+            #             self.headers = headers
+            #             self.wave = np.array(wv)
+            #             self.count = np.ma.masked_invalid(count)
+            #             self.blaze = np.ma.masked_array(blaze)
+            #             self.filenames  = filenames
+
+            print("Fetching the tellurics")
+            print(f"File: {list_filenames['file_list_recon']}")
+            _, _, tellu, _, _ = read_all_sp(path, list_filenames['file_list_recon'], onedim=onedim, **kwargs)
+
+            print("Fetching the uncorrected spectra")
+            print(f"File: {list_filenames['file_list']}")
+
+            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_all_sp(path, list_filenames['file_list'], onedim=onedim, **kwargs)
+
         self.headers = headers
         self.wave = np.array(wv)
         self.count = np.ma.masked_invalid(count)
@@ -494,7 +509,7 @@ class Observations():
         if onedim is False:
             self.uncorr_fl = self.uncorr/(blaze_uncorr/np.nanmax(blaze_uncorr, axis=-1)[:,:,None])
             
-        self.path=path
+        self.path = Path(path)
         
         
     def select_transit(self, transit_tag, bloc=None):
@@ -1031,7 +1046,7 @@ class Observations():
         
     def get_template(self, file):
 
-        data = Table.read(self.path+file)
+        data = Table.read(self.path / Path(file))
         self.wvsol = np.ma.masked_invalid(data['wavelength']/1e3)  # [None,:]
         self.template = np.ma.masked_invalid(data['flux'])   # [None,:]
 
@@ -2250,11 +2265,12 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
         for file in tr.filenames:
             blocks = file.split('_')
             filename = '_'.join(blocks[0:2]) + '_tellu_pclean_' + blocks[-1]
+            filename = Path(filename)
 
             print(filename)
 
-            sky_model = fits.getdata(tr.path + filename, ext=4)
-            tell_model = fits.getdata(tr.path + filename, ext=3)
+            sky_model = fits.getdata(tr.path / filename, ext=4)
+            tell_model = fits.getdata(tr.path / filename, ext=3)
 
             sky.append(np.ma.masked_invalid(sky_model))
             tellu.append(np.ma.masked_invalid(tell_model))
