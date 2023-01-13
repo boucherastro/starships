@@ -1130,7 +1130,7 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
 
 def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttest_params, ccf=None, 
                    orders=np.arange(49), masked=False, logl=False, plot_trail=False, 
-                        Kp=None, RV=None, vrp=None, fig_name='', path_fig=None, hist=True):
+                        Kp=None, RV=None, vrp=None, fig_name='', path_fig=None, hist=True, cmap=None):
     
     speed_limit, limit_out, both_side, equal_var = ttest_params
     
@@ -1138,7 +1138,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 
         fig, ax = plt.subplots(2,1, figsize=(8,7))
 
-        im0 = ax[0].pcolormesh(RV_array, Kp_array, sigma, rasterized=True)
+        im0 = ax[0].pcolormesh(RV_array, Kp_array, sigma, rasterized=True, cmap=cmap)
         ax[0].set_ylabel(r'$K_{\rm P}$ (km s$^{-1}$)', fontsize=16)
         ax[0].set_xlabel(r'$v_{\rm rad}$ (km s$^{-1}$)', fontsize=16)
 
@@ -1234,7 +1234,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         
         fig, ax = plt.subplots(1,1, figsize=(8,5))
 
-        im0 = ax.pcolormesh(RV_array, Kp_array, sigma, rasterized=True)
+        im0 = ax.pcolormesh(RV_array, Kp_array, sigma, rasterized=True, cmap=cmap)
         ax.set_ylabel(r'$K_{\rm P}$ (km s$^{-1}$)', fontsize=16)
         ax.set_xlabel(r'$v_{\rm rad}$ (km s$^{-1}$)', fontsize=16)
 
@@ -1326,7 +1326,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         if path_fig is not None:
             fig.savefig(path_fig+'fig_ttest_map{}.pdf'.format(fig_name))
 
-    return sp.stats.ttest_ind(A, B, nan_policy='omit', equal_var=equal_var)
+    return sp.stats.ttest_ind(A, B, nan_policy='omit', equal_var=equal_var), fig
     
 
 

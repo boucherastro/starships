@@ -92,7 +92,7 @@ from astropy.modeling.physical_models import BlackBody as bb
 
 def calc_tr_lightcurve(planet, coeffs, time, T0,
                        # fl_ratio=0.0001, t0 = 0.5,
-                       ld_model='linear', kind_trans='transmission', secondary=False):
+                       ld_model='linear', kind_trans='transmission'):
     params = batman.TransitParams()
     params.t0 = planet.mid_tr.value                       #time of inferior conjunction
     params.per = planet.period.to(u.d).value                      #orbital period

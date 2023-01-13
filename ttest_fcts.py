@@ -32,7 +32,7 @@ def get_corr_in_out_trail(index, corrRV, ccf, tr, \
                           both_side=True, vrp=None, verbose=False):
     
     if vrp is None:
-        vrp = tr.vrp.value
+        vrp = tr.vrp
     
     in_ccf = []
     out_ccf = []

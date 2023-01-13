@@ -1035,12 +1035,15 @@ def plot_ratios_corner(samps, values_compare, color='blue', add_solar=True, **kw
 
 
 def calc_tp_profile(params, temp_params, kind_temp='', TP=True, 
-                    T_eq=None, pressures=None):
+                    T_eq=None, pressures=None, param_id_Teq=None):
     
     if pressures is None:
         pressures = temp_params['pressures']
     if T_eq is None:
-        T_eq = temp_params['T_eq']
+        if param_id_Teq is None:
+            T_eq = temp_params['T_eq']
+        else:
+            T_eq = params[param_id_Teq]
     # print(temp_params, T_eq)
     if kind_temp == 'iso' :
         temperatures = T_eq*np.ones_like(pressures)

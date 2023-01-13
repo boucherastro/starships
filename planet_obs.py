@@ -1604,8 +1604,8 @@ def save_single_sequences(path, filename, tr,
 #     return data_trs
 
 
-def load_single_sequences(path, filename, name, planet,
-                          load_all=False, filename_end='', plot=True):
+def load_single_sequences(path, filename, name,
+                          load_all=False, filename_end='', plot=True, **kwargs):
     #     data_trs[filename_end] = {}
 
     data_tr = np.load(path + filename + '_data_trs_' + filename_end + '.npz')
@@ -1629,7 +1629,8 @@ def load_single_sequences(path, filename, name, planet,
         #                             tellu=self.tellu[transit_tag],
         #                             uncorr=self.uncorr[transit_tag],
         name=name,
-        planet=planet,
+        **kwargs
+        # planet=planet,
         #                             path=self.path,
         #         filenames=np.array(self.filenames)[transit_tag],
         #                             filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
@@ -1861,8 +1862,9 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  # final=list_tr[tr_key].final,
                  # mask_spec_trans=list_tr[tr_key].spec_trans.mask,
                  # mask_final=list_tr[tr_key].final.mask,
-                 # alpha_frac=list_tr[tr_key].alpha_frac,
-                 # icorr=list_tr[tr_key].icorr,
+                 alpha_frac=list_tr[tr_key].alpha_frac,
+                 icorr=list_tr[tr_key].icorr,
+                 bad_indexs=bad_indexs
                  # clip_ts=list_tr[tr_key].clip_ts,
                  # scaling=list_tr[tr_key].scaling,
                  )
@@ -2053,7 +2055,10 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
 
 def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
 
-    tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
+    if transit_tag is not None:
+        tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
+    else:
+        tr_merge = obs
 
     if light is False:
         tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)

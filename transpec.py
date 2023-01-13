@@ -776,7 +776,7 @@ def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, #iOut=None,
     return final_ts#, final_ts_std
 
 
-def build_trans_spectrum_mod_fast(wave, flux, pca, noise, 
+def build_trans_spectrum_mod_fast(flux, pca,
                                   plot=False, n_pca=2, n_comps=10, somme=False ):
 
     if n_pca > 0:

@@ -842,8 +842,8 @@ class Correlations():
                 print(ccf.shape)
 
             elif kind == "logl_sig":
-                nolog_L_sig = np.ma.masked_invalid(np.ma.sum(self.data, axis=1)).squeeze()
-                ccf = corr.nolog2log(nolog_L_sig, tr.N, sum_N=True).squeeze()
+                nolog_L_sig = np.ma.masked_invalid(np.ma.sum(self.data[:, orders], axis=1)).squeeze()
+                ccf = corr.nolog2log(nolog_L_sig, tr.N[:, orders], sum_N=True).squeeze()
                 remove_mean = True
 
         if remove_mean is True:     
@@ -1550,7 +1550,8 @@ class Correlations():
         
     def ttest_map(self, tr, kind='corr', vrp=None, orders=np.arange(49), 
                   kp0=0, RV_limit=100, kp_step=5, rv_step=1, RV=None, 
-                  fig_name='', speed_limit=2.5, ccf=None, peak_center=None, hist=True,**kwargs):
+                  fig_name='', speed_limit=2.5, ccf=None, peak_center=None, hist=True,
+                  cmap=None, **kwargs):
         
         if kind == 'corr':
             if ccf is None:
@@ -1600,12 +1601,14 @@ class Correlations():
         self.ttest_map_params = ttest_params
         
         if Kp_array.size > 1 :
-            self.plot_ttest_map(tr, vrp=vrp, kind=kind, orders=orders, fig_name=fig_name, hist=hist)
+            self.plot_ttest_map(tr, vrp=vrp, kind=kind, orders=orders, fig_name=fig_name,
+                                cmap=cmap, hist=hist)
         
         
         
     def plot_ttest_map(self, tr, 
-                       RV=None, kind='corr', vrp=None, orders=np.arange(49), fig_name='', hist=True):
+                       RV=None, kind='corr', vrp=None, orders=np.arange(49), fig_name='',
+                       cmap=None, hist=True):
         
         Kp_array, RV_array, t_value, ttest_params = self.ttest_map_kp, self.ttest_map_rv, \
                                                     self.ttest_map_tval, self.ttest_map_params
@@ -1617,18 +1620,19 @@ class Correlations():
             ccf = self.ccf0
             prf = False
             if vrp is None:
-                vrp = tr.vrp.value+tr.RV_const+tr.mid_vrp.value
+                vrp = tr.vrp+tr.RV_const+tr.mid_vrp
                 
         elif kind == 'logl':
             ccf = self.map_prf
             prf = True
             if vrp is None:
-                vrp = np.zeros_like(tr.vrp.value)+tr.RV_const #+tr.mid_vrp.value
+                vrp = np.zeros_like(tr.vrp)+tr.RV_const #+tr.mid_vrp
                 
-        t_in, p_in = pf.plot_ttest_map_hist(tr, self.rv_grid, ccf.copy(), Kp_array, RV_array, t_value, ttest_params, 
+        (t_in, p_in), fig = pf.plot_ttest_map_hist(tr, self.rv_grid, ccf.copy(), Kp_array, RV_array, t_value, ttest_params,
                                orders=orders, plot_trail=True, masked=True, ccf=ccf.copy(),
-                              vrp=vrp, RV=RV, fig_name=fig_name, hist=hist)
+                              vrp=vrp, RV=RV, fig_name=fig_name, hist=hist, cmap=cmap)
         print(t_in, p_in, nf.pval2sigma(p_in))
+        return fig
         
 def plot_ccf_timeseries(t, rv_star, correlation, plot_gauss=True, plot_spline=True, x0_estim=0,
                     orders=np.arange(49), rv_limit=30, berv=False, RV=0, limit_rv=2, iOrd=None, plot=True):
@@ -1742,21 +1746,21 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
 
     if id_pc0 is not None:
         ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
-                         kind='logl_corr', index=indexs,  # remove_mean=False,
+                         kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
                          map_kind='snr', id_pc=id_pc0, figwidth=9, **kwargs)
-        ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp),
+        ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                             plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
         if map is True:
-            ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=np.arange(49),
+            ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                               kp0=0, RV_limit=corrRV0.max() - 20, kp_step=5, rv_step=2, RV=None, speed_limit=3,
                               icorr=tr.iIn,
                               equal_var=False)
     else:
         for id_pc in range(len(n_pcas)):
             ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
-                             kind='logl_corr', index=indexs,  # remove_mean=False,
+                             kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
                              map_kind='snr', id_pc=id_pc, figwidth=9, **kwargs)
-            ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp),
+            ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                                 plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
             if map is True:
                 ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,

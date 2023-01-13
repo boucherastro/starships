@@ -329,7 +329,7 @@ def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flu
         
     model_seq = gen_model_sequence_noinj([RV, vrp_orb-vr_orb, data_tr['RV_const']], 
                                          data_tr['wave'], data_tr['sep'], 
-                                         data_tr['pca'], int(data_tr['params'][5]), data_tr['noise'], 
+                                         data_tr['pca'], int(data_tr['params'][5]), #data_tr['noise'],
                                          planet, wave_mod[20:-20], model[20:-20], 
                                         kind_trans=kind_trans, alpha=alpha,# resol=resol
                                          )
@@ -356,7 +356,7 @@ def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flu
     return logl_BL
     
     
-def gen_model_sequence_noinj(velocities, data_wave, data_sep, data_pca, data_npc, data_noise, 
+def gen_model_sequence_noinj(velocities, data_wave, data_sep, data_pca, data_npc, #data_noise,
                              planet, model_wave, model_spec, #resol=64000,norm=True,debug=False,
                             alpha=None,  **kwargs):
     # --- inject model in an empty sequence of ones
@@ -367,7 +367,7 @@ def gen_model_sequence_noinj(velocities, data_wave, data_sep, data_pca, data_npc
                                                  R0 = planet.R_pl, alpha=alpha, **kwargs)
    
     # -- Remove the same number of pcas that were used to inject
-    model_seq = build_trans_spectrum_mod_fast(data_wave, flux_inj, data_pca, data_noise, n_pca=data_npc)
+    model_seq = build_trans_spectrum_mod_fast(flux_inj, data_pca, n_pca=data_npc)
 
     return model_seq
 
