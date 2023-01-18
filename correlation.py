@@ -566,7 +566,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                                              n_pc, i+1,len(Kp_array),Kpi, f+1, models.shape[0], v+1,corrRV.size))
 
                     model_seq = gen_model_sequence_noinj([vrad, vrp_orb-vr_orb, RV_const], 
-                                         wave, sep, pca, int(params[5]), noise, 
+                                         wave, sep, pca, int(params[5]),
                                          planet, wave_mod[20:-20], specMod[20:-20], 
                                          kind_trans=kind_trans, alpha=alpha, #resol=resol,
                                                          **kwargs)
@@ -959,7 +959,10 @@ def calc_logl_split_transits(trb1, trb2, Kp_array, corrRV0, n_pcas, Wave0, Model
 def save_logl_seq(filename, corr, logl, wave_mod, model, n_pcas, Kp_array, corrRV0, kind_trans):
     np.savez(filename, corr=corr, logl=logl, wave_mod=wave_mod, model=model,
              n_pcas=n_pcas, Kp_array=Kp_array, corrRV0=corrRV0, kind_trans=kind_trans)
-    print('Saved correl at :', filename)
+    try:
+        print('Saved correl at :', filename.with_suffix(".npz"))
+    except AttributeError:
+        print('Saved correl at :', filename + ".npz")
 
 
 def load_logl_seq(filename):

@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 # from itertools import islice
 from astropy.table import Table, Column
 
+from pathlib import Path
+
 
 
 def plot_all_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False, n_lvl=None, 
@@ -487,7 +489,7 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
     ax[1].set_title(r'with $\sigma$ division')
     
     
-def plot_all_orders_correl(corrRV, ccf, tr, icorr=None, logl=False, tresh=0.4, sharey=True,
+def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
                            vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr', 
                            return_snr=False):
     if icorr is None:
@@ -547,7 +549,12 @@ def plot_all_orders_correl(corrRV, ccf, tr, icorr=None, logl=False, tresh=0.4, s
             if hline is not None:
                 ax_single[i,j].axhline(hline, linestyle='-', alpha=0.5, color='navy')
             ax_single[i,j].axvline(np.mean(tr.berv), linestyle='--', color='red', alpha=0.5)
-            
+
+    if output_file is not None:
+        output_file = Path(output_file)
+        fig.savefig(output_file.with_stem(f'{output_file.stem}_2d'))
+        fig_single.savefig(output_file.with_stem(f'{output_file.stem}_single'))
+
     if return_snr is True:
         return interp_grid, snr_list
             

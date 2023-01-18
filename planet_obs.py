@@ -1152,7 +1152,11 @@ class Planet():
         
         if parametres is None:
             print('Getting {} from ExoFile'.format(name))
-            parametres = ExoFile.load(use_alt_file=True).by_pl_name(name)
+            # Try locally, if not available, try to query the exofile
+            try:
+                parametres = ExoFile.load(query=False, use_alt_file=True).by_pl_name(name)
+            except FileNotFoundError:
+                parametres = ExoFile.load(use_alt_file=True).by_pl_name(name)
 
         #  --- Propriétés du système
         self.R_star = parametres['st_rad'].to(u.m)
@@ -1431,14 +1435,19 @@ def split_transits(obs_obj, transit_tag, mid_idx,
 
 
 
-def save_single_sequences(path, filename, tr,
+def save_single_sequences(filename, tr, path='',
                           save_all=False, filename_end='', bad_indexs=None):
+
+    filename = Path(filename)
+    path = Path(path)
+    out_filename = Path(f'{filename.name}_data_trs_{filename_end}.npz')
+    out_filename = path / out_filename
 
     if bad_indexs is None:
         bad_indexs = []
-    print(path + filename + '_data_trs_' + filename_end + '.npz')
+    print(out_filename)
     if save_all is False:
-        np.savez(path+filename+'_data_trs_'+filename_end,
+        np.savez(out_filename,
              components_ = tr.pca.components_,
              explained_variance_ = tr.pca.explained_variance_,
              explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
@@ -1499,7 +1508,7 @@ def save_single_sequences(path, filename, tr,
                  # iOut = tr.iOut,
              )
     else:
-        np.savez(path+filename+'_data_trs_'+filename_end,
+        np.savez(out_filename,
              components_ = tr.pca.components_,
              explained_variance_ = tr.pca.explained_variance_,
              explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
@@ -1604,11 +1613,19 @@ def save_single_sequences(path, filename, tr,
 #     return data_trs
 
 
-def load_single_sequences(path, filename, name,
+def load_single_sequences(filename, name, path='',
                           load_all=False, filename_end='', plot=True, **kwargs):
     #     data_trs[filename_end] = {}
 
-    data_tr = np.load(path + filename + '_data_trs_' + filename_end + '.npz')
+    filename = Path(filename)
+    path = Path(path)
+
+    try:
+        data_tr = np.load(path / filename)
+    except FileNotFoundError:
+        input_filename = Path(f'{filename.name}_data_trs_{filename_end}.npz')
+        input_filename = path / input_filename
+        data_tr = np.load(input_filename)
 
     pca = PCA(data_tr['n_components_'])
     pca.components_ = data_tr['components_']
@@ -1726,11 +1743,11 @@ def load_single_sequences(path, filename, name,
                                     mask=data_tr['mask_recon_time'])
 
     # ---- Transit model
-    gen_transit_model(tr, planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
+    gen_transit_model(tr, tr.planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
 
     # --- Radial velocities
 
-    gen_rv_sequence(tr, planet, plot=False)
+    gen_rv_sequence(tr, tr.planet, plot=False)
 
     tr.norv_sequence(RV=data_tr['RV_sys'])
 
@@ -2055,7 +2072,7 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
 
 def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
 
-    if transit_tag is not None:
+    if transit_tags is not None:
         tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
     else:
         tr_merge = obs
@@ -2261,7 +2278,7 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
 
 
 # for tr in [t1,t2,t3]:
-def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
+def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False, fig_output_file=None):
     if not (hasattr(tr, 'pclean') | hasattr(tr, 'sky')):
         sky = []
         tellu = []
@@ -2333,7 +2350,7 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
         _ = plot_all_orders_correl(corrRV0, np.abs(ccf_tellu_clean), tr,
                                       icorr=None, logl=False, sharey=True,
                                       vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
-                                      vline=None, hline=2, kind='snr', return_snr=True)
+                                      vline=None, hline=2, kind='snr', return_snr=True, output_file=fig_output_file)
 
         # --- Sky masking ---
 
@@ -2351,7 +2368,7 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
         _ = plot_all_orders_correl(corrRV0, np.abs(ccf_sky_clean), tr,
                                       icorr=None, logl=False, sharey=True,
                                       vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
-                                      vline=None, hline=2, kind='snr', return_snr=True)
+                                      vline=None, hline=2, kind='snr', return_snr=True, output_file=fig_output_file)
 
     if not hasattr(tr,'original_mask'):
         tr.original_mask = tr.spec_trans.mask.copy()
