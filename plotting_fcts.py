@@ -1135,9 +1135,10 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
     return -chose[1], chose[0]
 
 
-def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttest_params, ccf=None, 
-                   orders=np.arange(49), masked=False, logl=False, plot_trail=False, 
-                        Kp=None, RV=None, vrp=None, fig_name='', path_fig=None, hist=True, cmap=None):
+def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttest_params, ccf=None,
+                        orders=np.arange(49), masked=False, logl=False, plot_trail=False, show_max=True,
+                        show_rest_frame=True, Kp=None, RV=None, vrp=None, fig_name='',
+                        path_fig=None, hist=True, cmap=None):
     
     speed_limit, limit_out, both_side, equal_var = ttest_params
     
@@ -1250,8 +1251,9 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         cbar = fig.colorbar(im0, ax=ax, cax=cax)
         cbar.set_label(r'$t$-test $\sigma$', fontsize=16)
 
-        ax.axhline(tr.Kp.value,color='indigo',alpha=0.5, linestyle=':', label='Planet Rest Frame')
-        ax.axvline(0,color='indigo',alpha=0.5, linestyle=':')
+        if show_rest_frame:
+            ax.axhline(tr.Kp.value,color='indigo',alpha=0.5, linestyle=':', label='Planet Rest Frame')
+            ax.axvline(0,color='indigo',alpha=0.5, linestyle=':')
         fig.tight_layout(pad=1.0)
 
 
@@ -1274,9 +1276,10 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         max_val = -chose[1]
         wind = chose[0]
 
-        ax.scatter(wind, Kp, marker='+', color='k')#, 
-    #                   label=r'{:.2f} // RV = {:.2f}'.format(max_val, wind))
-    #     ax[0].legend(loc='lower right')
+        if show_max:
+            ax.scatter(wind, Kp, marker='+', color='k')#,
+        #                   label=r'{:.2f} // RV = {:.2f}'.format(max_val, wind))
+        #     ax[0].legend(loc='lower right')
 
 
         if ccf is None:

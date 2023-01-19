@@ -2,6 +2,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+from copy import deepcopy
+
 from pathlib import Path
 import astropy.units as u
 from astropy.time import Time
@@ -1668,7 +1670,7 @@ def load_single_sequences(filename, name, path='',
 
     tr.t_start = data_tr['t_start']
     tr.t = data_tr['t_start'] * u.d
-    tr.dt = data_tr['dt']*u.s,
+    tr.dt = data_tr['dt']*u.s
     tr.bad = data_tr['bad_indexs']
     tr.flux = np.ma.array(data_tr['flux'],
                      mask=data_tr['mask_flux'])
@@ -1830,21 +1832,28 @@ def load_single_data_dict(path, filename, load_all=False, filename_end='', data_
     return data_trs
     
 
-def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=False):
+def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=False):
+
+    filename = Path(filename)
+    path = Path(path)
 
     if bad_indexs is None:
         bad_indexs = []
-    
-    np.savez(path+filename+'_data_info', 
+
+    out_filename = Path(f'{filename.name}_data_info.npz')
+    print(path / out_filename)
+    np.savez(path / out_filename,
              trall_alpha_frac = list_tr[str(do_tr[-1])].alpha_frac,
              trall_icorr = list_tr[str(do_tr[-1])].icorr,
              trall_N = list_tr[str(do_tr[-1])].N  ,
              bad_indexs = bad_indexs
              )
-    print(path+filename+'_data_info'+'.npz')
+
     for i_tr, tr_key in enumerate(list(list_tr.keys())[:np.nonzero(np.array(do_tr) < 10)[0].size]):
+        out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
+        print(path / out_filename)
         if save_all is False:
-            np.savez(path+filename+'_data_trs_'+str(i_tr),
+            np.savez(path / out_filename,
                  components_ = list_tr[tr_key].pca.components_,
                  explained_variance_ = list_tr[tr_key].pca.explained_variance_,
                  explained_variance_ratio_ = list_tr[tr_key].pca.explained_variance_ratio_,
@@ -1886,7 +1895,7 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  # scaling=list_tr[tr_key].scaling,
                  )
         else:
-            np.savez(path+filename+'_data_trs_'+str(i_tr),
+            np.savez(path / out_filename,
                  components_ = list_tr[tr_key].pca.components_,
                  explained_variance_ = list_tr[tr_key].pca.explained_variance_,
                  explained_variance_ratio_ = list_tr[tr_key].pca.explained_variance_ratio_,
@@ -1942,13 +1951,16 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  mask_fl_masked = list_tr[tr_key].fl_masked.mask,
                  mask_recon_time = list_tr[tr_key].recon_time.mask,
                  )
-           
-        print(path+filename+'_data_trs_'+str(i_tr)+'.npz')
+
         
-        
-def load_sequences(path, filename, do_tr, load_all=False):
-    
-    data_info_file = np.load(path+filename+'_data_info.npz')
+def load_sequences(filename, do_tr, path='', load_all=False):
+
+    filename = Path(filename)
+    path = Path(path)
+
+    out_filename = Path(f'{filename.name}_data_info.npz')
+    print('Reading:', path / out_filename)
+    data_info_file = np.load(path / out_filename)
     data_info = {}
 
     data_info['trall_alpha_frac'] = data_info_file['trall_alpha_frac']
@@ -1962,7 +1974,9 @@ def load_sequences(path, filename, do_tr, load_all=False):
     for i_tr, tr_key in enumerate(do_tr[:np.nonzero(np.array(do_tr) < 10)[0].size]):
         data_trs[str(i_tr)] = {}
 
-        data_tr = np.load(path+filename+'_data_trs_'+str(i_tr)+'.npz')
+        out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
+        print('Reading:', path / out_filename)
+        data_tr = np.load(path / out_filename)
 
         pca=PCA(data_tr['n_components_'])
         pca.components_ = data_tr['components_']
@@ -2075,7 +2089,7 @@ def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_
     if transit_tags is not None:
         tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
     else:
-        tr_merge = obs
+        tr_merge = deepcopy(obs)
 
     if light is False:
         tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
