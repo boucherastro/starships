@@ -1,12 +1,12 @@
 
-# import emcee
+from pathlib import Path
+
 import h5py
 
 import corner
 import numpy as np
 
 import arviz as az
-# import pymc3
 
 
 from starships import homemade as hm
@@ -2267,3 +2267,47 @@ def plot_corner(sample_all, labels, param_no_zero=4, maxs=None, errors=None, plo
 #     gc.collect()
 #
 #     return total
+
+
+def init_from_burnin(n_walkers, n_best_min=1000, quantile=None, wlkr_file=None, wlkr_path=''):
+    """Draw `n_walkers` walkers among the ones with the best logL found in `wlkr_file`.
+    It returns the parameters values to initiate a new sampler (n_walker, n_parameters).
+    The values are drawn within the N best walkers (`n_best_min`) or the best `quantile`.
+    Can be set to None to force to use the other alternative."""
+
+    if wlkr_file is None:
+        raise NotImplementedError("The walker file (`wlkr_file`) is required for now.")
+    else:
+        wlkr_file = Path(wlkr_file)
+        wlkr_path = Path(wlkr_path)
+
+    # Ordered logl and posteriors (flatten)
+    output = read_walker_prob(wlkr_path / wlkr_file, tol=1)
+    ord_pos = output[0]
+
+    # Best walkers among the x quantile or at least the n best
+    n_total = ord_pos.shape[0]
+
+    # Take most restrictive values
+    if n_best_min is None:
+        n_best_min = n_total
+    else:
+        n_best_min = np.min([n_best_min, n_total])
+
+    if quantile is None:
+        n_sample = n_best_min
+    else:
+        n_quantile = int(quantile * n_total)  # Number of values in quantile
+        n_sample = np.min([n_quantile, n_best_min])
+
+    n_sample = np.max([n_walkers, n_sample])  # At least the number of walkers
+
+    # Take random integers (no repeated value)
+    rng = np.random.default_rng()
+    random_int = rng.permutation(range(n_sample))[:n_walkers]
+
+    # Associated index in ord_pos
+    idx = n_total - random_int
+    walker_init = ord_pos[idx, :]
+
+    return walker_init
