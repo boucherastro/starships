@@ -323,15 +323,25 @@ def nolog2log(nolog_L, N, sum_N=True):  #, sumit=False, axis=0
         return - N / 2 * np.log( 1/N * nolog_L)
 
 
-def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flux, s2f, 
-                             vrp_orb=None, vr_orb=None, #resol=64000, inj_alpha='ones',
+def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flux=None, s2f=None,
+                             vrp_orb=None, vr_orb=None,
                              nolog=True,  alpha=None, kind_trans="emission"):
-        
+
+    if flux is None:
+        flux = data_tr['flux']
+
+    if s2f is None:
+        s2f = data_tr['s2f']
+
     model_seq = gen_model_sequence_noinj([RV, vrp_orb-vr_orb, data_tr['RV_const']], 
-                                         data_tr['wave'], data_tr['sep'], 
-                                         data_tr['pca'], int(data_tr['params'][5]), #data_tr['noise'],
-                                         planet, wave_mod[20:-20], model[20:-20], 
-                                        kind_trans=kind_trans, alpha=alpha,# resol=resol
+                                         # data_tr['wave'], data_tr['sep'],
+                                         # data_tr['pca'], int(data_tr['params'][5]), #data_tr['noise'],
+                                         data_tr=data_tr,
+                                         planet=planet,
+                                         model_wave=wave_mod[20:-20],
+                                         model_spec=model[20:-20],
+                                         kind_trans=kind_trans,
+                                         alpha=alpha,# resol=resol
                                          )
     
 #     model_seq = gen_model_sequence_retrieval([RV, vrp_orb-vr_orb, data_tr['RV_const']], data_tr, 
@@ -356,9 +366,25 @@ def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flu
     return logl_BL
     
     
-def gen_model_sequence_noinj(velocities, data_wave, data_sep, data_pca, data_npc, #data_noise,
-                             planet, model_wave, model_spec, #resol=64000,norm=True,debug=False,
-                            alpha=None,  **kwargs):
+def gen_model_sequence_noinj(velocities, data_wave=None, data_sep=None, data_pca=None, data_npc=None, #data_noise,
+                             planet=None, model_wave=None, model_spec=None, #resol=64000,norm=True,debug=False,
+                            alpha=None, data_tr=None,  **kwargs):
+
+    if data_wave is None:
+        data_wave = data_tr['wave']
+
+    if data_sep is None:
+        data_sep = data_tr['sep']
+
+    if data_pca is None:
+        data_pca = data_tr['pca']
+    if data_npc is None:
+        data_npc = int(data_tr['params'][5])
+
+    for arg in (planet, model_wave, model_spec):
+        if arg is None:
+            raise ValueError('`planet`, `model_wave` and `model_spec` need to be specified.')
+
     # --- inject model in an empty sequence of ones
     flux_inj, _ = quick_inject_clean(data_wave, np.ones_like(data_wave), 
                                                   model_wave, model_spec, 
