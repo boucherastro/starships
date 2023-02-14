@@ -21,6 +21,26 @@ from astropy.table import Table, Column
 from pathlib import Path
 
 
+retrieval_plot_labels = { 'H2O': r"$\log_{10}$ H2O",
+                          'CO': r"$\log_{10}$ CO",
+                          'CO2': r"$\log_{10}$ CO2",
+                          'FeH': r"$\log_{10}$ FeH",
+                          'TiO': r"$\log_{10}$ TiO",
+                          'VO': r"$\log_{10}$ VO",
+                          'C2H2': r"$\log_{10}$ C_2H_2",
+                          'HCN': r"$\log_{10}$ HCN",
+                          'OH': r"$\log_{10}$ OH",
+                          'H-': r"$\log_{10}$ H^-",
+                          'temp': r"$T_{\rm P}$",
+                          'cloud': r"$\log_{10}P_{clouds}$",
+                          'rpl': r"$R_{\rm P}$",
+                          'kp': r"$K_{\rm P}$",
+                          'rv': r"$v_{\rm rad}$",
+                          'tp_delta': r'$\log_{10} \delta$',
+                          'tp_gamma': r'$\gamma$',
+                          'tp_ptrans': r'$\log P_{trans}$',
+                          'tp_alpha': r'$\alpha$'}
+
 
 def plot_all_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False, n_lvl=None, 
                   vmin_in=None, vmax=None, title='', point=None, correl=False, cmap='inferno',

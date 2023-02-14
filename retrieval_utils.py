@@ -801,9 +801,13 @@ def single_max_dist(samp, bins='auto', start=0, end=-1, bin_size=6, plot=False):
 
     return maxs, errors
 
-def find_dist_maxs(sample_all, labels, bin_size=6, flag_id=None, plot=True, prob=0.68):
+def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True, prob=0.68):
     
     n_params = sample_all.shape[-1]
+
+    if labels is None:
+        labels = [f'{idx}' for idx in range(n_params)]
+
     maxs = []
     errors = []
 #     print(n_params)
@@ -1473,10 +1477,13 @@ def gen_params_id_p(params_priors):
 #     return maxs, errors
 
 
-def plot_corner(sample_all, labels, param_no_zero=4, maxs=None, errors=None, plot=True,**kwargs):
+def plot_corner(sample_all, labels=None, param_no_zero=4, maxs=None, errors=None, plot=True,**kwargs):
 #     print(sample_all.shape)
     ndim = sample_all.shape[-1]
-    
+
+    if labels is None:
+        labels = [f'{idx}' for idx in range(ndim)]
+
     if sample_all.ndim == 2:
         flat_samples = sample_all
     else:
@@ -2284,6 +2291,7 @@ def init_from_burnin(n_walkers, n_best_min=1000, quantile=None, wlkr_file=None, 
     # Ordered logl and posteriors (flatten)
     output = read_walker_prob(wlkr_path / wlkr_file, tol=1)
     ord_pos = output[0]
+    ord_logl = output[1]
 
     # Best walkers among the x quantile or at least the n best
     n_total = ord_pos.shape[0]
@@ -2309,5 +2317,6 @@ def init_from_burnin(n_walkers, n_best_min=1000, quantile=None, wlkr_file=None, 
     # Associated index in ord_pos
     idx = n_total - random_int
     walker_init = ord_pos[idx, :]
+    logl = ord_logl[idx]
 
-    return walker_init
+    return walker_init, logl
