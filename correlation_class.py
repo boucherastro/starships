@@ -925,12 +925,14 @@ class Correlations():
             interp_grid = self.interp_grid
             
         if peak_center is not None:
-            nb_pix = np.round(peak_center/2.3)
-            peak_rv = np.arange(-nb_pix*2.3 + self.pos, (nb_pix+1)*2.3 + self.pos, 2.3)
+            nb_pix = np.round(peak_center / 2.3)
+            peak_rv = np.arange(-nb_pix * 2.3, (nb_pix + 1) * 2.3, 2.3)
+            # nb_pix = np.floor(np.round((self.rv_grid[-1] - self.rv_grid[0]) / 2.3) / 2)
+            # peak_rv = np.arange(-nb_pix*2.3 + self.pos, (nb_pix)*2.3 + self.pos, 2.3)
             peak_ccf = np.ones((tr.n_spec, peak_rv.size))*np.nan
 
             for n in range(tr.n_spec):
-                fct = interp1d(self.rv_grid, ccf[n])    
+                fct = interp1d(self.rv_grid, ccf[n], fill_value="extrapolate")
                 peak_ccf[n] = fct(peak_rv)
 
             interp_grid = peak_rv
@@ -944,7 +946,10 @@ class Correlations():
 
         idx_mid = hm.nearest(interp_grid, RV)
 
-        colum3 = np.ma.mean(ccf[:,idx_mid-1:idx_mid+2]/np.nanstd(ccf[:,idx_bruit_rv]),axis=-1)
+        std_map = np.nanmedian(np.abs(ccf-np.nanmedian(ccf, axis=-1)[:, None]),axis=-1)[:, None]/0.6745
+        std_map[std_map==0] = 1.0
+        # colum3 = np.ma.mean(ccf[:,idx_mid-1:idx_mid+2]/np.nanstd(ccf[:,idx_bruit_rv]),axis=-1)
+        colum3 = np.ma.mean(ccf[:,idx_mid-1:idx_mid+2]/std_map, axis=-1)
 
         if index is not None:
             colum3[index] = np.nan
@@ -962,8 +967,18 @@ class Correlations():
     #             print(id_range)
                 y.append(tr.phase[split_fig[i-1]:split_fig[i]]) #np.arange(tr.n_spec)[:split_fig]
                 if map_kind == 'snr':
-                    z.append(ccf[split_fig[i-1]:split_fig[i]]/ \
-                             np.nanstd(ccf[:,idx_bruit_rv][split_fig[i-1]:split_fig[i]]))
+                    ccf_i = ccf[split_fig[i - 1]:split_fig[i]]
+                    # std_i = np.nanstd(ccf[:, idx_bruit_rv][split_fig[i - 1]:split_fig[i]], axis=-1)
+                    std_i = np.nanmedian(np.abs(ccf_i-np.nanmedian(ccf_i, axis=-1)[:, None]),axis=-1)[:, None]/0.6745
+                    std_i[std_i==0] = 1.0
+                    z_i = ccf_i / std_i#[:, None]
+                    # z_i[~np.isfinite(z_i)] = 0.0
+                    z.append(z_i)
+                    # print(np.nanmean(ccf[split_fig[i-1]:split_fig[i]]/ \
+                    #          np.nanstd(ccf[:,idx_bruit_rv][split_fig[i-1]:split_fig[i]], axis=-1)[:,None]))
+                    # print(ccf[split_fig[i-1]:split_fig[i]].shape)
+                    # print(np.nanstd(ccf[:,idx_bruit_rv][split_fig[i-1]:split_fig[i]]).shape)
+                    # print()
                 if map_kind == 'curve':
                     z.append(ccf[split_fig[i-1]:split_fig[i]])
         else:
@@ -974,8 +989,14 @@ class Correlations():
                 z=ccf
 
         idx_mid = hm.nearest(interp_grid, RV)        
-        colum3 = np.ma.mean(ccf[:,idx_mid-1:idx_mid+2]/np.nanstd(ccf[:,idx_bruit_rv]),axis=-1)
-        bin_ccf = spectrum.box_binning(colum3, box_size=3)        
+        # colum3 = np.ma.mean(ccf[:,idx_mid-1:idx_mid+2]/np.nanstd(ccf[:,idx_bruit_rv]),axis=-1)
+
+        std_map = np.nanmedian(np.abs(ccf-np.nanmedian(ccf, axis=-1)[:, None]),axis=-1)[:, None]/0.6745
+        std_map[std_map==0] = 1.0
+        # colum3 = np.ma.mean(ccf[:,idx_mid-1:idx_mid+2]/np.nanstd(ccf[:,idx_bruit_rv]),axis=-1)
+        colum3 = np.ma.mean(ccf[:,idx_mid-1:idx_mid+2]/std_map, axis=-1)
+
+        bin_ccf = spectrum.box_binning(colum3, box_size=3)
 
         if len(split_fig) > 1:
 
@@ -1130,7 +1151,7 @@ class Correlations():
 
 
         fig.subplots_adjust(hspace=0.05, wspace=0.03)
-#         fig.tight_layout()
+        # fig.tight_layout()
         
         if fig_name != '':
             fig.savefig(path_fig +'fig_CCF_2D_'+fig_name+'.pdf')#, rasterize=True)
@@ -1152,13 +1173,17 @@ class Correlations():
             for i in range(len(split_fig))[:-1]:
                 fct_ccf2d = interp2d(x, y[i], z[i], fill_value=0)
                 ccf_interp.append(fct_ccf2d(x, common_y))
-            fig2 = plt.figure()
+            fig2 = plt.figure(figsize=(9,4))
             plt.pcolormesh(x, common_y, np.array(ccf_interp).sum(axis=0) , cmap='plasma', rasterized=True)
             plt.xlabel(r'$v_{\rm rad}$ (km s$^{-1}$)', fontsize=16)
             plt.ylabel(r'Orbital Phase', fontsize=16)
-            plt.axhline(tr.phase[tr.iIn[0]], color='white',linestyle=':')
-            plt.axhline(tr.phase[tr.iIn[-1]], color='white',linestyle=':')
+            plt.axhline(tr.phase[tr.iIn[0]], color='white',linestyle='--')
+            plt.axhline(tr.phase[tr.iIn[-1]], color='white',linestyle='--')
+            plt.axhline(tr.phase[tr.total[0]], color='white', linestyle=':')
+            plt.axhline(tr.phase[tr.total[-1]], color='white', linestyle=':')
             plt.axvline(0, color='black',linestyle=':', alpha=0.7)
+            fig2.tight_layout()
+            fig2.savefig(path_fig +'fig_sum_CCF2D_'+fig_name+'.pdf')#, rasterize=True)
             
         
         
@@ -1527,12 +1552,15 @@ class Correlations():
             ccf = ccf0.copy()
             
         if peak_center is not None:
-            nb_pix = np.round(peak_center/2.3)
-            peak_rv = np.arange(-nb_pix*2.3 + wind, (nb_pix+1)*2.3 + wind, 2.3)
+            nb_pix = np.round(peak_center / 2.3)
+            peak_rv = np.arange(-nb_pix * 2.3, (nb_pix + 1) * 2.3, 2.3)
+            # nb_pix = np.floor(np.round((self.rv_grid[-1] - self.rv_grid[0]) / 2.3) / 2)
+            # peak_rv = np.arange(-nb_pix*2.3 + wind, (nb_pix)*2.3 + wind, 2.3)
             peak_ccf = np.ones((tr.n_spec, peak_rv.size))*np.nan
 
             for n in range(tr.n_spec):
-                fct = interp1d(self.rv_grid, ccf[n])    
+                fct = interp1d(self.rv_grid, ccf[n], fill_value='extrapolate')
+                # print('RV = ', peak_rv[[0,-1]])
                 peak_ccf[n] = fct(peak_rv)
 
             (t_in, p_in), (t_out, p_out) = nf.single_t_test(tr, peak_rv, peak_ccf, orders, wind=wind, 
@@ -1573,12 +1601,14 @@ class Correlations():
 #                 vrp = np.zeros_like(tr.vrp.value)+tr.RV_const #+tr.mid_vrp.value
 
         if peak_center is not None:
-            nb_pix = np.round(peak_center/2.3)
-            peak_rv = np.arange(-nb_pix*2.3 + self.pos, (nb_pix+1)*2.3 + self.pos, 2.3)
+            nb_pix = np.round(peak_center / 2.3)
+            peak_rv = np.arange(-nb_pix * 2.3, (nb_pix + 1) * 2.3, 2.3)
+            # nb_pix = np.floor(np.round((self.rv_grid[-1] - self.rv_grid[0]) / 2.3) / 2)
+            # peak_rv = np.arange(-nb_pix*2.3 + self.pos, (nb_pix)*2.3 + self.pos, 2.3)
             peak_ccf = np.ones((tr.n_spec, peak_rv.size))*np.nan
 
             for n in range(tr.n_spec):
-                fct = interp1d(self.rv_grid, ccf[n])    
+                fct = interp1d(self.rv_grid, ccf[n], fill_value='extrapolate')
                 peak_ccf[n] = fct(peak_rv)
             rv_grid = peak_rv
             ccf = peak_ccf
