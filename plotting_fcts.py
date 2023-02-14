@@ -904,7 +904,8 @@ def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
     ax4.text( tr.wv[iord][100],tr.phase[-15], 'D', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
     if path_fig is not None:
-        fig.savefig(path_fig+'fig_five_STEPS'+fig_name+'.pdf')
+        # fig.tight_layout()
+        fig.savefig(path_fig +'fig_five_STEPS'+fig_name+'.pdf')
 
     return fig
     # cbar = plt.colorbar(im3, orientation="horizontal")

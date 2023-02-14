@@ -18,8 +18,8 @@ import astropy.units as u
 import astropy.constants as const
 
 from starships.plotting_fcts import _get_idx_in_range
+import random
 
-# from collections import OrderedDict
 import starships.petitradtrans_utils as prt
 
 try :
@@ -100,16 +100,21 @@ def add_contrib_mol(atom, nb_mols, list_mols, abunds, abund0 = 0., samples=None)
 def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=0,
                                sol_values=None, stellar_values=None, errors=None, H2=0.85, N2=10**(-4.5),
                               list_mols=['H2O','CO','CO2','FeH','CH4','HCN','NH3','C2H2','TiO',\
-                                        'OH','Na','K'], fig_name='', prob=0.68):
+                                        'OH','Na','K'], fig_name='', prob=0.68, bins=None):
     if nb_mols is None:
         nb_mols = len(list_mols)
-        
+    if bins is None:
+        bins = np.arange(0, 3.0, 0.05)
+        xlims = [0,1.5]
+    else:
+        xlims = [bins[0],bins[-1]]
+
     values = []
     samp_values = []
     samp_values_err = []
     median_values = []
     
-    bins = np.arange(-7,-1,0.2)
+
     
     if sol_values is None:
         sol_values = [0.54, 8.46 - 12, 8.69 - 12, 7.83 - 12]
@@ -155,7 +160,7 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
 #         fig = plt.figure()
 #         plt.hist(samp_c_sur_o,)
         fig = plt.figure()
-        maximum, errbars2 = calc_hist_max_and_err(samp_c_sur_o, bins=np.arange(0,3.0,0.05), 
+        maximum, errbars2 = calc_hist_max_and_err(samp_c_sur_o, bins=bins,
                                                   bin_size=2, plot=True, prob=prob)
 #         plt.title('C/O = {:.4f} + {:.4f} - {:.4f}\n {:.2f} - {:.2f}'.format(maximum,
 #                                                                             errbars2[1]-maximum,
@@ -171,7 +176,8 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
         plt.axvline(0.54, label='Solar', linestyle='--', color='k')
         if stellar_values is not None:
             plt.axvline(stellar_values[0], label='Stellar', linestyle=':', color='red')
-        plt.xlim(0,1.5)
+
+        plt.xlim(*xlims)
         plt.legend()
         samp_values.append(maximum)
         samp_values_err.append(errbars2)
@@ -233,12 +239,12 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
 #         print('N/O / N/O_* = {:.4f} = 10^{:.4f}'.format(n_sur_o/10**stellar_n_sur_o, 
 #                                                      np.log10(n_sur_o/10**stellar_n_sur_o)))
 #         print('')
-    
-    
 
     if samples is not None:
 
-        samp_c_sur_h = samp_c / samp_h 
+        bins = np.arange(-7, -1, 0.2)
+
+        samp_c_sur_h = samp_c / samp_h
         samp_o_sur_h = samp_o / samp_h 
         samp_n_sur_h = samp_n / samp_h 
 #         samp_n_sur_o = samp_n / samp_o 
@@ -248,20 +254,32 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
         maximum2, errbars22 = calc_hist_max_and_err(np.log10(samp_c_sur_h), bins=bins, bin_size=6, plot=True,
                                                     color='dodgerblue', label='C', prob=prob)
         print('C/H = {:.4f} + {:.4f} - {:.4f}'.format(maximum2,errbars22[1]-maximum2,maximum2-errbars22[0]))
+        print('C/H = {:.4e} = {:.4e} -- {:.4e}'.format(10**maximum2,10**errbars22[0],10**errbars22[1]))
         print('[C/H] = {:.4f} + {:.4f} - {:.4f}'.format(maximum2-sol_values[1],
                                                       errbars22[1]-maximum2,maximum2-errbars22[0]))
         print('[C/H] = {:.4f}x solar = {:.4f} -- {:.4f}'.format(10**(maximum2-sol_values[1]),
                                                       10**(errbars22[0]-sol_values[1]), 
                                                          10**(errbars22[1]-sol_values[1])))
+        print('[C/H]* = {:.4f} + {:.4f} - {:.4f}'.format(maximum2 - stellar_values[1],
+                                                        errbars22[1] - maximum2, maximum2 - errbars22[0]))
+        print('[C/H]* = {:.4f}x solar = {:.4f} -- {:.4f}'.format(10 ** (maximum2 - stellar_values[1]),
+                                                                10 ** (errbars22[0] - stellar_values[1]),
+                                                                10 ** (errbars22[1] - stellar_values[1])))
         maximum3, errbars23 = calc_hist_max_and_err(np.log10(samp_o_sur_h), bins=bins, bin_size=6, plot=True,
                                                     color='darkorange', label='O', prob=prob)
         print('O/H = {:.4f} + {:.4f} - {:.4f}'.format(maximum3,errbars23[1]-maximum3,maximum3-errbars23[0]))
+        print('O/H = {:.4e} = {:.4e} -- {:.4e}'.format(10**maximum3,10**errbars23[0],10**errbars23[1]))
         print('[O/H] = {:.4f} + {:.4f} - {:.4f}'.format(maximum3-sol_values[2],
                                                       errbars23[1]-maximum3,maximum3-errbars23[0]))
         print('[O/H] = {:.4f}x solar = {:.4f} -- {:.4f}'.format(10**(maximum3-sol_values[2]),
                                                       10**(errbars23[0]-sol_values[2]), 
                                                          10**(errbars23[1]-sol_values[2])))
-        
+        print('[O/H]* = {:.4f} + {:.4f} - {:.4f}'.format(maximum3 - stellar_values[2],
+                                                        errbars23[1] - maximum3, maximum3 - errbars23[0]))
+        print('[O/H]* = {:.4f}x solar = {:.4f} -- {:.4f}'.format(10 ** (maximum3 - stellar_values[2]),
+                                                                10 ** (errbars23[0] - stellar_values[2]),
+                                                                10 ** (errbars23[1] - stellar_values[2])))
+
 #         plt.axvline(np.median(np.log10(samp_c_sur_h)), color='purple', linestyle = ':')
 #         plt.axvline(np.median(np.log10(samp_o_sur_h)), color='gold', linestyle = ':')
         
@@ -305,7 +323,7 @@ def print_abund_ratios_any(params, nb_mols=None, samples=None, fe_sur_h = 0, n_s
     
     
 def plot_c_sur_o(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=0,
-                               sol_values=None, stellar_values=None, errors=None, H2=0.75, N2=10**(-4.5),
+                               sol_values=None, stellar_values=None, errors=None, H2=0.85, N2=10**(-4.5),
                               list_mols=['H2O','CO','CO2','FeH','CH4','HCN','NH3','C2H2','TiO',\
                                         'OH','Na','K'], fig_name='', prob=0.68, 
                  color=None, label='', pos=(0.1,0.75), add_infos=True, plot=True,  bins=None, **kwargs):
@@ -383,7 +401,8 @@ def plot_abund_ratios(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=
                       sol_values=None, stellar_values=None,H2=0.85, # errors=None,  N2=10**(-4.5),
                       list_mols=['H2O','CO','CO2','FeH','CH4','HCN','NH3','C2H2','TiO',
                                         'OH','Na','K'],
-                      plot_all=True, fig=None, fig_name=None, prob=0.68, **kwargs):
+                      plot_all=True, fig=None, fig_name=None, path_fig='',
+                      prob=0.68, **kwargs):
     if nb_mols is None:
         nb_mols = len(list_mols)
         
@@ -393,7 +412,7 @@ def plot_abund_ratios(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=
     if sol_values is None:
         sol_values = [0.54, 8.46 - 12, 8.69 - 12, 7.83 - 12]
     if stellar_values is None:
-#     sol_n_sur_o = sol_n_sur_h - sol_o_sur_h
+        # sol_n_sur_o = sol_n_sur_h - sol_o_sur_h
         stellar_values = [0.54] + list(np.array(sol_values[1:]) + fe_sur_h)
 
     abunds = 10**(np.array(params[:nb_mols]))
@@ -471,7 +490,7 @@ def plot_abund_ratios(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=
             maximum3, errbars23 = calc_hist_max_and_err(samp_n_sur_h, bins=bins, bin_size=6, plot=True,
                                                         color='forestgreen', label='N/H', prob=prob)
             print('N/H = {:.4f} + {:.4f} - {:.4f}'.format(maximum3,errbars23[1]-maximum3,maximum3-errbars23[0]))
-            plt.axvline(stellar_values[3], linestyle='-.', color='darkgreen')
+            plt.axvline(stellar_values[3]- sol_values[3], linestyle='-.', color='darkgreen')
         if plot_all:
             plt.axvline(0, linestyle='--', color='black', label='Solar')
     #         plt.axvline(fe_sur_h, linestyle=':', color='red', label='Stellar')#, zorder=32)
@@ -484,7 +503,7 @@ def plot_abund_ratios(params, nb_mols=None, samples=None, fe_sur_h = 0, n_sur_h=
             plt.legend(fontsize=13)
 
         if fig_name is not None:
-            fig.savefig('/home/boucher/spirou/Figures/fig_X_sur_H_distrib_sol{}.pdf'.format(fig_name))
+            fig.savefig(path_fig + 'fig_X_sur_H_distrib_sol{}.pdf'.format(fig_name))
     
     return fig
    
@@ -535,7 +554,7 @@ def calc_hist_max_and_err(sample, bins=50, bin_size=2, plot=True, color=None,
     if plot:
 #         plt.plot(mids, binned) 
         plt.axvline(max_samp, color=color)
-        plt.axvspan(err_samp[1], err_samp[0], color=color, alpha=0.2)
+        plt.axvspan(err_samp[1], err_samp[0], color=color, alpha=0.15)
 #         plt.axvline(err_samp[0], color='k', linestyle='--')
 #         plt.axvline(err_samp[1], color='k', linestyle='--')
     
@@ -581,11 +600,11 @@ def plot_best_mod(params, planet, atmos_obj, temp_params, alpha_vis=0.5, alpha=0
 
 
 def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3, 
-                      scatt=False, gamma_scat=-1.7, kappa_factor=0.36,
-                      TP=False,  radius_param=2, cloud_param=1,  #kappa_IR=-3, gamma=-1.5,
+                      scatt=False, gamma_scat=-1.7, kappa_factor=np.log10(0.36),
+                      TP=False,  radius_param=2, cloud_param=1,
                       scale=1., haze=None, nb_mols=None, kind_res='low', \
                       list_mols=None, kind_temp='', kind_trans='transmission', 
-                      plot_abundance=False, 
+                      plot_abundance=False, params_id=None,
                       change_line_list=None, add_line_list=None, **kwargs):
     
 #     species_all0 = OrderedDict({})
@@ -627,18 +646,18 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 
     temp_params['gravity'] = (const.G * planet.M_pl / (radius)**2).cgs.value
 
-    temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP)
+    temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, params_id=params_id)
 
     if scatt is True:
         gamma_scat = params[-2]
-        kappa_factor = params[-1]
-    
+        kappa_factor = 10**params[-1]
+    # print(species_all)
     _, wave, model_rp = prt.calc_multi_full_spectrum(planet, species_all, atmos_full=atmos_obj, 
                              pressures=temp_params['pressures'], T=temp_params['T_eq'], 
                                                      temperature=temperature, plot=False,
                              P0=P0, haze=haze, cloud=cloud, path=None, rp=radius, 
                              gamma_scat = gamma_scat, kappa_factor=kappa_factor, 
-                                                     kind_trans=kind_trans, plot_abundance=plot_abundance, **kwargs )
+                             kind_trans=kind_trans, plot_abundance=plot_abundance, **kwargs )
     
     if kind_trans =='transmission':
         out = np.array(model_rp)[0]/1e6*scale
@@ -804,7 +823,9 @@ def single_max_dist(samp, bins='auto', start=0, end=-1, bin_size=6, plot=False):
 
     return maxs, errors
 
-def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True, prob=0.68):
+def find_dist_maxs(sample_all, labels=None, bin_size=6,
+                   flag_id=None, plot=True, prob=0.68,
+                   print_gen_walkers=False):
     
     n_params = sample_all.shape[-1]
 
@@ -881,7 +902,8 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
 #         ax[i,1].axhline(errbars2[1], linestyle='--')
         print(maximum, errbars2-maximum, errbars2)
 
-    
+    if print_gen_walkers:
+        gen_walkers_init(errors)
 #     if plot:
 #         ax[-1,0].set_xlabel("Steps")
         
@@ -896,6 +918,14 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
 #         axes[-1].set_xlabel("step number");
     
     return maxs, errors
+
+def gen_walkers_init(errors):
+    params_str = ['{:6.1f}'.format(err_i) for err_i in np.array(errors)[:, 0]]
+    err_str = ['{:6.1f}'.format(err_i) for err_i in np.array(errors)[:, 1] - np.array(errors)[:, 0]]
+
+    print("pos = \ "[:-1] + "\n [" + ', '.join(params_str) + "] + \ "[:-1])
+    print("([" + ', '.join(err_str) + '] * \ '[:-1])
+    print("np.random.uniform(size=(nwalkers, {})))".format(np.array(errors)[:, 0].size))
 
 
 # def plot_corner(sample_all, labels, param_no_zero=4):
@@ -1041,53 +1071,79 @@ def plot_ratios_corner(samps, values_compare, color='blue', add_solar=True, **kw
     return fig
 
 
-def calc_tp_profile(params, temp_params, kind_temp='', TP=True, 
-                    T_eq=None, pressures=None, param_id_Teq=None):
+def calc_tp_profile(params, temp_params, kind_temp='', TP=True,
+                    T_eq=None, pressures=None, nb_mols=None, params_id=None):
     
     if pressures is None:
         pressures = temp_params['pressures']
-    if T_eq is None:
-        if param_id_Teq is None:
-            T_eq = temp_params['T_eq']
-        else:
-            T_eq = params[param_id_Teq]
+
+    if T_eq is not None:
+        print('Taking into account that there are {} molecules'.format(nb_mols))
+        if params_id['tp_kappa'] is not None:
+            temp_params['kappa_IR'] = 10 ** params[nb_mols + params_id['tp_kappa']]
+
+        if params_id['tp_gamma'] is not None:
+            temp_params['gamma'] = 10 ** params[nb_mols + params_id['tp_gamma']]
+
+        if params_id['tp_delta'] is not None:
+            temp_params['delta'] = 10 ** params[nb_mols + params_id['tp_delta']]
+
+        if params_id['tp_ptrans'] is not None:
+            temp_params['ptrans'] = 10 ** params[nb_mols + params_id['tp_ptrans']]
+
+        if params_id['tp_alpha'] is not None:
+            temp_params['alpha'] = params[nb_mols + params_id['tp_alpha']]
+
+        if params_id['tp_tint'] is not None:
+            temp_params['T_int'] = params[nb_mols + params_id['tp_tint']]
+
+        if params_id['temp'] is not None:
+            temp_params['T_eq'] = params[nb_mols + params_id['temp']]
+
+    if T_eq is not None:
+        temp_params['T_eq'] = T_eq
+
     # print(temp_params, T_eq)
     if kind_temp == 'iso' :
         temperatures = T_eq*np.ones_like(pressures)
     elif kind_temp == 'modif':
-        if TP is True:
-            temp_params['delta'] = 10**params[-4]
-            temp_params['gamma'] = 10**params[-3]
-            temp_params['ptrans'] = 10**params[-2]
-            temp_params['alpha'] = params[-1]
+        if params_id is None:
+            if TP is True:
+                temp_params['delta'] = 10**params[-4]
+                temp_params['gamma'] = 10**params[-3]
+                temp_params['ptrans'] = 10**params[-2]
+                temp_params['alpha'] = params[-1]
+
         temperatures = guillot_modif(pressures, 
                                          temp_params['delta'], 
                                          temp_params['gamma'], 
                                          temp_params['T_int'], 
-                                         T_eq,
+                                         temp_params['T_eq'],
                                          temp_params['ptrans'], 
                                          temp_params['alpha'])
-        print(
-              temp_params['delta'], \
-              temp_params['gamma'], \
-              temp_params['T_int'], \
-              T_eq,\
-              temp_params['ptrans'], \
-              temp_params['alpha'])
+        # print(
+        #       temp_params['delta'], \
+        #       temp_params['gamma'], \
+        #       temp_params['T_int'], \
+        #       T_eq,\
+        #       temp_params['ptrans'], \
+        #       temp_params['alpha'])
     else:
-        if TP is True:
-            temp_params['kappa_IR'] = 10**params[-2]
-            temp_params['gamma'] = 10**params[-1]
+        if params_id is None:
+            if TP is True:
+                temp_params['kappa_IR'] = 10**params[-2]
+                temp_params['gamma'] = 10**params[-1]
         temperatures = guillot_global(pressures, 
                                      temp_params['kappa_IR'], 
                                      temp_params['gamma'], 
                                      temp_params['gravity'], 
                                      temp_params['T_int'], 
-                                     T_eq)
+                                     temp_params['T_eq'])
         
     return temperatures
 
-def plot_tp_profile(params, planet, errors, nb_mols, temp_params, 
+def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
+                    params_id=None,
                     kappa = -3, gamma = -1.5, T_int=500, 
                     plot_limits=False, label='', color=None, 
                     radius_param = 2, TP=True, zorder=None, kind_temp=''):
@@ -1102,37 +1158,42 @@ def plot_tp_profile(params, planet, errors, nb_mols, temp_params,
     if radius_param is not None:
         temp_params['gravity'] = (const.G * planet.M_pl / (params[nb_mols+radius_param]*const.R_jup)**2).cgs.value
 
-    temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP)
+    temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, nb_mols=nb_mols, params_id=params_id)
     temperature_up = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
-                                     T_eq=errors[nb_mols][1])
-    temperature_down = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
-                                       T_eq=errors[nb_mols][0])
+                                     T_eq=errors[nb_mols][1], nb_mols=nb_mols, params_id=params_id)
+    temperature_down = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP,
+                                       T_eq=errors[nb_mols][0], nb_mols=nb_mols, params_id=params_id)
     print(temperature[0], temperature_up[0], temperature_down[0])
 
     if plot_limits:
-        plt.plot(calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=500),  
+        plt.plot(calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=500,
+                                 nb_mols=nb_mols, params_id=params_id),
                      np.log10(temp_params['pressures']), ':', alpha=0.5, color='grey', label='T-P limits')
-        plt.plot(calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=4000),  
+        plt.plot(calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, T_eq=4000,
+                                 nb_mols=nb_mols, params_id=params_id),
                      np.log10(temp_params['pressures']), ':', alpha=0.5, color='grey')
 
 
-    plt.plot(temperature,  np.log10(temp_params['pressures']), label=label, color=color)
+    plt.plot(temperature, np.log10(temp_params['pressures']), label=label, color=color)
     plt.fill_betweenx(np.log10(temp_params['pressures']), temperature_down, temperature_up, 
                       alpha=0.15, color=color, zorder=zorder)
 
-    t1bar = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, pressures=1)[0]
+    t1bar = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, pressures=1,
+                            nb_mols=nb_mols, params_id=params_id)[0]
 
 #     print(t1bar, kappa_IR, gamma, gravity, T_int, errors[nb_mols][1])
     print('T @ 1 bar = {:.0f} + {:.0f} - {:.0f} '.format(t1bar,
                                calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
-                                               T_eq=errors[nb_mols][1], pressures=1)[0]-t1bar,
+                                               T_eq=errors[nb_mols][1], pressures=1,
+                                               nb_mols=nb_mols, params_id=params_id)[0]-t1bar,
                            t1bar -calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, 
-                                                  T_eq=errors[nb_mols][0], pressures=1)[0] ))
+                                                  T_eq=errors[nb_mols][0], pressures=1,
+                                                  nb_mols=nb_mols, params_id=params_id)[0] ))
 
 
 def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
-                 left_val=1., right_val=1.,
-                 fig=None, color='dodgerblue', label='Instrum. * Rot. (S)', **kwargs):
+                 left_val=1., right_val=1., alpha=0.7, no_label=False,
+                 fig=None, color_comb='dodgerblue', color_ker='dodgerblue', label='Instrum. * Rot. (S)', **kwargs):
     if params_id['cloud_r'] is not None:
         right_val = theta[nb_mols + params_id['cloud_r']]
     if params_id['rpl'] is not None:
@@ -1180,19 +1241,22 @@ def plot_rot_ker(theta, planet, nb_mols, params_id, resol,
     if fig is None:
         fig = plt.figure(figsize=(7, 5))
         label1 = 'Instrum. res. elem.'
-        label2 = 'Rot. kernel (S)'
+        label2 = 'Rotation kernel'
         plt.plot(v_grid / 1e3, gauss_ker, color="k",
                          label=label1)
         plt.axvline(res_elem / 2e3, linestyle='--', color='gray')
         plt.axvline(-res_elem / 2e3, linestyle='--', color='gray')
     else:
         label2 = None
+    if no_label:
+        label = None
+        label2 = None
 
-    plt.plot(v_grid / 1e3 + rv_shift, kernel, color=color,
-                        label=label2, zorder=10, linestyle=':', alpha=0.7)
-    plt.plot(v_grid / 1e3 + rv_shift, ker_degraded, color=color,
-                        label=label, zorder=12, alpha=0.9)
-    plt.legend()
+    plt.plot(v_grid / 1e3 + rv_shift, kernel, color=color_ker,
+                        label=label2, zorder=10, linestyle=':', alpha=alpha)
+    plt.plot(v_grid / 1e3 + rv_shift, ker_degraded, color=color_comb,
+                        label=label, zorder=12, alpha=alpha*1.3)
+    plt.legend(fontsize=13)
     return fig
 
 
@@ -1237,6 +1301,7 @@ def gen_params_id(list_params):
         'tp_gamma': None,
         'tp_ptrans': None,
         'tp_alpha': None,
+        'tp_tint': None,
         'scat_gamma': None,
         'scat_factor': None
     }
@@ -1264,6 +1329,7 @@ def gen_params_id_p(params_priors):
         'tp_gamma': None,
         'tp_ptrans': None,
         'tp_alpha': None,
+        'tp_tint': None,
         'scat_gamma': None,
         'scat_factor': None
     }
@@ -1537,6 +1603,97 @@ def plot_corner(sample_all, labels=None, param_no_zero=4, maxs=None, errors=None
     return fig, flat_samples
 
 
+def gen_ret_dict(ret_params, ret_name, file, labels, discard=0, tol=8,
+                 plot=True, filename2=None, sig2=True, corner=False, discard_after=None):
+    ret_params[ret_name]['filename'] = file
+
+    try:
+        ret_params[ret_name]['ord_pos'],  ret_params[ret_name]['ord_logl'], _ = \
+            read_walker_prob(ret_params[ret_name]['filename'], tol=tol)
+    except OSError:
+        print('Corrupted file, use discard_after=N to try and see where it causes problem.')
+
+
+    sample_all = read_walkers_file(ret_params[ret_name]['filename'],
+                                   discard=discard, discard_after=discard_after)
+
+    if filename2 is not None:
+        cut_sample2 = read_walkers_file(filename2, discard=discard)
+        sample_all = np.concatenate((sample_all, cut_sample2), axis=0)
+
+    print(sample_all.shape)
+
+    maxs, errors = find_dist_maxs(sample_all, labels, bin_size=6, plot=plot)  # , prob=0.954)#, plot=False)#
+    if sig2 is True:
+        print('')
+        print('2sigma values')
+        maxs2s, errors2s = find_dist_maxs(sample_all, labels, bin_size=6, prob=0.954, plot=False)
+        # maxs3s, errors3s = find_dist_maxs(sample_all, labels, bin_size=6, prob=0.9973, plot=False)
+        ret_params[ret_name]['errors2s'] = errors2s.copy()
+
+    if corner is True:
+        fig, flat_samples = plot_corner(sample_all, labels, param_no_zero=2, maxs=maxs, errors=errors)
+    else:
+        flat_samples = sample_all.reshape(sample_all.shape[0] * sample_all.shape[1], sample_all.shape[-1])
+
+    ret_params[ret_name]['sample'] = sample_all.copy()
+    ret_params[ret_name]['flat_sample'] = flat_samples
+    ret_params[ret_name]['best'] = ret_params[ret_name]['ord_pos'][-1].copy()
+    ret_params[ret_name]['meds'] = np.median(flat_samples, axis=0).copy()
+    ret_params[ret_name]['maxs'] = maxs.copy()
+    ret_params[ret_name]['errors'] = errors.copy()
+
+#     print(maxs)
+#     return
+
+def plot_TP_profile_samples(ret_params, ret_names,  # nb_mols,
+                            title='', labels=None, colors=None,
+                            kind='best', xlim=None, slim=False):
+    if slim:
+        fig = plt.figure(figsize=(3, 5))
+    else:
+        fig = plt.figure()
+
+    if colors is None:
+        colors = [(200 / 255, 30 / 255, 0 / 255), (100 / 255, 190 / 255, 240 / 255), 'gold']
+    if labels is None:
+        labels = ['1', '2']
+    if xlim is None:
+        xlim = [500, 10000]
+
+    for ret_i, ret_name_i in enumerate(ret_names):
+
+        if slim is False:
+            sample = ret_params[ret_name_i]['sample']
+
+            for i in range(100):
+                hm.print_static(i)
+                params_i = sample[random.randint(0, sample.shape[0] - 1)][random.randint(0, sample.shape[1] - 1)]
+                #                 print(params_i)
+                #                 print(ret_params[ret_name_i]['nb_mols'])
+                #                 print(ret_params[ret_name_i]['temp_params'])
+                plt.plot(calc_tp_profile(params_i, ret_params[ret_name_i]['temp_params'],
+                                         nb_mols=ret_params[ret_name_i]['nb_mols'],
+                                         kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp']),
+                         ret_params[ret_name_i]['temp_params']['pressures'],
+                         color=colors[ret_i], alpha=0.1)
+
+        plt.plot(calc_tp_profile(ret_params[ret_name_i][kind],
+                                 ret_params[ret_name_i]['temp_params'],
+                                 nb_mols=ret_params[ret_name_i]['nb_mols'],
+                                 kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp']),
+                 ret_params[ret_name_i]['temp_params']['pressures'],
+                 label=labels[ret_i], color=colors[ret_i])
+
+    plt.ylim(1e1, 1e-6)
+    plt.yscale('log')
+    plt.legend(fontsize=13)
+    plt.xlabel(r'Temperature [K]', fontsize=16)
+    plt.ylabel(r'Pressure [bar]', fontsize=16)
+    plt.title(title, fontsize=16)
+    plt.xlim(*xlim)
+    return fig
+
 
 # def print_abund_ratios_4mols_fast(logmaxs, H_scale=1., sol_ab=None, stellar_ab=None,
 #                             m_sur_h=-0.193):
@@ -1616,66 +1773,6 @@ def plot_corner(sample_all, labels=None, param_no_zero=4, maxs=None, errors=None
 
 
 
-# import emcee
-# import h5py
-
-# import corner
-# import numpy as np
-
-# import pymc3
-
-
-# from spirou_exo.utils import homemade as hm
-# from spirou_exo import analysis as a
-# from spirou_exo import spectrum as spectrum
-# import matplotlib.pyplot as plt
-# # from scipy.interpolate import interp1d
-# import astropy.units as u
-# import astropy.constants as const
-
-# from petitRADTRANS import Radtrans
-
-# from collections import OrderedDict
-# import petitradtrans as prt
-# from petitRADTRANS import nat_cst as nc
-# # import numpy as np
-
-# # bin_down = np.array([11225,11409,11594,11779,11963,12148,12333,12517,12702,12887,13071,13256,13441,13625,13810,13995,14179,14364,14549,14733,14918,15102,15287,15472,15656,15841,16026,16210])/1e4
-
-# # bin_up = np.array([11409, 11594, 11779, 11963, 12148, 12333, 12517, 12702, 12887, 13071, 13256, 13441, 13625, 13810, 13995, 14179, 14364, 14549, 14733, 14918, 15102, 15287, 15472, 15656, 15841, 16026, 16210, 16395])/1e4
-
-# # HST_wave = (bin_up - bin_down) / 2 + bin_down
-
-# # TD = np.array([0.993,0.995,1.001,0.991,1.001,0.991,0.992,1.000,0.993,0.997,1.010,1.016,1.054,1.051,1.052,1.046,1.053,1.046,1.042,1.031,1.028,1.012,0.999,1.001,0.983,0.986,0.975,0.967])
-
-# # HST_data = TD/100
-
-# # TD_err_up = np.array([0.009,0.008,0.009,0.010,0.008,0.008,0.008,0.012,0.008,0.009,0.007,0.008,0.009,0.011,0.008,0.007,0.007,0.010,0.009,0.009,0.009,0.010,0.010,0.010,0.009,0.009,0.012,0.013])/100
-
-# # TD_err_down = np.array([0.009,0.007,0.010,0.009,0.009,0.008,0.007,0.011,0.008,0.009,0.008,0.008,0.010,0.011,0.008,0.007,0.006,0.011,0.009,0.010,0.012,0.010,0.009,0.011,0.009,0.009,0.011,0.012])/100
-
-# # HST_data_err = np.sqrt(TD_err_up**2+TD_err_down**2)
-
-
-# # bin_down_vis = np.array([2898, 3700, 4041, 4261, 4426, 4536, 4646, 4756, 4921, 5030, 5140, 5250, 5360, 5469, 5579, 5500, 5600, 5700, 5800, 5878, 5913, 6070, 6200, 6300, 6450, 6600, 6800, 7000, 7200, 7450, 7645, 7720, 8100, 8485, 8985])/1e4
-
-# # bin_up_vis = np.array([3700, 4041, 4261, 4426, 4536, 4646, 4756, 4921, 5030, 5140, 5250, 5360, 5469, 5579, 5688, 5600, 5700, 5800, 5878, 5913, 6070, 6200, 6300, 6450, 6600, 6800, 7000, 7200, 7450, 7645, 7720, 8100, 8485, 8985, 10240])/1e4
-
-# # td_vis = np.array([1.050, 1.048, 1.027, 1.028, 1.025, 1.035, 1.013, 1.023, 1.028, 1.034, 1.005, 1.024, 1.024, 1.007, 1.036, 1.023, 1.047, 1.014, 1.051, 1.066, 1.026, 1.028, 1.022, 1.036, 0.995, 1.004, 0.997, 1.009, 1.018, 1.003, 1.020, 1.010, 0.986, 1.005, 1.025])
-
-# # td_up_vis = np.array([0.037, 0.018, 0.014, 0.014, 0.009, 0.016, 0.015, 0.011, 0.012, 0.016, 0.014, 0.019, 0.019, 0.016, 0.014, 0.027, 0.022, 0.014, 0.018, 0.024, 0.014, 0.020, 0.018, 0.015, 0.020, 0.013, 0.016, 0.013, 0.011, 0.017, 0.022, 0.020, 0.026, 0.023, 0.018])/100
-
-# # td_down_vis = np.array([0.044, 0.021, 0.015, 0.013, 0.012, 0.018, 0.013, 0.011, 0.012, 0.015, 0.012, 0.014, 0.016, 0.017, 0.015, 0.021, 0.023, 0.014, 0.020, 0.023, 0.017, 0.016, 0.020, 0.016, 0.017, 0.012, 0.012, 0.014, 0.011, 0.016, 0.026, 0.019, 0.018, 0.018, 0.017])/100
-
-# # HST_wave_VIS = (bin_up_vis - bin_down_vis) / 2 + bin_down_vis
-
-# # HST_data_VIS = td_vis/100
-
-# # HST_data_err_VIS = np.sqrt(td_up_vis**2+td_down_vis**2)
-
-# # sp_wave = np.array([3.5,4.5])
-# # sp_data = np.array([0.993/100, 1.073/100])
-# # sp_data_err = np.array([0.005/100, 0.006/100])
 
 
 # def calc_best_mod(params, atmos_obj, gamma_scat=-1.71, kappa_factor=0.36):

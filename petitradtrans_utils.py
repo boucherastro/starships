@@ -651,6 +651,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
                                                           vmrh2he=vmrh2he, kind_trans=kind_trans,
                                                           dissociation=dissociation, fct_star=fct_star,
                                                           plot_abundance=plot_abundance,
+                                                          contribution=contribution,
                                                           **kwargs)
         if kind_trans == 'transmission':
             atmos_full_spectrum = atmos_full_spectrum * 1e6  # to put in ppm
@@ -702,7 +703,12 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
         if contribution is True:
             wlen_mu = nc.c / atmos_full.freq / 1e-4
             X, Y = np.meshgrid(wlen_mu, pressures)
-            plt.contourf(X, Y, atmos_full.contr_tr, 30, cmap=plt.cm.bone_r)
+            if kind_trans == 'transmission':
+                plt.contourf(X, Y, atmos_full.contr_tr, 30, cmap=plt.cm.bone_r)
+                plt.title('Transmission contribution function')
+            elif kind_trans == 'emission':
+                plt.contourf(X, Y, atmos_full.contr_em, 30, cmap=plt.cm.bone_r)
+                plt.title('Emission contribution function')
 
             plt.yscale('log')
             plt.xscale('log')
@@ -711,7 +717,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
 
             plt.xlabel('Wavelength (microns)')
             plt.ylabel('P (bar)')
-            plt.title('Transmission contribution function')
+
             plt.show()
             plt.clf()
 
@@ -909,7 +915,8 @@ def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None,
 def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures,
                           gravity, P0, cloud, R_pl, R_star,
                           kappa_factor=None, gamma_scat=None, vmrh2he=None, plot_abundance=False,
-                          kind_trans='transmission', dissociation=False, fct_star=None, **kwargs):
+                          kind_trans='transmission', dissociation=False, fct_star=None,
+                          contribution=False, **kwargs):
     if vmrh2he is None:
         vmrh2he = [0.85, 0.15]
     if kappa_factor is not None:
@@ -925,13 +932,16 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
     if kind_trans == 'transmission':
         atmos_object.calc_transm(temperatures, abundances, gravity, MMW,
                                  R_pl=R_pl, P0_bar=P0, Pcloud=cloud,
-                                 gamma_scat=gamma_scat, kappa_zero=kappa_zero, **kwargs)
+                                 gamma_scat=gamma_scat, kappa_zero=kappa_zero,
+                                 contribution=contribution,
+                                 **kwargs)
         out = atmos_object.transm_rad ** 2 / R_star ** 2
     elif kind_trans == "emission":
         #         bb_mod = bb(planet.Teff)
         atmos_object.calc_flux(temperatures, abundances, gravity, MMW,
                                Pcloud=cloud,
                                gamma_scat=gamma_scat, kappa_zero=kappa_zero,
+                               contribution=contribution,
                                **kwargs)
         wave = nc.c / atmos_object.freq / 1e-4
         if fct_star is None:

@@ -129,8 +129,56 @@ def fits2wave(image, header):
     # return wave grid
     return wavesol
 
+
+def fits2wavenew(image, hdr):
+    """
+    Get the wave solution from the header using a filename
+    """
+    # size of the image
+    nbypix, nbxpix = image.shape
+    # get the keys with the wavelength polynomials
+    wave_hdr = hdr['WAVE0*']
+    # concatenate into a numpy array
+    wave_poly = np.array([wave_hdr[i] for i in range(len(wave_hdr))])
+    # get the number of orders
+    nord = hdr['WAVEORDN']
+    # get the per-order wavelength solution
+    wave_poly = wave_poly.reshape(nord, len(wave_poly) // nord)
+    # project polynomial coefficiels
+    wavesol = np.zeros_like(image)
+    # xpixel grid
+    xpix = np.arange(nbxpix)
+    # loop around orders
+    for order_num in range(nord):
+        # calculate wave solution for this order
+        owave = val_cheby(wave_poly[order_num], xpix, domain=[0, nbxpix])
+        # push into wave map
+        wavesol[order_num] = owave
+    # return wave grid
+    return wavesol
+
+def val_cheby(coeffs, xvector,  domain):
+    """
+    Using the output of fit_cheby calculate the fit to x  (i.e. y(x))
+    where y(x) = T0(x) + T1(x) + ... Tn(x)
+
+    :param coeffs: output from fit_cheby
+    :param xvector: x value for the y values with fit
+    :param domain: domain to be transformed to -1 -- 1. This is important to
+    keep the components orthogonal. For SPIRou orders, the default is 0--4088.
+    You *must* use the same domain when getting values with fit_cheby
+    :return: corresponding y values to the x inputs
+    """
+    # transform to a -1 to 1 domain
+    domain_cheby = 2 * (xvector - domain[0]) / (domain[1] - domain[0]) - 1
+    # fit values using the domain and coefficients
+    yvector = np.polynomial.chebyshev.chebval(domain_cheby, coeffs)
+    # return y vector
+    return yvector
+
+
 def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=None,
-                blaze_path=None, debug=False, ver06=False):
+                blaze_path=None, debug=False, ver06=False, cheby=False):
     
     """
     Read all spectra
@@ -176,7 +224,10 @@ def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=No
                     with fits.open(path / Path(wv_file)) as f:
                         wvsol = f[0].data
                 except (KeyError,FileNotFoundError) as e:
-                    wvsol = fits2wave(image, header)
+                    if cheby is False:
+                        wvsol = fits2wave(image, header)
+                    else:
+                        wvsol = fits2wavenew(image, header)
     #                 if debug:
     #                     print(wvsol)
                 
@@ -1311,6 +1362,7 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     
     tr_merge.alpha_frac = np.concatenate([list_tr[str(tr_i)].alpha_frac for tr_i in merge_tr_idx])
     tr_merge.t_start = np.concatenate([list_tr[str(tr_i)].t_start for tr_i in merge_tr_idx])
+    tr_merge.dt = np.concatenate([list_tr[str(tr_i)].dt for tr_i in merge_tr_idx])
     tr_merge.t = tr_merge.t_start*u.d
     tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx]) #.value
     tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
@@ -1332,10 +1384,18 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     tr_merge.spec_trans = np.ma.concatenate([list_tr[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
     tr_merge.final = np.ma.concatenate([list_tr[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
     tr_merge.N = np.ma.concatenate([list_tr[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
+
     try:
-        tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
-    except:
-        print('Did not find N_frac key.')
+        tr_merge.uncorr = np.ma.concatenate([list_tr[str(tr_i)].uncorr for tr_i in merge_tr_idx], axis=0)
+        tr_merge.N0 = (~np.isnan(tr_merge.uncorr)).sum(axis=-1)
+        tr_merge.N_frac = np.nanmean(tr_merge.N / tr_merge.N0, axis=0).data  # 4088
+        tr_merge.N_frac[np.isnan(tr_merge.N_frac)] = 0
+    except KeyError:
+        print('Did not find Uncorr key.')
+        print('Not computing N0 and N_frac.')
+
+        # tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
+
     tr_merge.reconstructed = np.ma.concatenate([list_tr[str(tr_i)].reconstructed for tr_i in merge_tr_idx], axis=0)
     tr_merge.ratio = np.ma.concatenate([list_tr[str(tr_i)].ratio for tr_i in merge_tr_idx], axis=0)
     if params is None:
@@ -1354,10 +1414,8 @@ def merge_velocity(tr_merge, list_tr, merge_tr_idx):
     tr_merge.mid_vr = np.concatenate([list_tr[str(tr_i)].mid_vr* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
     tr_merge.berv = np.concatenate([list_tr[str(tr_i)].berv for tr_i in merge_tr_idx])
-    tr_merge.vrp = np.concatenate([list_tr[str(tr_i)].vrp* \
-                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.vr = np.concatenate([list_tr[str(tr_i)].vr* \
-                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.vrp = np.concatenate([list_tr[str(tr_i)].vrp for tr_i in merge_tr_idx])
+    tr_merge.vr = np.concatenate([list_tr[str(tr_i)].vr for tr_i in merge_tr_idx])
     tr_merge.RV_const = np.concatenate([list_tr[str(tr_i)].RV_const* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
     
@@ -1670,7 +1728,11 @@ def load_single_sequences(filename, name, path='',
 
     tr.t_start = data_tr['t_start']
     tr.t = data_tr['t_start'] * u.d
-    tr.dt = data_tr['dt']*u.s
+    try:
+        tr.dt = data_tr['dt']*u.s
+    except KeyError:
+        print('Did not have dt, using the delta_time instead.')
+        tr.dt = (np.diff(tr.t_start)*u.d).to(u.s)-28*u.s
     tr.bad = data_tr['bad_indexs']
     tr.flux = np.ma.array(data_tr['flux'],
                      mask=data_tr['mask_flux'])

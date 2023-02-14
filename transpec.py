@@ -5,13 +5,13 @@ from starships.extract import quick_norm, running_filter
 from starships.mask_tools import interp1d_masked
 
 import numpy as np
-import scipy.constants as cst
+# import scipy.constants as cst
 from astropy import units as u
-from astropy import constants as const
+# from astropy import constants as const
 from astropy.stats import sigma_clip
 import matplotlib.pyplot as plt
 from astropy.convolution import convolve, Gaussian1DKernel
-from scipy.interpolate import interp1d
+# from scipy.interpolate import interp1d
 
 from numpy.polynomial.polynomial import polyval
 
