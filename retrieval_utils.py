@@ -531,6 +531,11 @@ def mol_frac(params, solar_ab, stellar_ab,
             print('{} = {:.4f} + {:.4f} - {:.4f} == {:.3f} to {:.3f}'.format(mols[i], params[i],
                                                                     errors[i][1]-params[i], params[i]-errors[i][0],
                                                              errors[i][0], errors[i][1]))
+            print('{} = {:.3f} to {:.3f} x sol = {:.3f} to {:.3f} x *'.format(mols[i],
+                                                 10**(errors[i][0])/solar_ab[:nb_mol][i],
+                                                 10**(errors[i][1]) / solar_ab[:nb_mol][i],
+                                                 10**(errors[i][0]) / stellar_ab[:nb_mol][i],
+                                                 10**(errors[i][1])/stellar_ab[:nb_mol][i]))
 
             
             
@@ -646,7 +651,8 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 
     temp_params['gravity'] = (const.G * planet.M_pl / (radius)**2).cgs.value
 
-    temperature = calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, params_id=params_id)
+    temperature = calc_tp_profile(params, temp_params, nb_mols=nb_mols,
+                                  kind_temp=kind_temp, TP=TP, params_id=params_id)
 
     if scatt is True:
         gamma_scat = params[-2]
@@ -1073,16 +1079,20 @@ def plot_ratios_corner(samps, values_compare, color='blue', add_solar=True, **kw
 
 def calc_tp_profile(params, temp_params, kind_temp='', TP=True,
                     T_eq=None, pressures=None, nb_mols=None, params_id=None):
-    
+
+    if nb_mols is None:
+        print('Assuming that there are {} nb mols'.format(nb_mols) )
+
     if pressures is None:
         pressures = temp_params['pressures']
 
-    if T_eq is not None:
+    if params_id is not None:
         print('Taking into account that there are {} molecules'.format(nb_mols))
         if params_id['tp_kappa'] is not None:
             temp_params['kappa_IR'] = 10 ** params[nb_mols + params_id['tp_kappa']]
 
         if params_id['tp_gamma'] is not None:
+            print( params, nb_mols , params_id['tp_gamma'])
             temp_params['gamma'] = 10 ** params[nb_mols + params_id['tp_gamma']]
 
         if params_id['tp_delta'] is not None:
