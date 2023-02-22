@@ -94,7 +94,8 @@ class Correlations():
 
 
     def calc_logl(self, data_obj, icorr=None, orders=None, index=None, 
-                  N=None, nolog=None, alpha=None, inj_alpha='ones', kind_obj='seq', **kwargs):  
+                  N=None, nolog=None, alpha=None, inj_alpha='ones', kind_obj='seq',
+                  std_robust=True, **kwargs):
         
         if orders is None:
             orders = list(np.arange(49))
@@ -124,9 +125,14 @@ class Correlations():
                     except KeyError:
                         alpha = data_obj['trall_alpha_frac']
 
+        if std_robust:
+            std_data = np.nanmedian(np.abs(self.data - np.nanmedian(self.data, axis=3)[:, :,:,None]), axis=3)[:, :,:,None] / 0.6745
+            data = self.data/std_data
+        else:
+            data = self.data
 
-        self.logl0 = np.nansum( self.data[:, orders], axis=1)
-        self.logl = corr.sum_logl(self.data, icorr, orders, N, alpha=alpha, 
+        self.logl0 = np.nansum( data[:, orders], axis=1)
+        self.logl = corr.sum_logl( data, icorr, orders, N, alpha=alpha,
                                   axis=0, del_idx=index, nolog=nolog, **kwargs)
         
     def calc_logl_snr(self, n_pca=None, **kwargs):
@@ -1179,8 +1185,11 @@ class Correlations():
             plt.ylabel(r'Orbital Phase', fontsize=16)
             plt.axhline(tr.phase[tr.iIn[0]], color='white',linestyle='--')
             plt.axhline(tr.phase[tr.iIn[-1]], color='white',linestyle='--')
-            plt.axhline(tr.phase[tr.total[0]], color='white', linestyle=':')
-            plt.axhline(tr.phase[tr.total[-1]], color='white', linestyle=':')
+            try:
+                plt.axhline(tr.phase[tr.total[0]], color='white', linestyle=':')
+                plt.axhline(tr.phase[tr.total[-1]], color='white', linestyle=':')
+            except AttributeError:
+                pass
             plt.axvline(0, color='black',linestyle=':', alpha=0.7)
             fig2.tight_layout()
             fig2.savefig(path_fig +'fig_sum_CCF2D_'+fig_name+'.pdf')#, rasterize=True)
