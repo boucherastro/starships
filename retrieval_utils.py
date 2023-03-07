@@ -7,7 +7,7 @@ import corner
 import numpy as np
 
 import arviz as az
-
+from functools import partial
 
 from starships import homemade as hm
 from starships import analysis as a
@@ -17,7 +17,7 @@ from scipy.interpolate import interp1d
 import astropy.units as u
 import astropy.constants as const
 
-# from petitRADTRANS import Radtrans
+from starships.plotting_fcts import _get_idx_in_range
 
 # from collections import OrderedDict
 import starships.petitradtrans_utils as prt
@@ -27,6 +27,9 @@ try :
 except ModuleNotFoundError:
     from petitRADTRANS.nat_cst import guillot_global, guillot_modif
 
+
+# Init random generator (used in functions later to draw from samples
+rng = np.random.default_rng()
 
 
 # def guillot_global(P,kappa_IR,gamma,grav,T_int,T_equ):
@@ -2320,3 +2323,180 @@ def init_from_burnin(n_walkers, n_best_min=1000, quantile=None, wlkr_file=None, 
     logl = ord_logl[idx]
 
     return walker_init, logl
+
+
+## Utilities to compute model profiles and spectra from sample
+def get_tp_from_retrieval(param, retrieval_obj):
+    prt_args, prt_kwargs, rot_kwargs = retrieval_obj.prepare_prt_inputs(param)
+
+    pressures = retrieval_obj.temp_params['pressures']
+    temperatures = prt_args[0]
+
+    return pressures, temperatures
+
+
+def gen_abundances_default(param, list_mols, retrieval_obj, tp_fct=None, vmrh2he=None):
+    if tp_fct is None:
+        tp_fct = partial(get_tp_from_retrieval, retrieval_obj=retrieval_obj)
+
+    if vmrh2he is None:
+        vmrh2he = [0.85, 0.15]
+
+    nb_mols = retrieval_obj.nb_mols
+    pressures, temp_profile = tp_fct(param)
+    include_dissociation = retrieval_obj.dissociation
+
+    mol_abundances = list(10 ** param[:nb_mols])
+    # Note that list_mols.copy() is important here
+    out, _ = prt.gen_abundances(list_mols.copy(), mol_abundances, pressures, temp_profile, verbose=False, vmrh2he=vmrh2he,
+                            dissociation=include_dissociation, scale=1.0, plot=False)
+
+    return out
+
+
+def draw_profiles_form_sample(n_draw, flat_samples, list_mols=None, retrieval_obj=None, get_tp_from_param=None,
+                              get_mol_profile=None):
+    """
+    Compute profiles (temperature and abundance profiles) as a function of pressure for `n_draw`
+    in a flattened sample of parameters.
+    The (imported) retrieval that was used to generate the sample can be given as an input.
+    Args:
+        n_draw: integer
+        flat_samples: 2d array (n_sample, n_params)
+        list_mols: list of molecules (optional)
+        retrieval_obj: imported retrieval object. (optional)
+                       Use `retrieval_obj = importlib.import_module(retrieval_code_filename)`
+        get_tp_from_param: Function that returns the tp-profile (output -> pressure, temperature).
+                           Default is the one used in the `retrieval_obj`
+        get_mol_profile: Function that returns the abundances (output -> dict('molecule': molecule_profile)).
+                         Default is `starships.petitradtrans_utils.gen_abundances`.
+
+    Returns:
+        dictionnary with 'temperature' and all molecules profiles.
+    """
+    if list_mols is None:
+        list_mols = retrieval_obj.list_mols + retrieval_obj.continuum_opacities
+    else:
+        list_mols = list_mols.copy()
+
+    if get_tp_from_param is None:
+        # Function of the retrieval
+        get_tp_from_param = partial(get_tp_from_retrieval, retrieval_obj=retrieval_obj)
+
+    if get_mol_profile is None:
+        get_mol_profile = partial(gen_abundances_default, list_mols=list_mols, retrieval_obj=retrieval_obj)
+
+    random_idx = rng.integers(0, flat_samples.shape[0], n_draw)
+
+    # Other molecule profiles will be added to this dictionary on the fly
+    profile_samples = {'temperature': []}
+
+    for param_i in flat_samples[random_idx]:
+
+        param_i = param_i.copy()
+
+        pressures, temp_profile = get_tp_from_param(param_i)
+
+        profile_samples['temperature'].append(temp_profile)
+
+        # Molecule profiles
+        mols_profiles = get_mol_profile(param_i)
+
+        for key, val in mols_profiles.items():
+            try:
+                profile_samples[key]
+            except KeyError:
+                profile_samples[key] = list()
+            profile_samples[key].append(val)
+
+    # Convert to array
+    for key, val in profile_samples.items():
+        profile_samples[key] = np.array(val)
+
+    return profile_samples, pressures
+
+def get_stats_from_profile(profile_sample, log_scale=False):
+    """
+    Compute stats from sample of profiles or spectra (sample of 1d arrays)
+    Args:
+        profile_sample: 2d array with shape = (number of sample, length of profile or spectra)
+
+    Returns:
+        dictionary with the 1-sigma ('1-sig') 2-sigma ('2-sig') and 'median'
+        of the distribution of arrays.
+    """
+    if log_scale:
+        profile_sample = np.log(profile_sample)
+
+    stats = {'1-sig': [], '2-sig': []}
+    for sample_p in profile_sample.T:
+        stats['1-sig'].append(az.hdi(sample_p, hdi_prob=.68))
+        stats['2-sig'].append(az.hdi(sample_p, hdi_prob=.954))
+    for key, val in stats.items():
+        stats[key] = np.array(val).T
+
+    stats['median'] = np.median(profile_sample, axis=0)
+
+    if log_scale:
+        for key in stats:
+            stats[key] = np.exp(stats[key])
+
+    return stats
+
+
+# Functions to work with spectra samples drawn from a retrieval chain
+def get_shift_spec_sample(spec_sample, wave=None, idx=None, wv_norm=None):
+    if idx is None:
+        idx = unpack_wv_norm_and_get_idx(wave, wv_norm)
+
+    out = np.mean(spec_sample[:, idx], axis=-1)[:, None]
+
+    return out
+
+
+def unpack_wv_norm_and_get_idx(wave, wv_norm):
+    try:
+        idx = _get_idx_in_range(wave, wv_norm)
+    except TypeError:
+        # Assume non-iterable
+        idx = [np.searchsorted(wave, wv_norm)]
+    except ValueError:
+        # Assume wrong shape, so many ranges
+        idx = [_get_idx_in_range(wave, wv_range) for wv_range in wv_norm]
+        idx = np.concatenate(idx)
+
+    return idx
+
+
+def normalize_spec_sample(spec_sample, wave=None, shift_fct=None, wv_norm=None, scale_fct=None):
+    if shift_fct is not None:
+        try:
+            y_shift = shift_fct(spec_sample, axis=-1)[:, None]
+        except TypeError:
+            y_shift = np.apply_along_axis(shift_fct, -1, spec_sample)[:, None]
+
+    elif wv_norm is None:
+        y_shift = 0
+
+    elif wave is None:
+        raise ValueError('`wave` must be given to be used with `wv_norm`.')
+
+    else:
+        y_shift = get_shift_spec_sample(spec_sample, wave=wave, wv_norm=wv_norm)
+
+    # Apply shift
+    out = spec_sample - y_shift
+
+    # Compute scaling factor
+    if scale_fct is not None:
+        try:
+            y_scale = scale_fct(out, axis=-1)[:, None]
+        except TypeError:
+            y_scale = np.apply_along_axis(scale_fct, -1, out)[:, None]
+    else:
+        y_scale = 1
+
+    # Apply scaling
+    out = out / y_scale
+
+    return out
