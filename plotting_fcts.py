@@ -21,16 +21,16 @@ from astropy.table import Table, Column
 from pathlib import Path
 
 
-retrieval_plot_labels = { 'H2O': r"$\log_{10}$ H2O",
+retrieval_plot_labels = { 'H2O': r"$\log_{10}$ H$_2$O",
                           'CO': r"$\log_{10}$ CO",
-                          'CO2': r"$\log_{10}$ CO2",
+                          'CO2': r"$\log_{10}$ CO$_2$",
                           'FeH': r"$\log_{10}$ FeH",
                           'TiO': r"$\log_{10}$ TiO",
                           'VO': r"$\log_{10}$ VO",
-                          'C2H2': r"$\log_{10}$ C_2H_2",
+                          'C2H2': r"$\log_{10}$ C$_2$H$_2$",
                           'HCN': r"$\log_{10}$ HCN",
                           'OH': r"$\log_{10}$ OH",
-                          'H-': r"$\log_{10}$ H^-",
+                          'H-': r"$\log_{10}$ H$^-$",
                           'temp': r"$T_{\rm P}$",
                           'cloud': r"$\log_{10}P_{clouds}$",
                           'rpl': r"$R_{\rm P}$",
@@ -38,8 +38,48 @@ retrieval_plot_labels = { 'H2O': r"$\log_{10}$ H2O",
                           'rv': r"$v_{\rm rad}$",
                           'tp_delta': r'$\log_{10} \delta$',
                           'tp_gamma': r'$\gamma$',
+                          'tp_kappa': r'$\log_{10} \kappa$',
                           'tp_ptrans': r'$\log P_{trans}$',
                           'tp_alpha': r'$\alpha$'}
+
+
+def get_plot_labels_from_retrieval(retrieval_obj):
+    """
+    Get labels for plots from retrieval object.
+    Args:
+        retrieval_obj: imported retrieval code.
+        Use `retrieval_obj = importlib.import_module(retrieval_code_filename)`
+
+    Returns:
+        labels for corner and chains plots
+    """
+    # Get params names (other then species)
+    params_id = retrieval_obj.params_id
+    valid_params = [key for key, idx in params_id.items() if idx is not None]
+
+    # Sort with respect to param_id
+    valid_params = sorted(valid_params, key=lambda x: params_id[x])
+
+    # Combine all params
+    params = retrieval_obj.list_mols + retrieval_obj.continuum_opacities + valid_params
+
+    labels = list()
+    for key in params:
+        try:
+            lbl = retrieval_plot_labels[key]
+        except KeyError:
+            lbl = key
+        labels.append(lbl)
+
+    return labels
+
+def get_plot_limits_from_data(data, pad=0.1):
+    plt_limits = [np.min(data), np.max(data)]
+    d_lim = np.diff(plt_limits)
+    plt_limits[0] -= pad * d_lim
+    plt_limits[-1] += pad * d_lim
+
+    return plt_limits
 
 
 def plot_all_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False, n_lvl=None, 
@@ -1678,3 +1718,140 @@ def plot_airmass(list_tr, markers=['o','s','d'],
 #             plt.contour(np.log10(var_in_list), var_out_list, im_logl, n_lvl, 
 #                         extent=(np.log10(var_in_list[0]),np.log10(var_in_list[-1]),\
 #                           var_out_list[0],var_out_list[-1]), cmap='inferno_r', alpha=0.5, vmin=vmin)
+
+
+## Plot profiles and spectra distributions from samples
+def _get_fig_and_ax_inputs(fig, ax, nrows=1, ncols=1, **kwargs):
+    if ax is None:
+        if fig is None:
+            fig, ax = plt.subplots(nrows, ncols, **kwargs)
+        else:
+            ax = fig.gca()
+
+    return fig, ax
+
+
+def _get_idx_in_range(x_array, x_range):
+    if x_range is None:
+        idx = slice(None)
+    else:
+        cond = (x_range[0] <= x_array) & (x_array <= x_range[-1])
+        idx, = np.nonzero(cond)
+
+    return idx
+
+
+def plot_p_profile_sample(pressures, sample_stats, line_color=None, region_color=None, p_range=(1e-6, 1e1), fig=None,
+                          ax=None, alpha=0.2, tight_range=True, **kwargs):
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+
+    idx = _get_idx_in_range(pressures, p_range)
+
+    (line,) = ax.semilogy(sample_stats['median'][idx], pressures[idx], color=line_color, **kwargs)
+
+    if region_color is None:
+        region_color = line.get_color()
+
+    for key in ['1-sig', '2-sig']:
+        x1, x2 = sample_stats[key]
+        ax.fill_betweenx(pressures[idx], x1[idx], x2[idx], color=region_color, alpha=alpha)
+
+    if tight_range:
+        ax.set_ylim(np.min(pressures[idx]), np.max(pressures[idx]))
+
+    ylim = ax.get_ylim()
+    if ylim[-1] > ylim[0]:
+        ax.invert_yaxis()
+
+    return fig, ax
+
+
+def plot_tp_sample(pressures, temp_stats, line_color='forestgreen', region_color='limegreen', p_range=(1e-6, 1e1),
+                   tight_range=True, fig=None, ax=None, alpha=0.5, **kwargs):
+    fkwargs = dict(line_color=line_color, region_color=region_color, p_range=p_range, fig=fig, ax=ax, alpha=alpha,
+                   tight_range=tight_range, **kwargs)
+    fig, ax = plot_p_profile_sample(pressures, temp_stats, **fkwargs)
+
+    ax.set_xlabel('Temperature [K]', fontsize=16)
+    ax.set_ylabel('Pressure [bar]', fontsize=16)
+
+    return fig, ax
+
+
+def plot_spectra_sample(wave, spectra_stats, line_color='forestgreen', region_color='limegreen', wv_range=None,
+                        scale_spec=1, fig=None, ax=None, ):
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+
+    idx = _get_idx_in_range(wave, wv_range)
+
+    ax.plot(wave[idx], spectra_stats['median'][idx] * scale_spec, color=line_color)
+    for key in ['1-sig', '2-sig']:
+        y1, y2 = spectra_stats[key]
+        plot_args = (wave[idx], y1[idx] * scale_spec, y2[idx] * scale_spec)
+        ax.fill_between(*plot_args, color=region_color, alpha=0.5)
+
+    return fig, ax
+
+
+def plot_single_line_sample(wave, spectra_stats, centered=True, dv_units=False, sp_line_type='emission',
+                            # or absorption
+                            wv_range=None, **kwargs):
+    if centered or dv_units:
+        # In range
+        idx = _get_idx_in_range(wave, wv_range)
+
+        # Get index of max or min of the distributions (median, 1-sig, 2-sig)
+        if sp_line_type == 'emission':
+            _, idx_center = _get_stat_of_spectrum_distributions(np.max, spectra_stats, idx_range=idx)
+        elif sp_line_type == 'absorption':
+            _, idx_center = _get_stat_of_spectrum_distributions(np.min, spectra_stats, idx_range=idx)
+        else:
+            raise ValueError('`line_type` not valid.')
+
+        # Center wavelengths
+        wv_c = wave[idx_center]
+
+        if centered:
+            wave = wave - wv_c
+
+            # Update wv_range
+            if wv_range is not None:
+                wv_range = (wv_range[0] - wv_c, wv_range[-1] - wv_c)
+
+        if dv_units:
+            wave = (const.c * wave / wv_c).to('km/s').value
+            wv_range = [(const.c * wv_lim / wv_c).to('km/s').value for wv_lim in wv_range]
+            xlabel = r"$\Delta$v [km/s]"
+        else:
+            xlabel = "Wavelength relative to line center [um]"
+
+    fig, ax = plot_spectra_sample(wave, spectra_stats, wv_range=wv_range, **kwargs)
+    ax.set_xlabel(xlabel)
+
+    return fig, ax
+
+def _get_stat_of_spectrum_distributions(fct, spectra_stats, idx_range=None):
+    if idx_range is None:
+        idx_range = slice(None)
+
+    results, index_list = [], []
+    spectrum = spectra_stats['median']
+    value = fct(spectrum[idx_range])
+    idx = np.argmin(np.abs(spectrum - value))
+    results.append(value)
+    index_list.append(idx)
+
+    for key in ['1-sig', '2-sig']:
+        for spectrum in spectra_stats[key]:
+            spectrum = spectrum
+            value = fct(spectrum[idx_range])
+            idx = np.argmin(np.abs(spectrum - value))
+            results.append(value)
+            index_list.append(idx)
+    results = np.array(results)
+
+    best_val = fct(results)
+    idx_best = np.argmin(np.abs(results - best_val))
+    idx_best = index_list[idx_best]
+
+    return best_val, idx_best
