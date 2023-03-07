@@ -131,8 +131,8 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         'CH4': 'CH4',
         'HCN': 'HCN',
         'NH3': 'NH3',
-        'TiO': 'TiO_all_Exomol',
-        'VO': 'VO',
+        'TiO': 'TiO_all_Plez',
+        'VO': 'VO_Plez',
         'OH': 'OH',
         'Na': 'Na_allard',
         'K': 'K_allard',
@@ -266,10 +266,10 @@ def update_dissociation_abundance_profile(profile, specie_name, pressures, tempe
             profile['H'] += (A0 - profile_updt) * scale
         except KeyError:
             print("You must add H- to your species")
-    if (specie_name.split('_')[0] == 'H2O'):
-        #         profile['OH_SCARLET'] += (A0 - profile_updt)*scale
-        #     if specie_name == 'H2O_HITEMP':
-        profile['OH'] += (A0 - profile_updt) * scale
+    # if (specie_name.split('_')[0] == 'H2O'):
+    #     #         profile['OH_SCARLET'] += (A0 - profile_updt)*scale
+    #     #     if specie_name == 'H2O_HITEMP':
+    #     profile['OH'] += (A0 - profile_updt) * scale
 
 
 def calc_MMW3(abundances):
