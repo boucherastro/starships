@@ -603,6 +603,143 @@ def plot_best_mod(params, planet, atmos_obj, temp_params, alpha_vis=0.5, alpha=0
     return fig
 
 
+import matplotlib.gridspec as gridspec
+
+
+def add_plot_mod(wv_mod, mod, ax1, ax2, ax3, params, temp_params,
+                 kind_temp, TP,
+                 label='', lim_ax1=[1.0, 1.7], alpha=0.6, **kwargs):
+    mask = (wv_mod >= lim_ax1[0]) & (wv_mod <= lim_ax1[1])
+
+    ax1.plot(wv_mod[mask], mod[mask], label=label, alpha=alpha, )
+    ax2.plot(calc_tp_profile(params, temp_params, kind_temp=kind_temp, TP=TP, **kwargs),
+             np.log10(temp_params['pressures']), label=label)
+    ax3.plot(wv_mod, mod, label=label, alpha=alpha, )
+
+
+def plot_best_mods(ret_params, ret, kind_res='low',
+                   params=None, hst_data=None, spit_data=None):
+    models = []
+
+    wv_mod, mod1 = calc_best_mod_any(ret_params[ret]['meds'],  # chose1, #
+                                        ret_params[ret]['planet'],
+                                        ret_params[ret]['atmos'],
+                                        ret_params[ret]['temp_params'], kind_res=kind_res,
+                                        **ret_params[ret]['kwargs'],
+                                        params_id=ret_params[ret]['params_id'])
+    models.append(mod1)
+
+    wv_mod, mod2 = calc_best_mod_any(ret_params[ret]['maxs'],  # chose2, #
+                                        ret_params[ret]['planet'],
+                                        ret_params[ret]['atmos'],
+                                        ret_params[ret]['temp_params'], kind_res=kind_res,
+                                        **ret_params[ret]['kwargs'],
+                                        params_id=ret_params[ret]['params_id'])
+    models.append(mod2)
+
+    wv_mod, mod3 = calc_best_mod_any(ret_params[ret]['best'],  # chose3, #
+                                        ret_params[ret]['planet'],
+                                        ret_params[ret]['atmos'],
+                                        ret_params[ret]['temp_params'], kind_res=kind_res,
+                                        **ret_params[ret]['kwargs'],
+                                        params_id=ret_params[ret]['params_id'])
+    models.append(mod3)
+    if params is not None:
+        wv_mod, mod4 = calc_best_mod_any(params,
+                                            ret_params[ret]['planet'],
+                                            ret_params[ret]['atmos'],
+                                            ret_params[ret]['temp_params'], kind_res=kind_res,
+                                            **ret_params[ret]['kwargs'],
+                                            params_id=ret_params[ret]['params_id'])
+        models.append(mod4)
+
+    models = np.array(models)
+
+    fig = plt.figure(figsize=(17, 9), tight_layout=True)
+    gs = gridspec.GridSpec(2, 2)
+
+    ax_zoom = fig.add_subplot(gs[0, 0])
+    ax_tp = fig.add_subplot(gs[0, 1])
+    ax_all = fig.add_subplot(gs[1, :])
+
+    ##############################################
+    ##############################################
+
+    # ret_params[ret]['temp_params']['T_eq'] = chose1[12]
+    add_plot_mod(wv_mod, mod1, ax_zoom, ax_tp, ax_all,
+                 ret_params[ret]['meds'],  # chose1,
+                 ret_params[ret]['temp_params'],
+                 ret_params[ret]['kwargs']['kind_temp'], ret_params[ret]['kwargs']['TP'],
+                 label='Meds', nb_mols=ret_params[ret]['nb_mols'],
+                 params_id=ret_params[ret]['params_id'])
+
+    # ret_params[ret]['temp_params']['T_eq'] = chose2[12]
+    add_plot_mod(wv_mod, mod2, ax_zoom, ax_tp, ax_all,
+                 ret_params[ret]['maxs'],  # chose2,
+                 ret_params[ret]['temp_params'],
+                 ret_params[ret]['kwargs']['kind_temp'], ret_params[ret]['kwargs']['TP'],
+                 label='Maxs', nb_mols=ret_params[ret]['nb_mols'],
+                 params_id=ret_params[ret]['params_id'])
+
+    # ret_params[ret]['temp_params']['T_eq'] = chose3[12]
+    add_plot_mod(wv_mod, mod3, ax_zoom, ax_tp, ax_all,
+                 ret_params[ret]['best'],
+                 ret_params[ret]['temp_params'],
+                 ret_params[ret]['kwargs']['kind_temp'], ret_params[ret]['kwargs']['TP'],
+                 label='Best', nb_mols=ret_params[ret]['nb_mols'],
+                 params_id=ret_params[ret]['params_id'])
+
+    if params is not None:
+        add_plot_mod(wv_mod, mod4, ax_zoom, ax_tp, ax_all,
+                     params,
+                     ret_params[ret]['temp_params'],
+                     ret_params[ret]['kwargs']['kind_temp'], ret_params[ret]['kwargs']['TP'],
+                     label='Best', nb_mols=ret_params[ret]['nb_mols'],
+                     params_id=ret_params[ret]['params_id'])
+
+    ##############################################
+    ##############################################
+    # ax_zoom.plot(HST_wave, down1,'o',color='limegreen')
+
+    if hst_data is not None:
+        HST_wave, HST_data, HST_data_err = hst_data
+
+        ax_zoom.errorbar(HST_wave, HST_data, HST_data_err, color='k', marker='.', linestyle='none')
+    # ax_zoom.errorbar(HST_wave_VIS, HST_data_VIS, HST_data_err_VIS,color='k',marker='.', linestyle='none')
+    ax_zoom.set_xlim(1.0, 1.7)
+    ax_zoom.set_ylim(np.min((mod1[(wv_mod <= 1.7) & (wv_mod >= 1.1)],
+                             mod2[(wv_mod <= 1.7) & (wv_mod >= 1.1)],
+                             mod3[(wv_mod <= 1.7) & (wv_mod >= 1.1)])) - 0.0005,
+                     np.max((mod1[(wv_mod <= 1.7) & (wv_mod >= 1.1)],
+                             mod2[(wv_mod <= 1.7) & (wv_mod >= 1.1)],
+                             mod3[(wv_mod <= 1.7) & (wv_mod >= 1.1)])) + 0.0005)
+
+    ax_tp.set_ylim(1, -8)
+    ax_tp.legend(fontsize=16)
+    ax_tp.set_xlabel('Temperature (K)', fontsize=16)
+    ax_tp.set_ylabel(r'Pressure (bar)', fontsize=16)
+
+    # ax_tp.plot(temp_eq,  np.log10(press_eq),'--',color='indigo',  label='Chem. Equil. ATMO Spake+2021')
+    # ax_tp.plot(temp_free,  np.log10(press_free), '--',color='orchid', label='Free Chem. ATMO Spake+2021')
+    # ax_tp.plot(temp_nem,  np.log10(press_nem),'--',color='orangered',  label='Free Chem. Nemesis Spake+2021')
+    if hst_data is not None:
+        ax_all.errorbar(HST_wave, HST_data, HST_data_err,
+                        color='k', marker='.', linestyle='none', zorder=50)
+    # ax_all.errorbar(HST_wave_VIS, HST_data_VIS, HST_data_err_VIS,
+    #                 color='k',marker='.', linestyle='none', zorder=51)
+    if spit_data is not None:
+        spit_wave, spit_data, spit_data_err, spit_bins = spit_data
+        ax_all.errorbar(spit_wave, spit_data, spit_data_err, xerr=spit_bins,
+                        color='k', marker='.', linestyle='none', zorder=52)
+    ax_all.set_xlabel('Wavelength (um)', fontsize=16)
+    ax_all.set_ylabel(r'$(R_p/R_*)^2$', fontsize=16)
+
+    tick_labels = [.6, .7, .8, .9, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5]
+    plt.xscale('log')
+    plt.xticks(tick_labels)
+    ax_all.set_xticklabels(tick_labels)
+
+    return fig, wv_mod, models
 
 def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3, 
                       scatt=False, gamma_scat=-1.7, kappa_factor=np.log10(0.36),

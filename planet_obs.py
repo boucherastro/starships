@@ -1418,7 +1418,7 @@ def merge_velocity(tr_merge, list_tr, merge_tr_idx):
     tr_merge.vr = np.concatenate([list_tr[str(tr_i)].vr for tr_i in merge_tr_idx])
     tr_merge.RV_const = np.concatenate([list_tr[str(tr_i)].RV_const* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.Kp = list_tr[str(tr_i)].Kp
+    tr_merge.Kp = list_tr[str(merge_tr_idx[0])].Kp
 
 
 def split_transits(obs_obj, transit_tag, mid_idx, 
@@ -2044,10 +2044,21 @@ def load_sequences(filename, do_tr, path='', load_all=False):
 
         if len(do_tr) <= 1:
             data_info = {}
-            data_info['trall_alpha_frac'] = data_tr['alpha_frac']
-            data_info['trall_icorr'] = data_tr['icorr']
-            data_info['trall_N'] = data_tr['N']
-            data_info['bad_indexs'] = data_tr['bad_indexs']
+            try:
+                data_info['trall_alpha_frac'] = data_tr['alpha_frac']
+                data_info['trall_icorr'] = data_tr['icorr']
+                data_info['trall_N'] = data_tr['N']
+                data_info['bad_indexs'] = data_tr['bad_indexs']
+            except KeyError:
+                out_filename = Path(f'{filename.name}_data_info.npz')
+                print('Reading:', path / out_filename)
+                data_info_file = np.load(path / out_filename)
+                data_info = {}
+
+                data_info['trall_alpha_frac'] = data_info_file['trall_alpha_frac']
+                data_info['trall_icorr'] = data_info_file['trall_icorr']
+                data_info['trall_N'] = data_info_file['trall_N']
+                data_info['bad_indexs'] = data_info_file['bad_indexs']
 
         pca=PCA(data_tr['n_components_'])
         pca.components_ = data_tr['components_']
