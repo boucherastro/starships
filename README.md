@@ -12,7 +12,7 @@ Examples:
 conda create --name myenv
 conda activate myenv 
 ```
-or
+or (depending on how your environnements work)
 ```
 virtualenv --no-download ~/.virtualenvs/myenv
 source ~/.virtualenvs/myenv/bin/activate
