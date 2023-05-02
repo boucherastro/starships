@@ -22,7 +22,7 @@ Then you have to install the relevent Python packages :
 
 `pip install astropy exo-k h5py matplotlib mpi4py numpy pymultinest scipy molmass seaborn corner`
 
-`starships` relies on atmospheric models from `petitRADTRANS`, so also install that :
+starships relies on atmospheric models from petitRADTRANS, so also install that :
 
 `pip install petitRADTRANS`
 
