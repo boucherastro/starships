@@ -25,6 +25,11 @@ from pathlib import Path
 
 from astropy.modeling.physical_models import BlackBody as BB
 
+import logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+logging.basicConfig()
+
 
 def calc_single_mass(mol):
     if '_' in mol:
@@ -286,6 +291,8 @@ def calc_MMW3(abundances):
 
 def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
                    vmrh2he=[0.85, 0.15], dissociation=False, scale=1.0, plot=False):  # , MMW=2.33):
+
+    log.debug(f'In gen_abundances: species_list = {species_list}')
     abundances = {}
     profile = {}
 
@@ -415,7 +422,7 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
     #         plt.ylim(2,-6)
     #         plt.xlim(-12,1)
 
-    return abundances, MMW
+    return abundances, MMW, profile
 
 
 # def gen_abundances(species_list, VMRs, temperature, custom_VMRs=None, verbose=True,
@@ -924,7 +931,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
     else:
         kappa_zero = None
 
-    abundances, MMW = gen_abundances([*species.keys()], [*species.values()],
+    abundances, MMW, _ = gen_abundances([*species.keys()], [*species.values()],
                                      pressures, temperatures,
                                      verbose=False, vmrh2he=vmrh2he,
                                      dissociation=dissociation, plot=plot_abundance)
