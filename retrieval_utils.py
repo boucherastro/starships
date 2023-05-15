@@ -2435,7 +2435,7 @@ def init_from_burnin(n_walkers, n_best_min=1000, quantile=None, wlkr_file=None, 
 
 ## Utilities to compute model profiles and spectra from sample
 def get_tp_from_retrieval(param, retrieval_obj):
-    prt_args, prt_kwargs, rot_kwargs = retrieval_obj.prepare_prt_inputs(param)
+    prt_args, prt_kwargs, rot_kwargs, _ = retrieval_obj.prepare_prt_inputs(param)
 
     pressures = retrieval_obj.temp_params['pressures']
     temperatures = prt_args[0]
@@ -2443,20 +2443,25 @@ def get_tp_from_retrieval(param, retrieval_obj):
     return pressures, temperatures
 
 
-def gen_abundances_default(param, list_mols, retrieval_obj, tp_fct=None, vmrh2he=None):
+def gen_abundances_default(param, retrieval_obj=None, tp_fct=None, vmrh2he=None):
+
+    if retrieval_obj  is None:
+        raise ValueError('For now, `retrieval_obj` must be specified.')
+
     if tp_fct is None:
         tp_fct = partial(get_tp_from_retrieval, retrieval_obj=retrieval_obj)
 
     if vmrh2he is None:
         vmrh2he = [0.85, 0.15]
 
-    nb_mols = retrieval_obj.nb_mols
     pressures, temp_profile = tp_fct(param)
     include_dissociation = retrieval_obj.dissociation
 
-    mol_abundances = list(10 ** param[:nb_mols])
-    # Note that list_mols.copy() is important here
-    out, _ = prt.gen_abundances(list_mols.copy(), mol_abundances, pressures, temp_profile, verbose=False, vmrh2he=vmrh2he,
+    species_dict = retrieval_obj.update_abundances(param)
+    mol_names = list(species_dict.keys())
+    mol_abundances = list(species_dict.values())
+
+    _, _, out = prt.gen_abundances(mol_names, mol_abundances, pressures, temp_profile, verbose=False, vmrh2he=vmrh2he,
                             dissociation=include_dissociation, scale=1.0, plot=False)
 
     return out
@@ -2492,7 +2497,7 @@ def draw_profiles_form_sample(n_draw, flat_samples, list_mols=None, retrieval_ob
         get_tp_from_param = partial(get_tp_from_retrieval, retrieval_obj=retrieval_obj)
 
     if get_mol_profile is None:
-        get_mol_profile = partial(gen_abundances_default, list_mols=list_mols, retrieval_obj=retrieval_obj)
+        get_mol_profile = partial(gen_abundances_default, retrieval_obj=retrieval_obj)
 
     random_idx = rng.integers(0, flat_samples.shape[0], n_draw)
 
