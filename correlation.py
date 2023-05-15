@@ -238,6 +238,13 @@ def calc_chi2(flux, sig, model, axis=-1):
 
     return np.ma.sum((flux-model)**2/sig**2, axis=axis)
 
+
+def calc_logl_chi2_scaled(flux, yerr, model, log_f, axis=-1):
+
+    sigma_2 = yerr**2 * np.exp(2 * log_f)
+    out = -0.5 * np.ma.sum((flux - model)**2 / sigma_2 + np.log(sigma_2), axis=axis)
+    return out
+
     
 def calc_logl_OG_cst(flux, axis=-1, sig=None):
     if sig is None:
