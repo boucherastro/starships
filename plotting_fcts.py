@@ -1779,12 +1779,12 @@ def plot_tp_sample(pressures, temp_stats, line_color='forestgreen', region_color
 
 
 def plot_spectra_sample(wave, spectra_stats, line_color='forestgreen', region_color='limegreen', wv_range=None,
-                        scale_spec=1, fig=None, ax=None, ):
+                        scale_spec=1, fig=None, ax=None, **kwargs):
     fig, ax = _get_fig_and_ax_inputs(fig, ax)
 
     idx = _get_idx_in_range(wave, wv_range)
 
-    ax.plot(wave[idx], spectra_stats['median'][idx] * scale_spec, color=line_color)
+    ax.plot(wave[idx], spectra_stats['median'][idx] * scale_spec, color=line_color, **kwargs)
     for key in ['1-sig', '2-sig']:
         y1, y2 = spectra_stats[key]
         plot_args = (wave[idx], y1[idx] * scale_spec, y2[idx] * scale_spec)
