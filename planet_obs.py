@@ -47,6 +47,23 @@ DEFAULT_LISTS_FILENAMES = {False: {'file_list': 'list_e2ds',
                                   'file_list_tcorr': 'list_tellu_corrected_1d',
                                   'file_list_recon': 'list_tellu_recon_1d'}}
 
+# Dictionaries for different instruments and/or DRS
+# spirou (apero)
+spirou = dict()
+spirou['airmass'] = 'AIRMASS'
+spirou['telaz'] = 'TELAZ'
+spirou['adc1'] = 'SBADC1_P'
+spirou['adc2'] = 'SBADC2_P'
+# nirps, apero DRS
+nirps_apero = dict()
+nirps_apero['airmass'] = 'HIERARCH ESO TEL AIRM START'
+nirps_apero['telaz'] = 'HIERARCH ESO TEL AZ'
+nirps_apero['adc1'] = 'HIERARCH ESO INS ADC1 START'
+nirps_apero['adc2'] = 'HIERARCH ESO INS ADC2 START'
+# nirps, geneva/ESPRESSO DRS
+# not yet implemented
+nirps_geneva = dict()
+
 # def fits2wave(file_or_header):
 #     info = """
 #         Provide a fits header or a fits file
@@ -300,6 +317,95 @@ def read_all_sp_CADC(path, file_list):
             np.array(count), np.array(blaze), np.array(recon), filenames
 
 
+# a very slight modification of the spirou function: the wave solution is now in the second extension of the wave file
+def read_all_sp_nirps_apero(path, file_list, onedim=False, wv_default=None, blaze_default=None,
+                            blaze_path=None, debug=False, ver06=False, cheby=False):
+    """
+    Read all spectra
+    Must have a list with all filename to read
+    """
+
+    headers, count, wv, blaze = list_of_dict([]), [], [], []
+    blaze_path = blaze_path or path
+
+    headers_princ = list_of_dict([])
+    filenames = []
+    blaze0 = None
+
+    path = Path(path)
+    blaze_path = Path(blaze_path)
+    file_list = Path(file_list)
+
+    with open(path / file_list) as f:
+
+        for file in f:
+            filename = file.split('\n')[0]
+
+            if debug:
+                print(filename)
+
+            filenames.append(filename)
+            hdul = fits.open(path / Path(filename))
+
+            # --- If not 1D spectra (so if they are E2DS) ---
+            if onedim is False:
+                if ver06 is False:  # --- for V0.6 data ---
+                    header = hdul[0].header
+                    image = hdul[1].data
+                else:
+                    header = hdul[0].header
+                    image = hdul[0].data
+
+                headers.append(header)
+                count.append(image)
+
+                try:
+                    wv_file = wv_default or hdul[0].header['WAVEFILE']
+                    with fits.open(path / Path(wv_file)) as f:
+                        wvsol = f[1].data
+                except (KeyError, FileNotFoundError) as e:
+                    if cheby is False:
+                        wvsol = fits2wave(image, header)
+                    else:
+                        wvsol = fits2wavenew(image, header)
+                #                 if debug:
+                #                     print(wvsol)
+
+                #                 if blaze0 is None:
+                try:
+                    blaze_file = blaze_default or header['CDBBLAZE']
+                except KeyError:
+                    blaze_file = header['CDBBLAZE']
+
+                if ver06 is False:
+                    blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
+                else:
+                    with fits.open(blaze_path / Path(blaze_file)) as f:
+                        #                         header = fits.getheader(filename, ext=0)
+                        blaze0 = f[0].data
+                #                         print(blaze)
+                blaze.append(blaze0)
+
+            # --- For 1D spectra --- (probably old)
+            else:
+                headers.append(hdul[1].header)
+
+                data = Table.read(path / Path(filename))
+                wvsol = data['wavelength'][None, :]
+                count.append(data['flux'][None, :])
+                #         eflux = data['eflux']
+                blaze.append(data['weight'][None, :])
+
+            wv.append(wvsol / 1000)
+
+    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
+
+
+# give the appropriate functions to read spectra to all the instrument/DRS dictionaries
+spirou['read_all_sp'] = read_all_sp
+nirps_apero['read_all_sp'] = read_all_sp_nirps_apero
+
+
 def fake_noise(flux, gwidth=1):
     # Generate white noise
     mean = 0.
@@ -460,10 +566,13 @@ class Observations():
     Note : Probably could be optimized
     """
 
+    # added an instrument argument to pass the appropriate dictionary. Default=spirou
+    # to properly pass a dictionary from outside (e.g. a jupyter notebook),
+    # need to write e.g. instrument=planet_obs.nirps_apero
     def __init__(self, wave=np.array([]), count=np.array([]), blaze=np.array([]),
                  headers = list_of_dict([]), headers_image = list_of_dict([]), headers_tellu = list_of_dict([]), 
                  tellu=np.array([]), uncorr=np.array([]), 
-                 name='', path='',filenames=[], planet=None, CADC=False, pl_kwargs=None):
+                 name='', path='',filenames=[], planet=None, CADC=False, pl_kwargs=None, instrument=spirou):
         
         self.name = name
         self.path = Path(path)
@@ -488,6 +597,8 @@ class Observations():
         self.uncorr=uncorr
         self.tellu=tellu
         self.CADC = CADC
+        # pass the instrument argument to the object
+        self.instrument = instrument
 
                      
     def fetch_data(self, path, onedim=False, CADC=False, list_filenames=None, sanit=False, **kwargs):
@@ -512,7 +623,10 @@ class Observations():
 
         # Fill absent values with default values
         list_filenames = {**DEFAULT_LISTS_FILENAMES[onedim], **list_filenames}
-        
+
+        # get the appropriate function to read spectra from the instrument's dictionary
+        read_sp = self.instrument['read_all_sp']
+
         if CADC:
 
             print('Fetching data')
@@ -527,7 +641,7 @@ class Observations():
         else:
             print('Fetching data')
             print(f"File: {list_filenames['file_list_tcorr']}")
-            headers, wv, count, blaze, filenames = read_all_sp(path, list_filenames['file_list_tcorr'], onedim=onedim, **kwargs)
+            headers, wv, count, blaze, filenames = read_sp(path, list_filenames['file_list_tcorr'], onedim=onedim, **kwargs)
 
             #             self.headers = headers
             #             self.wave = np.array(wv)
@@ -537,12 +651,12 @@ class Observations():
 
             print("Fetching the tellurics")
             print(f"File: {list_filenames['file_list_recon']}")
-            _, _, tellu, _, _ = read_all_sp(path, list_filenames['file_list_recon'], onedim=onedim, **kwargs)
+            _, _, tellu, _, _ = read_sp(path, list_filenames['file_list_recon'], onedim=onedim, **kwargs)
 
             print("Fetching the uncorrected spectra")
             print(f"File: {list_filenames['file_list']}")
 
-            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_all_sp(path, list_filenames['file_list'], onedim=onedim, **kwargs)
+            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_filenames['file_list'], onedim=onedim, **kwargs)
 
         self.headers = headers
         self.wave = np.array(wv)
@@ -603,6 +717,8 @@ class Observations():
             
         
 #         return sub_obs
+
+        # add instrument argument
         return Observations(headers=new_headers, 
                             wave=self.wave[transit_tag],
                             count=self.count[transit_tag], blaze=self.blaze[transit_tag], 
@@ -611,9 +727,12 @@ class Observations():
                             name=self.name, planet=self.planet , 
                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
                             # filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
-                            CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl)
+                            CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl,
+                            instrument=self.instrument)
     
-    def calc_sequence(self, plot=True, sequence=None, K=None, uncorr=False, iin=False, 
+    # switched hard '49' value to self.nord
+    # call instrument dictionary for problematic header keys
+    def calc_sequence(self, plot=True, sequence=None, K=None, uncorr=False, iin=False,
                       coeffs=[0.4], ld_model='linear', time_type='BJD', kind_trans='transmission'):
         
         """
@@ -648,7 +767,7 @@ class Observations():
                                 format='jd').jd.squeeze()# * u.d
                     
                 self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0], 
-                                 dtype='float') for order in range(49)]).T
+                                 dtype='float') for order in range(self.nord)]).T
                 self.berv0 = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
             else:
 #                 obs_date = [date+' '+hour for date,hour in zip(self.headers_image.get_all('DATE-OBS')[0], \
@@ -666,17 +785,17 @@ class Observations():
 
                 try:
                     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
-                                             dtype='float') for order in range(49)]).T
+                                             dtype='float') for order in range(self.nord)]).T
                 except KeyError:
                     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:03}'.format(order))[0], \
-                                         dtype='float') for order in range(49)]).T
+                                         dtype='float') for order in range(self.nord)]).T
                 self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
             
             self.dt = np.array(np.array(self.headers.get_all('EXPTIME')[0], dtype='float') ).squeeze() * u.s
-            self.AM = np.array(self.headers.get_all('AIRMASS')[0], dtype='float').squeeze()
-            self.telaz = np.array(self.headers.get_all('TELAZ')[0], dtype='float').squeeze()
-            self.adc1 = np.array(self.headers.get_all('SBADC1_P')[0], dtype='float').squeeze()
-            self.adc2 = np.array(self.headers.get_all('SBADC2_P')[0], dtype='float').squeeze()
+            self.AM = np.array(self.headers.get_all(self.instrument['airmass'])[0], dtype='float').squeeze()
+            self.telaz = np.array(self.headers.get_all(self.instrument['telaz'])[0], dtype='float').squeeze()
+            self.adc1 = np.array(self.headers.get_all(self.instrument['adc1'])[0], dtype='float').squeeze()
+            self.adc2 = np.array(self.headers.get_all(self.instrument['adc2'])[0], dtype='float').squeeze()
             self.SNR = np.clip(self.SNR, 0,None)
         else : 
             self.t_start = sequence[0] #* u.d
