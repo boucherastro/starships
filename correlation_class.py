@@ -1242,7 +1242,7 @@ class Correlations():
 
             if (fig_name is not None) and (path_fig is not None):
                 fig2.savefig(path_fig +'fig_sum_CCF2D_'+fig_name+'.pdf')#, rasterize=True)
-            
+
         
         
 #     def plot_PRF(self, tr, interp_grid=None, ccf=None, RV=0., icorr=None, split_fig=0,
