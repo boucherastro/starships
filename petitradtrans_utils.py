@@ -335,13 +335,15 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
         profile[specie_name] = vmr * np.ones_like(pressures)
 
     if ('H-' in species_list) and ('H' not in species_list):
-        print('adding H')
+        if verbose:
+            print('adding H')
         profile['H'] = 1e-99 * np.ones_like(pressures)
         species_list.append('H')
         species.append('H')
         VMRs.append(1e-99)
     if ('H-' in species_list) and ('e-' not in species_list):
-        print('adding e-')
+        if verbose:
+            print('adding e-')
         profile['e-'] = 1e-6 * np.ones_like(pressures)
         species_list.append('e-')
         species.append('e-')
@@ -601,13 +603,15 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
         R_star = planet.R_star.cgs.value
     else:
         R_star = rstar.cgs.value
-    print('R_pl = {} // R_star = {} // grav = {}'.format(R_pl * u.cm.to(u.R_jup),
+    if verbose:
+        print('R_pl = {} // R_star = {} // grav = {}'.format(R_pl * u.cm.to(u.R_jup),
                                                          R_star * u.cm.to(u.R_sun),
                                                          gravity * u.cm ** 2 / u.s))
 
     # --- Testing all combinations of all the given parameters
     combinations = list(product(*species.values()))
-    print('There will be {} files'.format(len(combinations)))
+    if verbose:
+        print('There will be {} files'.format(len(combinations)))
 
     wave = None
     spectra_list = []
@@ -637,8 +641,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
             kwargs['kappa_zero'] = kappa_zero
         if kappa_factor is not None:
             kwargs['kappa_factor'] = kappa_factor #* (5.31e-31 * u.m ** 2 / u.u).cgs.value
-
-        print('Calculating full {} spectrum {}/{}'.format(kind_trans, j + 1, len(combinations)))
+        if verbose:
+            print('Calculating full {} spectrum {}/{}'.format(kind_trans, j + 1, len(combinations)))
         # species.values = combi
 
         for i, mol_i in enumerate(species.keys()):
@@ -697,7 +701,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
         if plot is True:
             plt.figure()
             plt.plot(wave, atmos_full_spectrum)
-        print(wave[[0, -1]], atmos_full_spectrum[[0, -1]])
+        if verbose:
+            print(wave[[0, -1]], atmos_full_spectrum[[0, -1]])
         if np.isnan(atmos_full_spectrum).all():
             print('ITS ALL NANs... Something is wrong.')
         if contribution is True:
@@ -727,7 +732,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
             file_name += '_cloud{:.2f}'.format(cloud * u.bar.to(u.Pa))
 
         if rp is not None:
-            print((R_pl * u.cm).to(u.R_jup).value)
+            if verbose:
+                print((R_pl * u.cm).to(u.R_jup).value)
             file_name += '_Rp{:.2f}'.format((R_pl * u.cm).to(u.R_jup).value)
         if path is not None:
             print('Saving...')
@@ -741,7 +747,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
         else:
             # wave = nc.c / atmos_full.freq / 1e-4
             spectra_list.append(atmos_full_spectrum)
-            print('{}/{} Done!'.format(j + 1, len(combinations)))
+            if verbose:
+                print('{}/{} Done!'.format(j + 1, len(combinations)))
     if path is None:
         return atmos_full, wave, spectra_list
 
@@ -1072,8 +1079,10 @@ def gaussian_prior(cube, mu, sigma):
 
 def a_b_range(x, a, b):
     if x < a:
+        print('x < a : ', x, ' < ', a)
         return -np.inf
     elif x > b:
+        print('x > b : ', x, ' > ', b)
         return -np.inf
     else:
         return 0.

@@ -648,7 +648,7 @@ class Observations():
                                 format='jd').jd.squeeze()# * u.d
                     
                 self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0], 
-                                 dtype='float') for order in range(49)]).T
+                                 dtype='float') for order in range(self.nord)]).T
                 self.berv0 = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
             else:
 #                 obs_date = [date+' '+hour for date,hour in zip(self.headers_image.get_all('DATE-OBS')[0], \
@@ -666,10 +666,10 @@ class Observations():
 
                 try:
                     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
-                                             dtype='float') for order in range(49)]).T
+                                             dtype='float') for order in range(self.nord)]).T
                 except KeyError:
                     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:03}'.format(order))[0], \
-                                         dtype='float') for order in range(49)]).T
+                                         dtype='float') for order in range(self.nord)]).T
                 self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
             
             self.dt = np.array(np.array(self.headers.get_all('EXPTIME')[0], dtype='float') ).squeeze() * u.s

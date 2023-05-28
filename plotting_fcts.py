@@ -1240,7 +1240,9 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         max_val = -chose[1]
         wind = chose[0]
 
-        ax[0].scatter(wind, Kp, marker='+', color='k')#, 
+        # ax[0].scatter(wind, Kp, marker='+', color='k')#,
+
+
     #                   label=r'{:.2f} // RV = {:.2f}'.format(max_val, wind))
     #     ax[0].legend(loc='lower right')
 
@@ -1337,8 +1339,8 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         max_val = -chose[1]
         wind = chose[0]
 
-        if show_max:
-            ax.scatter(wind, Kp, marker='+', color='k')#,
+        # if show_max:
+            # ax.scatter(wind, Kp, marker='+', color='k')#,
         #                   label=r'{:.2f} // RV = {:.2f}'.format(max_val, wind))
         #     ax[0].legend(loc='lower right')
 
@@ -1779,23 +1781,30 @@ def plot_tp_sample(pressures, temp_stats, line_color='forestgreen', region_color
 
 
 def plot_spectra_sample(wave, spectra_stats, line_color='forestgreen', region_color='limegreen', wv_range=None,
-                        scale_spec=1, fig=None, ax=None, ):
+                        scale_spec=1, fig=None, ax=None, show_2sig=True, alpha=0.5, **kwargs):
+
+    if show_2sig:
+        sigmas = ['1-sig', '2-sig']
+    else:
+        sigmas = ['1-sig']
+
     fig, ax = _get_fig_and_ax_inputs(fig, ax)
 
     idx = _get_idx_in_range(wave, wv_range)
 
     ax.plot(wave[idx], spectra_stats['median'][idx] * scale_spec, color=line_color)
-    for key in ['1-sig', '2-sig']:
+
+    for key in sigmas:
         y1, y2 = spectra_stats[key]
         plot_args = (wave[idx], y1[idx] * scale_spec, y2[idx] * scale_spec)
-        ax.fill_between(*plot_args, color=region_color, alpha=0.5)
+        ax.fill_between(*plot_args, color=region_color,alpha=alpha, **kwargs)
 
     return fig, ax
 
 
 def plot_single_line_sample(wave, spectra_stats, centered=True, dv_units=False, sp_line_type='emission',
                             # or absorption
-                            wv_range=None, **kwargs):
+                            wv_range=None, show_2sig=True, **kwargs):
     if centered or dv_units:
         # In range
         idx = _get_idx_in_range(wave, wv_range)
@@ -1825,7 +1834,7 @@ def plot_single_line_sample(wave, spectra_stats, centered=True, dv_units=False, 
         else:
             xlabel = "Wavelength relative to line center [um]"
 
-    fig, ax = plot_spectra_sample(wave, spectra_stats, wv_range=wv_range, **kwargs)
+    fig, ax = plot_spectra_sample(wave, spectra_stats, wv_range=wv_range, show_2sig=show_2sig, **kwargs)
     ax.set_xlabel(xlabel)
 
     return fig, ax

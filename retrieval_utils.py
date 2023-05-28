@@ -746,7 +746,7 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
                       TP=False,  radius_param=2, cloud_param=1,
                       scale=1., haze=None, nb_mols=None, kind_res='low', \
                       list_mols=None, kind_temp='', kind_trans='transmission', 
-                      plot_abundance=False, params_id=None,
+                      plot_abundance=False, params_id=None, plot_TP=False,
                       change_line_list=None, add_line_list=None, **kwargs):
     
 #     species_all0 = OrderedDict({})
@@ -775,7 +775,7 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
 
 #     print(nb_mols, params)
     temp_params['T_eq'] = params[nb_mols+0]
-    print(temp_params['T_eq'])
+    # print(temp_params['T_eq'])
     
     if cloud_param is not None:
         cloud = 10**(params[nb_mols+cloud_param])
@@ -789,7 +789,12 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3,
     temp_params['gravity'] = (const.G * planet.M_pl / (radius)**2).cgs.value
 
     temperature = calc_tp_profile(params, temp_params, nb_mols=nb_mols,
-                                  kind_temp=kind_temp, TP=TP, params_id=params_id)
+                                  kind_temp=kind_temp, params_id=params_id) #, TP=TP
+
+    if plot_TP:
+        plt.figure()
+        plt.plot(temperature, np.log10(temp_params['pressures']))
+        plt.ylim(2,-6)
 
     if scatt is True:
         gamma_scat = params[-2]
@@ -968,7 +973,7 @@ def single_max_dist(samp, bins='auto', start=0, end=-1, bin_size=6, plot=False):
 
 def find_dist_maxs(sample_all, labels=None, bin_size=6,
                    flag_id=None, plot=True, prob=0.68,
-                   print_gen_walkers=False):
+                   print_gen_walkers=False, cut_sample=None):
     
     n_params = sample_all.shape[-1]
 
@@ -989,6 +994,11 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6,
     #         sample_all[:, :, i] = ((sample_all[:, :, i]/u.day).to('1/s') * maxs[6] * const.R_jup.to(u.km)).value
         samp = sample_all[:, :, i].ravel()  #cut_sample[:, :, i].ravel()
         sample_i = sample_all[:, :, i].reshape(sample_all.shape[0]*sample_all.shape[1], 1)
+
+
+        if cut_sample is not None:
+            samp = cut_sample[:,i]
+            sample_i = cut_sample[:,i]
 #         his, edges = np.histogram(samp, bins='auto',density=True)
 #         mids = 0.5*(edges[1:] + edges[:-1])
 #         if flag_id is not None and i == flag_id[0]:
@@ -1173,8 +1183,11 @@ def read_walker_prob(filename, tol=20, discard=0):
     # --- place walker in order from worst [0] to best[-1] logL
     ord_pos = flat_fin_pos[np.argsort(flat_logl)]
     ord_logl = flat_logl[np.argsort(flat_logl)]
-    
-    autocorr = emcee.autocorr.integrated_time(fin_pos, tol=tol)
+
+    if tol > 1 :
+        autocorr = emcee.autocorr.integrated_time(fin_pos, tol=tol)
+    else:
+        autocorr = np.zeros_like(ord_logl)
     
     return ord_pos, ord_logl, autocorr
 
@@ -1190,7 +1203,28 @@ def plot_corner_logl(ord_pos, labels, param_x = 0, param_y = 1, n_pts=1000, cmap
     plt.xlabel(labels[param_x])
     plt.ylabel(labels[param_y])
 
-    
+
+
+def show_logl_per_param(ret_dict, ord_pos=None, ord_logl=None):
+
+    if ord_pos is None:
+        ord_pos = ret_dict['ord_pos']
+    if ord_logl is None:
+        ord_logl = ret_dict['ord_logl']
+    fig, ax = plt.subplots(ord_pos.shape[-1], 1, figsize=(6, 3*ord_pos.shape[-1]))
+
+    # ylimits
+    ymin, ymax = (np.quantile(ord_logl, 0.5), np.max(ord_logl))
+    dy = ymax - ymin
+    ylim = (ymin - 0.1 * dy, ymax + 0.1 * dy)
+
+    for i_param, ax_i in enumerate(ax):
+        ax_i.plot(ord_pos[:,i_param], ord_logl[:], ".k", alpha=0.1)
+#         ax_i.plot(ord_pos_best[:,i_param], ord_logl_best, ".", color='darkgreen')
+        ax_i.set_ylim(*ylim)
+        ax_i.set_xlabel(ret_dict['labels'][i_param])
+    #     ax_i.axhline(23374, linestyle=":")
+    plt.tight_layout()
     
 def plot_ratios_corner(samps, values_compare, color='blue', add_solar=True, **kwargs):
     samp_c, samp_o, samp_h = samps
@@ -1215,7 +1249,7 @@ def plot_ratios_corner(samps, values_compare, color='blue', add_solar=True, **kw
 
 
 def calc_tp_profile(params, temp_params, kind_temp='', TP=True,
-                    T_eq=None, pressures=None, nb_mols=None, params_id=None):
+                    T_eq=None, pressures=None, nb_mols=None, params_id=None, verbose=False):
 
     if nb_mols is None:
         print('Assuming that there are {} nb mols'.format(nb_mols) )
@@ -1224,12 +1258,14 @@ def calc_tp_profile(params, temp_params, kind_temp='', TP=True,
         pressures = temp_params['pressures']
 
     if params_id is not None:
-        print('Taking into account that there are {} molecules'.format(nb_mols))
+        if verbose:
+            print('Taking into account that there are {} molecules'.format(nb_mols))
         if params_id['tp_kappa'] is not None:
             temp_params['kappa_IR'] = 10 ** params[nb_mols + params_id['tp_kappa']]
 
         if params_id['tp_gamma'] is not None:
-            print( params, nb_mols , params_id['tp_gamma'])
+            if verbose:
+                print( params, nb_mols , params_id['tp_gamma'])
             temp_params['gamma'] = 10 ** params[nb_mols + params_id['tp_gamma']]
 
         if params_id['tp_delta'] is not None:
@@ -1750,31 +1786,48 @@ def plot_corner(sample_all, labels=None, param_no_zero=4, maxs=None, errors=None
     return fig, flat_samples
 
 
-def gen_ret_dict(ret_params, ret_name, file, labels, discard=0, tol=8,
-                 plot=True, filename2=None, sig2=True, corner=False, discard_after=None):
-    ret_params[ret_name]['filename'] = file
+def gen_ret_dict(ret_params, ret_name, files, labels, discard=0, tol=8,
+                 plot=True, filename2=None, sig2=True, corner=False,
+                 discard_after=None, min_logl=None):
 
-    try:
-        ret_params[ret_name]['ord_pos'],  ret_params[ret_name]['ord_logl'], _ = \
-            read_walker_prob(ret_params[ret_name]['filename'], tol=tol)
-    except OSError:
-        print('Corrupted file, use discard_after=N to try and see where it causes problem.')
+    ret_params[ret_name]['filename'] = files
 
+    sample_all_files = []
+    ord_pos_files = []
+    ord_logl_files = []
+    for file in files:
+        try:
+            ord_pos,  ord_logl, _ = \
+                read_walker_prob(file, tol=tol)
+            ord_pos_files.append(ord_pos)
+            ord_logl_files.append(ord_logl)
+        except OSError:
+            print('Corrupted file, use discard_after=N to try and see where it causes problem.')
 
-    sample_all = read_walkers_file(ret_params[ret_name]['filename'],
-                                   discard=discard, discard_after=discard_after)
+        sample_all = read_walkers_file(file,
+                                       discard=discard, discard_after=discard_after)
+        sample_all_files.append(sample_all)
 
-    if filename2 is not None:
-        cut_sample2 = read_walkers_file(filename2, discard=discard)
-        sample_all = np.concatenate((sample_all, cut_sample2), axis=0)
+    if len(files) > 1:
+        # cut_sample2 = read_walkers_file(filename2, discard=discard)
+        sample_all = np.concatenate(sample_all_files, axis=0)
+        ord_pos = np.concatenate(ord_pos_files, axis=0)
+        ord_logl = np.concatenate(ord_logl_files, axis=0)
 
     print(sample_all.shape)
 
-    maxs, errors = find_dist_maxs(sample_all, labels, bin_size=6, plot=plot)  # , prob=0.954)#, plot=False)#
+    if min_logl is not None:
+        cut_sample = ord_pos[ord_logl > min_logl]
+    else:
+        cut_sample = None
+
+    maxs, errors = find_dist_maxs(sample_all, labels, bin_size=6, plot=plot,
+                                  cut_sample=cut_sample)  # , prob=0.954)#, plot=False)#
     if sig2 is True:
         print('')
         print('2sigma values')
-        maxs2s, errors2s = find_dist_maxs(sample_all, labels, bin_size=6, prob=0.954, plot=False)
+        maxs2s, errors2s = find_dist_maxs(sample_all, labels, bin_size=6, prob=0.954, plot=False,
+                                          cut_sample=cut_sample)
         # maxs3s, errors3s = find_dist_maxs(sample_all, labels, bin_size=6, prob=0.9973, plot=False)
         ret_params[ret_name]['errors2s'] = errors2s.copy()
 
@@ -1784,63 +1837,211 @@ def gen_ret_dict(ret_params, ret_name, file, labels, discard=0, tol=8,
         flat_samples = sample_all.reshape(sample_all.shape[0] * sample_all.shape[1], sample_all.shape[-1])
 
     ret_params[ret_name]['sample'] = sample_all.copy()
+    ret_params[ret_name]['ord_pos'] = ord_pos.copy()
+    ret_params[ret_name]['ord_logl'] = ord_logl.copy()
     ret_params[ret_name]['flat_sample'] = flat_samples
     ret_params[ret_name]['best'] = ret_params[ret_name]['ord_pos'][-1].copy()
-    ret_params[ret_name]['meds'] = np.median(flat_samples, axis=0).copy()
+    if min_logl is not None:
+        ret_params[ret_name]['meds'] = np.median(cut_sample, axis=0).copy()
+    else:
+        ret_params[ret_name]['meds'] = np.median(flat_samples, axis=0).copy()
     ret_params[ret_name]['maxs'] = maxs.copy()
     ret_params[ret_name]['errors'] = errors.copy()
+    if min_logl is not None:
+        ret_params[ret_name]['cut_sample'] = cut_sample
 
 #     print(maxs)
 #     return
 
 def plot_TP_profile_samples(ret_params, ret_names,  # nb_mols,
-                            title='', labels=None, colors=None,
-                            kind='best', xlim=None, slim=False):
+                            title='', labels=None, colors=None, dark_colors=None,
+                            kind=['best'], xlim=None, slim=False, n_samp=100,
+                            samples=None, confid_interv=False, show_2sig=True,
+                            linestyle=['-','--',':'], params=None, **kwargs):
     if slim:
         fig = plt.figure(figsize=(3, 5))
     else:
-        fig = plt.figure()
+        fig, ax = plt.subplots(1,1)
 
     if colors is None:
         colors = [(200 / 255, 30 / 255, 0 / 255), (100 / 255, 190 / 255, 240 / 255), 'gold']
+    if dark_colors is None:
+        dark_colors = ['darkred', 'royalblue', 'darkgoldenrod']
     if labels is None:
-        labels = ['1', '2']
+        labels = ['1', '2', '3']
     if xlim is None:
         xlim = [500, 10000]
 
+
     for ret_i, ret_name_i in enumerate(ret_names):
+        temp_sample = []
 
         if slim is False:
-            sample = ret_params[ret_name_i]['sample']
+            if samples is None:
+                sample = ret_params[ret_name_i]['flat_sample']
+            else:
+                if samples[ret_i] is None:
+                    sample = ret_params[ret_name_i]['flat_sample']
+                else:
+                    sample = samples[ret_i]
 
-            for i in range(100):
+            for i in range(n_samp):
                 hm.print_static(i)
-                params_i = sample[random.randint(0, sample.shape[0] - 1)][random.randint(0, sample.shape[1] - 1)]
+                params_i = sample[random.randint(0, sample.shape[0] - 1)]#[random.randint(0, sample.shape[1] - 1)]
                 #                 print(params_i)
                 #                 print(ret_params[ret_name_i]['nb_mols'])
                 #                 print(ret_params[ret_name_i]['temp_params'])
-                plt.plot(calc_tp_profile(params_i, ret_params[ret_name_i]['temp_params'],
+                profile_i = calc_tp_profile(params_i, ret_params[ret_name_i]['temp_params'],
                                          nb_mols=ret_params[ret_name_i]['nb_mols'],
-                                         kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp']),
-                         ret_params[ret_name_i]['temp_params']['pressures'],
-                         color=colors[ret_i], alpha=0.1)
+                                         kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp'],
+                                         params_id=ret_params[ret_name_i]['params_id'])
+                if confid_interv is False:
+                    plt.plot(profile_i, ret_params[ret_name_i]['temp_params']['pressures'],
+                             color=colors[ret_i], alpha=0.1)
+                temp_sample.append(profile_i)
 
-        plt.plot(calc_tp_profile(ret_params[ret_name_i][kind],
-                                 ret_params[ret_name_i]['temp_params'],
-                                 nb_mols=ret_params[ret_name_i]['nb_mols'],
-                                 kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp']),
-                 ret_params[ret_name_i]['temp_params']['pressures'],
-                 label=labels[ret_i], color=colors[ret_i])
+
+
+        temp_sample = np.array(temp_sample)
+        if confid_interv:
+            temp_stats = {'1-sig': [], '2-sig': []}
+            for temp_sample_p in temp_sample.T:
+                temp_stats['1-sig'].append(az.hdi(temp_sample_p, hdi_prob=.68))
+                temp_stats['2-sig'].append(az.hdi(temp_sample_p, hdi_prob=.954))
+            for key, val in temp_stats.items():
+                temp_stats[key] = np.array(val).T
+
+            temp_stats['median'] = np.median(temp_sample, axis=0)
+            fig, ax = plot_tp_sample(ret_params[ret_name_i]['temp_params']['pressures'],
+                           temp_stats, line_color=dark_colors[ret_i],
+                           region_color=colors[ret_i], fig=fig, ax=ax, show_2sig=show_2sig,
+                                     label=labels[ret_i], **kwargs)
+
+        if kind is not None:
+            for i, kind_i in enumerate(kind):
+                if len(kind) >1 :
+                    label_kind = kind_i
+                else:
+                    label_kind = ''
+                plt.plot(calc_tp_profile(ret_params[ret_name_i][kind_i],
+                                         ret_params[ret_name_i]['temp_params'],
+                                         nb_mols=ret_params[ret_name_i]['nb_mols'],
+                                         kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp'],
+                                         params_id=ret_params[ret_name_i]['params_id']),
+                         ret_params[ret_name_i]['temp_params']['pressures'],
+                         label=labels[ret_i]+' '+label_kind, color=dark_colors[ret_i],
+                         zorder=50, linestyle=linestyle[i])
+        if params is not None:
+            for i, params_i in enumerate(params):
+                plt.plot(calc_tp_profile(params_i,
+                                         ret_params[ret_name_i]['temp_params'],
+                                         nb_mols=ret_params[ret_name_i]['nb_mols'],
+                                         kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp'],
+                                         params_id=ret_params[ret_name_i]['params_id']),
+                         ret_params[ret_name_i]['temp_params']['pressures'],
+                         label=labels[ret_i]+' '+label_kind, color=(1.0,0,i*0.2),
+                         zorder=50, linestyle=linestyle[i])
 
     plt.ylim(1e1, 1e-6)
     plt.yscale('log')
-    plt.legend(fontsize=13)
+    plt.legend(fontsize=13, loc="upper left", bbox_to_anchor=(1.1, 1.0))
     plt.xlabel(r'Temperature [K]', fontsize=16)
     plt.ylabel(r'Pressure [bar]', fontsize=16)
     plt.title(title, fontsize=16)
     plt.xlim(*xlim)
     return fig
 
+
+
+def plot_tp_sample(pressures, temp_stats,
+                   line_color='forestgreen',
+                   region_color='limegreen',
+                   p_range=(1e-6, 1e1),
+                   tight_range=True,
+                   fig=None,
+                   ax=None,
+                   alpha=0.5,
+                   **kwargs):
+
+    fkwargs = dict(line_color=line_color,
+                   region_color=region_color,
+                   p_range=p_range,
+                   fig=fig,
+                   ax=ax,
+                   alpha=alpha,
+                   tight_range=tight_range,
+                   **kwargs)
+    fig, ax = plot_p_profile_sample(pressures, temp_stats, **fkwargs)
+
+    ax.set_xlabel('Temperature [K]', fontsize=16)
+    ax.set_ylabel('Pressure [bar]', fontsize=16)
+
+    return fig, ax
+
+
+def _get_fig_and_ax_inputs(fig, ax, nrows=1, ncols=1, **kwargs):
+    if ax is None:
+        if fig is None:
+            fig, ax = plt.subplots(nrows, ncols, **kwargs)
+        else:
+            ax = fig.gca()
+
+    return fig, ax
+
+
+def _get_idx_in_range(x_array, x_range):
+    if x_range is None:
+        idx = slice(None)
+    else:
+        idx = (x_range[0] <= x_array) & (x_array <= x_range[-1])
+
+    return idx
+
+def plot_p_profile_sample(pressures, sample_stats,
+                          line_color=None,
+                          region_color=None,
+                          p_range=(1e-6, 1e1),
+                          fig=None,
+                          ax=None,
+                          alpha=0.2,
+                          tight_range=True,
+                            show_2sig=True,
+                          **kwargs):
+
+    if show_2sig:
+        sigmas = ['1-sig', '2-sig']
+    else:
+        sigmas = ['1-sig']
+
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+
+    idx = _get_idx_in_range(pressures, p_range)
+
+    (line,) = ax.semilogy(sample_stats['median'][idx],
+                          pressures[idx],
+                          color=line_color,
+                          **kwargs)
+
+    if region_color is None:
+        region_color = line.get_color()
+
+    for key in sigmas:
+        x1, x2 = sample_stats[key]
+        ax.fill_betweenx(pressures[idx],
+                         x1[idx],
+                         x2[idx],
+                         color=region_color,
+                         alpha=alpha)
+
+
+    if tight_range:
+        ax.set_ylim(np.min(pressures[idx]), np.max(pressures[idx]))
+
+    ylim = ax.get_ylim()
+    if ylim[-1] > ylim[0]:
+        ax.invert_yaxis()
+
+    return fig, ax
 
 # def print_abund_ratios_4mols_fast(logmaxs, H_scale=1., sol_ab=None, stellar_ab=None,
 #                             m_sur_h=-0.193):
@@ -2692,6 +2893,8 @@ def get_stats_from_profile(profile_sample, log_scale=False):
 def get_shift_spec_sample(spec_sample, wave=None, idx=None, wv_norm=None):
     if idx is None:
         idx = unpack_wv_norm_and_get_idx(wave, wv_norm)
+    # print('idx = ', np.where(idx))
+    # print('spec_sample.shape = ', spec_sample.shape)
 
     out = np.mean(spec_sample[:, idx], axis=-1)[:, None]
 
@@ -2703,11 +2906,14 @@ def unpack_wv_norm_and_get_idx(wave, wv_norm):
         idx = _get_idx_in_range(wave, wv_norm)
     except TypeError:
         # Assume non-iterable
+        # print('Assume non-iterable')
         idx = [np.searchsorted(wave, wv_norm)]
     except ValueError:
         # Assume wrong shape, so many ranges
+        # print('Assume wrong shape')
         idx = [_get_idx_in_range(wave, wv_range) for wv_range in wv_norm]
-        idx = np.concatenate(idx)
+        idx = np.logical_or.reduce(idx)
+        # idx = np.concatenate(idx)
 
     return idx
 
@@ -2730,7 +2936,7 @@ def normalize_spec_sample(spec_sample, wave=None, shift_fct=None, wv_norm=None, 
 
     # Apply shift
     out = spec_sample - y_shift
-
+    # print(out)
     # Compute scaling factor
     if scale_fct is not None:
         try:
@@ -2739,8 +2945,8 @@ def normalize_spec_sample(spec_sample, wave=None, shift_fct=None, wv_norm=None, 
             y_scale = np.apply_along_axis(scale_fct, -1, out)[:, None]
     else:
         y_scale = 1
-
+    # print(y_scale)
     # Apply scaling
-    out = out / y_scale
+    out = out / y_scale  # np.log10(out) - np.log10(y_scale)
 
     return out
