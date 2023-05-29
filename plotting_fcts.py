@@ -82,7 +82,7 @@ def get_plot_limits_from_data(data, pad=0.1):
     return plt_limits
 
 
-def plot_all_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False, n_lvl=None, 
+def plot_all_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False, n_lvl=None,
                   vmin_in=None, vmax=None, title='', point=None, correl=False, cmap='inferno',
                   cbar_label=r'log $L$'):
 
@@ -1240,7 +1240,9 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         max_val = -chose[1]
         wind = chose[0]
 
-        ax[0].scatter(wind, Kp, marker='+', color='k')#, 
+        # ax[0].scatter(wind, Kp, marker='+', color='k')#,
+
+
     #                   label=r'{:.2f} // RV = {:.2f}'.format(max_val, wind))
     #     ax[0].legend(loc='lower right')
 
@@ -1337,8 +1339,8 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         max_val = -chose[1]
         wind = chose[0]
 
-        if show_max:
-            ax.scatter(wind, Kp, marker='+', color='k')#,
+        # if show_max:
+            # ax.scatter(wind, Kp, marker='+', color='k')#,
         #                   label=r'{:.2f} // RV = {:.2f}'.format(max_val, wind))
         #     ax[0].legend(loc='lower right')
 
@@ -1780,6 +1782,12 @@ def plot_tp_sample(pressures, temp_stats, line_color='forestgreen', region_color
 
 def plot_spectra_sample(wave, spectra_stats, line_color='forestgreen', region_color='limegreen', wv_range=None,
                         scale_spec=1, fig=None, ax=None, **kwargs):
+
+    if show_2sig:
+        sigmas = ['1-sig', '2-sig']
+    else:
+        sigmas = ['1-sig']
+
     fig, ax = _get_fig_and_ax_inputs(fig, ax)
 
     idx = _get_idx_in_range(wave, wv_range)
