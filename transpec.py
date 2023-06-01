@@ -460,6 +460,8 @@ def clean_bad_pixels(wave, uncorr0, noise_lim=4, plot=False, t1=None, iOrd=34, t
 
 
 # from spirou_exo import plotting_fcts as pf
+
+# added condition to skip completely masked orders in the noise floor fits (happens sometimes with nirps)
 def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34, cmap=None, **kwargs):
 #     if plot is True:
 #         pf.plot_order(tr,iOrd,tr.uncorr, **kwargs)
@@ -486,15 +488,19 @@ def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34,
     
     good_noise = np.where((noise_level <= 8), noise_level, np.nan)
     noise = np.ma.masked_invalid(np.nanmean(good_noise, axis=0))
-    
-    
+
+#   when an entire order is masked, just return the noise fit as the noise itself, since noise is all nan anyway
     noise_floor = []
     for i in range(nord):
         poly_ord = 7
-        fit = ext.poly_out(noise[i], poly_ord, ind_fit=~noise[i].mask)
-        while (fit <=0).any():
-            poly_ord -= 1
+        if ~noise[i].mask.any():
             fit = ext.poly_out(noise[i], poly_ord, ind_fit=~noise[i].mask)
+            while (fit <=0).any():
+                poly_ord -= 1
+                fit = ext.poly_out(noise[i], poly_ord, ind_fit=~noise[i].mask)
+        else:
+            # if the entire order is masked
+            fit = noise[i]
 
         noise_floor.append(fit)
     noise_floor=np.ma.masked_invalid(noise_floor)
