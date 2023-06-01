@@ -1781,7 +1781,7 @@ def plot_tp_sample(pressures, temp_stats, line_color='forestgreen', region_color
 
 
 def plot_spectra_sample(wave, spectra_stats, line_color='forestgreen', region_color='limegreen', wv_range=None,
-                        scale_spec=1, fig=None, ax=None, **kwargs):
+                        scale_spec=1, fig=None, ax=None, show_2sig=True, **kwargs):
 
     if show_2sig:
         sigmas = ['1-sig', '2-sig']
