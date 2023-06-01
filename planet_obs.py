@@ -37,6 +37,10 @@ from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from collections import OrderedDict
 import gc
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 # Constants
@@ -601,47 +605,36 @@ class Observations():
         self.instrument = instrument
 
                      
-    def fetch_data(self, path, onedim=False, CADC=False, list_filenames=None, sanit=False, **kwargs):
-        
+    def fetch_data(self, path, onedim=False, CADC=False, list_e2ds='list_e2ds',
+                   list_tcorr='list_tellu_corrected', list_recon='list_tellu_recon',
+                   read_fct=read_all_sp, **kwargs):
+
         """
         Retrieve all the relevent data in path 
         (tellu corrected, tellu recon and uncorrected spectra from lists of files)
         """
-        
+
+        # TODO Remove CADC references -> Use an instrument/reduction configuration instead
         self.CADC = CADC
-
-        if list_filenames is None:
-            list_filenames = dict()
-        else:
-            # Check if keys in list_filenames are valid
-            valid_keys = list(DEFAULT_LISTS_FILENAMES[onedim].keys())
-            for key in list_filenames:
-                if not key in valid_keys:
-                    msg = f'{key} found in `list_filenames` is not valid. '
-                    msg += f'Possible keys are {valid_keys}'
-                    raise ValueError(f'{key} found in `list_filenames` is not valid.')
-
-        # Fill absent values with default values
-        list_filenames = {**DEFAULT_LISTS_FILENAMES[onedim], **list_filenames}
 
         # get the appropriate function to read spectra from the instrument's dictionary
         read_sp = self.instrument['read_all_sp']
 
         if CADC:
 
-            print('Fetching data')
+            log.info('Fetching data')
             headers, headers_image, headers_tellu, \
-            wv, count, blaze, tellu, filenames = read_all_sp_CADC(path, list_filenames['file_list_tcorr'])
+            wv, count, blaze, tellu, filenames = read_all_sp_CADC(path, list_tcorr)
 
             self.headers_image, self.headers_tellu = headers_image, headers_tellu
 
-            print("Fetching the uncorrected spectra")
-            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_CADC(path, list_filenames['file_list'])
+            log.info("Fetching the uncorrected spectra")
+            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_CADC(path, list_e2ds)
 
         else:
-            print('Fetching data')
-            print(f"File: {list_filenames['file_list_tcorr']}")
-            headers, wv, count, blaze, filenames = read_sp(path, list_filenames['file_list_tcorr'], onedim=onedim, **kwargs)
+            log.info('Fetching data')
+            log.info(f"File: {list_tcorr}")
+            headers, wv, count, blaze, filenames = read_sp(path, list_tcorr, onedim=onedim, **kwargs)
 
             #             self.headers = headers
             #             self.wave = np.array(wv)
@@ -649,20 +642,20 @@ class Observations():
             #             self.blaze = np.ma.masked_array(blaze)
             #             self.filenames  = filenames
 
-            print("Fetching the tellurics")
-            print(f"File: {list_filenames['file_list_recon']}")
-            _, _, tellu, _, _ = read_sp(path, list_filenames['file_list_recon'], onedim=onedim, **kwargs)
+            log.info("Fetching the tellurics")
+            log.info(f"File: {list_recon}")
+            _, _, tellu, _, _ = read_sp(path, list_recon, onedim=onedim, **kwargs)
 
-            print("Fetching the uncorrected spectra")
-            print(f"File: {list_filenames['file_list']}")
+            log.info("Fetching the uncorrected spectra")
+            log.info(f"File: {list_e2ds}")
 
-            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_filenames['file_list'], onedim=onedim, **kwargs)
+            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, onedim=onedim, **kwargs)
 
         self.headers = headers
         self.wave = np.array(wv)
         self.count = np.ma.masked_invalid(count)
         self.blaze = np.ma.masked_invalid(blaze)
-        self.filenames  = filenames
+        self.filenames = filenames
         self.filenames_uncorr = filenames_uncorr
 
         self.tellu = np.ma.masked_invalid(tellu)
@@ -719,7 +712,7 @@ class Observations():
 #         return sub_obs
 
         # add instrument argument
-        return Observations(headers=new_headers, 
+        return Observations(headers=new_headers,
                             wave=self.wave[transit_tag],
                             count=self.count[transit_tag], blaze=self.blaze[transit_tag], 
                             tellu=self.tellu[transit_tag], 
