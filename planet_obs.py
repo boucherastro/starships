@@ -198,9 +198,9 @@ def val_cheby(coeffs, xvector,  domain):
     return yvector
 
 
-def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=None,
+def read_all_sp_spirou_apero(path, file_list, wv_default=None, blaze_default=None,
                 blaze_path=None, debug=False, ver06=False, cheby=False):
-    
+
     """
     Read all spectra
     Must have a list with all filename to read 
@@ -227,62 +227,50 @@ def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=No
 
             filenames.append(filename)
             hdul = fits.open(path / Path(filename))
-        
-            # --- If not 1D spectra (so if they are E2DS) ---
-            if onedim is False: 
-                if ver06 is False: # --- for V0.6 data ---
-                    header = hdul[0].header
-                    image = hdul[1].data
-                else:
-                    header = hdul[0].header
-                    image = hdul[0].data
-                
-                headers.append(header)
-                count.append(image)
 
-                try:
-                    wv_file = wv_default or hdul[0].header['WAVEFILE']
-                    with fits.open(path / Path(wv_file)) as f:
-                        wvsol = f[0].data
-                except (KeyError,FileNotFoundError) as e:
-                    if cheby is False:
-                        wvsol = fits2wave(image, header)
-                    else:
-                        wvsol = fits2wavenew(image, header)
-    #                 if debug:
-    #                     print(wvsol)
-                
-#                 if blaze0 is None:
-                try:
-                    blaze_file = blaze_default or header['CDBBLAZE']
-                except KeyError:
-                    blaze_file = header['CDBBLAZE']
-
-                if ver06 is False:
-                    blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
-                else:
-                    with fits.open(blaze_path / Path(blaze_file)) as f:
-#                         header = fits.getheader(filename, ext=0) 
-                        blaze0 = f[0].data
-#                         print(blaze)
-                blaze.append(blaze0)
-
-            # --- For 1D spectra --- (probably old)
+            if ver06 is False: # --- for V0.6 data ---
+                header = hdul[0].header
+                image = hdul[1].data
             else:
-                headers.append(hdul[1].header)
+                header = hdul[0].header
+                image = hdul[0].data
 
-                data = Table.read(path / Path(filename))
-                wvsol = data['wavelength'][None,:]
-                count.append(data['flux'][None,:])
-        #         eflux = data['eflux']
-                blaze.append(data['weight'][None,:])
+            headers.append(header)
+            count.append(image)
+
+            try:
+                wv_file = wv_default or hdul[0].header['WAVEFILE']
+                with fits.open(path / Path(wv_file)) as f:
+                    wvsol = f[0].data
+            except (KeyError,FileNotFoundError) as e:
+                if cheby is False:
+                    wvsol = fits2wave(image, header)
+                else:
+                    wvsol = fits2wavenew(image, header)
+#                 if debug:
+#                     print(wvsol)
+
+#                 if blaze0 is None:
+            try:
+                blaze_file = blaze_default or header['CDBBLAZE']
+            except KeyError:
+                blaze_file = header['CDBBLAZE']
+
+            if ver06 is False:
+                blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
+            else:
+                with fits.open(blaze_path / Path(blaze_file)) as f:
+#                         header = fits.getheader(filename, ext=0) 
+                    blaze0 = f[0].data
+#                         print(blaze)
+            blaze.append(blaze0)
                 
             wv.append(wvsol/1000)
 
     return headers, np.array(wv), np.array(count), np.array(blaze), filenames
 
 
-def read_all_sp_CADC(path, file_list):
+def read_all_sp_spirou_CADC(path, file_list):
     
     """
     Read all CADC-type spectra
@@ -322,7 +310,7 @@ def read_all_sp_CADC(path, file_list):
 
 
 # a very slight modification of the spirou function: the wave solution is now in the second extension of the wave file
-def read_all_sp_nirps_apero(path, file_list, onedim=False, wv_default=None, blaze_default=None,
+def read_all_sp_nirps_apero(path, file_list, wv_default=None, blaze_default=None,
                             blaze_path=None, debug=False, ver06=False, cheby=False):
     """
     Read all spectra
@@ -351,54 +339,42 @@ def read_all_sp_nirps_apero(path, file_list, onedim=False, wv_default=None, blaz
             filenames.append(filename)
             hdul = fits.open(path / Path(filename))
 
-            # --- If not 1D spectra (so if they are E2DS) ---
-            if onedim is False:
-                if ver06 is False:  # --- for V0.6 data ---
-                    header = hdul[0].header
-                    image = hdul[1].data
-                else:
-                    header = hdul[0].header
-                    image = hdul[0].data
-
-                headers.append(header)
-                count.append(image)
-
-                try:
-                    wv_file = wv_default or hdul[0].header['WAVEFILE']
-                    with fits.open(path / Path(wv_file)) as f:
-                        wvsol = f[1].data
-                except (KeyError, FileNotFoundError) as e:
-                    if cheby is False:
-                        wvsol = fits2wave(image, header)
-                    else:
-                        wvsol = fits2wavenew(image, header)
-                #                 if debug:
-                #                     print(wvsol)
-
-                #                 if blaze0 is None:
-                try:
-                    blaze_file = blaze_default or header['CDBBLAZE']
-                except KeyError:
-                    blaze_file = header['CDBBLAZE']
-
-                if ver06 is False:
-                    blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
-                else:
-                    with fits.open(blaze_path / Path(blaze_file)) as f:
-                        #                         header = fits.getheader(filename, ext=0)
-                        blaze0 = f[0].data
-                #                         print(blaze)
-                blaze.append(blaze0)
-
-            # --- For 1D spectra --- (probably old)
+            if ver06 is False:  # --- for V0.6 data ---
+                header = hdul[0].header
+                image = hdul[1].data
             else:
-                headers.append(hdul[1].header)
+                header = hdul[0].header
+                image = hdul[0].data
 
-                data = Table.read(path / Path(filename))
-                wvsol = data['wavelength'][None, :]
-                count.append(data['flux'][None, :])
-                #         eflux = data['eflux']
-                blaze.append(data['weight'][None, :])
+            headers.append(header)
+            count.append(image)
+
+            try:
+                wv_file = wv_default or hdul[0].header['WAVEFILE']
+                with fits.open(path / Path(wv_file)) as f:
+                    wvsol = f[1].data
+            except (KeyError, FileNotFoundError) as e:
+                if cheby is False:
+                    wvsol = fits2wave(image, header)
+                else:
+                    wvsol = fits2wavenew(image, header)
+            #                 if debug:
+            #                     print(wvsol)
+
+            #                 if blaze0 is None:
+            try:
+                blaze_file = blaze_default or header['CDBBLAZE']
+            except KeyError:
+                blaze_file = header['CDBBLAZE']
+
+            if ver06 is False:
+                blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
+            else:
+                with fits.open(blaze_path / Path(blaze_file)) as f:
+                    #                         header = fits.getheader(filename, ext=0)
+                    blaze0 = f[0].data
+            #                         print(blaze)
+            blaze.append(blaze0)
 
             wv.append(wvsol / 1000)
 
@@ -406,7 +382,7 @@ def read_all_sp_nirps_apero(path, file_list, onedim=False, wv_default=None, blaz
 
 
 # give the appropriate functions to read spectra to all the instrument/DRS dictionaries
-spirou['read_all_sp'] = read_all_sp
+spirou['read_all_sp'] = read_all_sp_spirou_apero
 nirps_apero['read_all_sp'] = read_all_sp_nirps_apero
 
 
@@ -562,6 +538,10 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
     self.kind_trans, self.coeffs, self.ld_model = kind_trans, coeffs, ld_model
 
 
+#######################
+### Observation class
+#######################
+
 class Observations():
     
     """
@@ -605,9 +585,9 @@ class Observations():
         self.instrument = instrument
 
                      
-    def fetch_data(self, path, onedim=False, CADC=False, list_e2ds='list_e2ds',
+    def fetch_data(self, path, CADC=False, list_e2ds='list_e2ds',
                    list_tcorr='list_tellu_corrected', list_recon='list_tellu_recon',
-                   read_fct=read_all_sp, **kwargs):
+                   read_fct=read_all_sp_spirou_apero, **kwargs):
 
         """
         Retrieve all the relevent data in path 
@@ -624,17 +604,17 @@ class Observations():
 
             log.info('Fetching data')
             headers, headers_image, headers_tellu, \
-            wv, count, blaze, tellu, filenames = read_all_sp_CADC(path, list_tcorr)
+            wv, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr)
 
             self.headers_image, self.headers_tellu = headers_image, headers_tellu
 
             log.info("Fetching the uncorrected spectra")
-            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_CADC(path, list_e2ds)
+            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds)
 
         else:
             log.info('Fetching data')
             log.info(f"File: {list_tcorr}")
-            headers, wv, count, blaze, filenames = read_sp(path, list_tcorr, onedim=onedim, **kwargs)
+            headers, wv, count, blaze, filenames = read_sp(path, list_tcorr, **kwargs)
 
             #             self.headers = headers
             #             self.wave = np.array(wv)
@@ -644,12 +624,12 @@ class Observations():
 
             log.info("Fetching the tellurics")
             log.info(f"File: {list_recon}")
-            _, _, tellu, _, _ = read_sp(path, list_recon, onedim=onedim, **kwargs)
+            _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
 
             log.info("Fetching the uncorrected spectra")
             log.info(f"File: {list_e2ds}")
 
-            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, onedim=onedim, **kwargs)
+            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, **kwargs)
 
         self.headers = headers
         self.wave = np.array(wv)
@@ -666,8 +646,7 @@ class Observations():
 
         self.uncorr = count_uncorr
 
-        if onedim is False:
-            self.uncorr_fl = self.uncorr/(blaze_uncorr/np.nanmax(blaze_uncorr, axis=-1)[:,:,None])
+        self.uncorr_fl = self.uncorr/(blaze_uncorr/np.nanmax(blaze_uncorr, axis=-1)[:,:,None])
             
         self.path = Path(path)
         
@@ -735,18 +714,7 @@ class Observations():
         
         p = self.planet
         self.headers[0]['VERSION']
-#         if self.count.ndim == 3:
-#             self.n_spec, self.nord, self.npix = self.count.shape
-#             self.onedim = False
-#         elif self.count.ndim == 2:
-#             self.n_spec, self.npix = self.count.shape
-#             self.nord = 1
-#             self.onedim = True
         self.n_spec, self.nord, self.npix = self.count.shape
-        if self.nord == 1:
-             self.onedim = True
-        else:
-             self.onedim = False
         
         if sequence is None:
             
@@ -801,11 +769,8 @@ class Observations():
             self.adc1 = np.empty_like(self.AM)
             self.adc2 = np.empty_like(self.AM)
         
-        if self.onedim is False:
             self.flux = self.count/(self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None])
-        else:
-            self.flux = self.count
-            
+
         self.berv= self.berv0.copy()
         light_curve = np.ma.sum(np.ma.sum(self.count, axis=-1), axis=-1)
         self.light_curve = light_curve / np.nanmax(light_curve)
@@ -1404,7 +1369,7 @@ class Planet():
 from astropy.io import ascii
 
 
-def get_blaze_file(path, file_list='list_tellu_corrected', onedim=False, blaze_default=None,
+def get_blaze_file(path, file_list='list_tellu_corrected', blaze_default=None,
                 blaze_path=None, debug=False, folder='cfht_sept1'):
     blaze_path = blaze_path or path
 
@@ -1419,15 +1384,13 @@ def get_blaze_file(path, file_list='list_tellu_corrected', onedim=False, blaze_d
 
             hdul = fits.open(path + filename)
 
-            if onedim is False:
-                    
-                try:
-                    blaze_file = blaze_default or hdul[0].header['CDBBLAZE']
-                except KeyError:
-                    blaze_file = hdul[0].header['CDBBLAZE']
-                
-                date = hdul[0].header['DATE-OBS']
-                blaze_file_list.append(date+'/'+blaze_file)
+            try:
+                blaze_file = blaze_default or hdul[0].header['CDBBLAZE']
+            except KeyError:
+                blaze_file = hdul[0].header['CDBBLAZE']
+
+            date = hdul[0].header['DATE-OBS']
+            blaze_file_list.append(date+'/'+blaze_file)
 
     x = []
  

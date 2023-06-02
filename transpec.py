@@ -27,7 +27,7 @@ def mask_deep_tellu(flux, tellu=None, path=None, tellu_list='list_tellu_tr',
     
     if new_mask_tellu is None:
         if tellu is None:
-            _, wave_tell, tellu, _ = ext.read_all_sp(path, tellu_list, wv_default="MASTER_WAVE.fits")
+            _, wave_tell, tellu, _ = ext.read_all_sp_spirou_apero(path, tellu_list, wv_default="MASTER_WAVE.fits")
         tellu = np.ma.array(tellu, mask = ~np.isfinite(tellu))
 
         # Find the strong tellurics with a pad around in the order
