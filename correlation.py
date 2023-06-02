@@ -238,6 +238,13 @@ def calc_chi2(flux, sig, model, axis=-1):
 
     return np.ma.sum((flux-model)**2/sig**2, axis=axis)
 
+
+def calc_logl_chi2_scaled(flux, yerr, model, log_f, axis=-1):
+
+    sigma_2 = yerr**2 * np.exp(2 * log_f)
+    out = -0.5 * np.ma.sum((flux - model)**2 / sigma_2 + np.log(sigma_2), axis=axis)
+    return out
+
     
 def calc_logl_OG_cst(flux, axis=-1, sig=None):
     if sig is None:
@@ -368,7 +375,7 @@ def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flu
     
 def gen_model_sequence_noinj(velocities, data_wave=None, data_sep=None, data_pca=None, data_npc=None, #data_noise,
                              planet=None, model_wave=None, model_spec=None, #resol=64000,norm=True,debug=False,
-                            alpha=None, data_tr=None,  **kwargs):
+                            alpha=None, data_tr=None, data_recon=None,  **kwargs):
 
     if data_wave is None:
         data_wave = data_tr['wave']
@@ -380,13 +387,18 @@ def gen_model_sequence_noinj(velocities, data_wave=None, data_sep=None, data_pca
         data_pca = data_tr['pca']
     if data_npc is None:
         data_npc = int(data_tr['params'][5])
+    if data_recon is None:
+        # -- Uncomment the other 2 lines if you want the full reconstructed data to inject the model in
+        data_recon = np.ones_like(data_wave)
+        # data_recon = data_tr['reconstructed']
+        # data_recon = data_recon/np.ma.median(data_recon,axis=-1)[:,:,None]/data_tr['ratio']/data_tr['mast_out']
 
     for arg in (planet, model_wave, model_spec):
         if arg is None:
             raise ValueError('`planet`, `model_wave` and `model_spec` need to be specified.')
 
     # --- inject model in an empty sequence of ones
-    flux_inj, _ = quick_inject_clean(data_wave, np.ones_like(data_wave), 
+    flux_inj, _ = quick_inject_clean(data_wave, data_recon,
                                                   model_wave, model_spec, 
                                                  np.sum(velocities), data_sep, planet.R_star, planet.A_star, 
                                                                   RV=0.0, dv_star=0., 

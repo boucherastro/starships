@@ -1,31 +1,18 @@
 import numpy as np
-# from astropy.table import Table
-from starships import homemade as hm
-# from spirou_exo.spectrum import find_R, quick_inject
-from starships.analysis import bands, gauss
-# from spirou_exo import transpec as ts
-from starships import correlation as corr
-from starships.orbite import rv_theo_nu, rv_theo_t
-from starships.mask_tools import interp1d_masked
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+from . import homemade as hm
+from .analysis import bands, gauss
+from . import correlation as corr
+from .orbite import rv_theo_nu, rv_theo_t
+from .mask_tools import interp1d_masked
 
 import scipy as sp
-import scipy.constants as cst
 from scipy.optimize import curve_fit
 
 from astropy import units as u
-from astropy import constants as const
-from astropy.stats import sigma_clip
-
-
 import matplotlib.pyplot as plt
-# from itertools import islice
-
-# from astropy.convolution import convolve, Gaussian1DKernel
-
-
 
 from matplotlib.ticker import PercentFormatter
+
 
 def get_corr_in_out_trail(index, corrRV, ccf, tr, \
                           wind=0, speed_limit=4, limit_out=10, 
@@ -235,6 +222,7 @@ def get_t_test_values(index, corrRV, ccf, vrp, \
     sigma, p_value =  sp.stats.ttest_ind(in_ccf, out_ccf, nan_policy='omit', equal_var=equal_var)
         
     return sigma, p_value
+
 
 def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None, wind=0, RV_array=None,
               kp0=0, kp1=2, RV_limit=20, logl=False, plot=False, masked=False, RV=0, prf=False, Kp_array=None,
