@@ -444,11 +444,10 @@ def gen_rv_sequence(self, p, plot=False, K=None):
 
 
 def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=False):
-    self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.mid_tr, e=p.excent)
+    self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.t_peri, e=p.excent)
 
     rp, x, y, z, self.sep, p.bRstar = o.position(self.nu, e=p.excent, i=p.incl, w=p.w, omega=p.omega,
                                                  Rstar=p.R_star, P=p.period, ap=p.ap, Mp=p.M_pl, Mstar=p.M_star)
-
 
     self.phase = ((self.t - p.mid_tr) / p.period).decompose().value
     self.phase -= np.round(self.phase.mean())
@@ -602,18 +601,18 @@ class Observations():
 
         if CADC:
 
-            log.info('Fetching data')
+            logger.info('Fetching data')
             headers, headers_image, headers_tellu, \
             wv, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr)
 
             self.headers_image, self.headers_tellu = headers_image, headers_tellu
 
-            log.info("Fetching the uncorrected spectra")
+            logger.info("Fetching the uncorrected spectra")
             _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds)
 
         else:
-            log.info('Fetching data')
-            log.info(f"File: {list_tcorr}")
+            logger.info('Fetching data')
+            logger.info(f"File: {list_tcorr}")
             headers, wv, count, blaze, filenames = read_sp(path, list_tcorr, **kwargs)
 
             #             self.headers = headers
@@ -622,12 +621,12 @@ class Observations():
             #             self.blaze = np.ma.masked_array(blaze)
             #             self.filenames  = filenames
 
-            log.info("Fetching the tellurics")
-            log.info(f"File: {list_recon}")
+            logger.info("Fetching the tellurics")
+            logger.info(f"File: {list_recon}")
             _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
 
-            log.info("Fetching the uncorrected spectra")
-            log.info(f"File: {list_e2ds}")
+            logger.info("Fetching the uncorrected spectra")
+            logger.info(f"File: {list_e2ds}")
 
             _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, **kwargs)
 
@@ -769,7 +768,7 @@ class Observations():
             self.adc1 = np.empty_like(self.AM)
             self.adc2 = np.empty_like(self.AM)
         
-            self.flux = self.count/(self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None])
+        self.flux = self.count/(self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None])
 
         self.berv= self.berv0.copy()
         light_curve = np.ma.sum(np.ma.sum(self.count, axis=-1), axis=-1)
@@ -1333,6 +1332,12 @@ class Planet():
         self.incl = parametres['pl_orbincl'].to(u.rad)
         self.w = parametres['pl_orblper'].to(u.rad) + (3 * np.pi / 2) * u.rad
         self.omega = np.radians(0) * u.rad
+        # time of periastron passage; if not available, set it to the same value as the mid transit time
+        self.t_peri = parametres['pl_orbtper'].data
+        if not self.t_peri:
+            self.t_peri = self.mid_tr
+        else:
+            self.t_peri = self.t_peri * u.d
 
         for key in list(kwargs.keys()):
             new_value = kwargs[key]
