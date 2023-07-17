@@ -1,12 +1,12 @@
 
 import matplotlib.pyplot as plt
-
-from starships import homemade as hm
-from starships.orbite import rv_theo, rv_theo_t, rv_theo_nu
-from starships.spectrum import gen_mod,  resampling, box_binning
+# blablaabl
+from . import homemade as hm
+from .orbite import rv_theo, rv_theo_t, rv_theo_nu
+from .spectrum import gen_mod,  resampling, box_binning
 # from spirou_exo.transpec import #build_trans_spectrum3, remove_dem_pca, mask_deep
-from starships.mask_tools import interp1d_masked
-from starships.extract import median_filter, quick_norm 
+from .mask_tools import interp1d_masked
+from .extract import median_filter, quick_norm 
 # from scipy.ndimage import generic_filter
 interp1d_masked.iprint = False
 

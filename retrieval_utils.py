@@ -16,10 +16,10 @@ from scipy.interpolate import interp1d
 import astropy.units as u
 import astropy.constants as const
 
-# from starships.plotting_fcts import _get_idx_in_range
+# from .plotting_fcts import _get_idx_in_range
 import random
 
-import starships.petitradtrans_utils as prt
+import .petitradtrans_utils as prt
 
 try:
     from petitRADTRANS.physics import guillot_global, guillot_modif
@@ -2681,7 +2681,7 @@ def draw_profiles_form_sample(n_draw, flat_samples, list_mols=None, retrieval_ob
         get_tp_from_param: Function that returns the tp-profile (output -> pressure, temperature).
                            Default is the one used in the `retrieval_obj`
         get_mol_profile: Function that returns the abundances (output -> dict('molecule': molecule_profile)).
-                         Default is `starships.petitradtrans_utils.gen_abundances`.
+                         Default is `.petitradtrans_utils.gen_abundances`.
 
     Returns:
         dictionnary with 'temperature' and all molecules profiles.

@@ -1,5 +1,5 @@
 from astropy.io import fits
-from starships.list_of_dict import *
+from .list_of_dict import *
 import numpy as np
 from starships import homemade as hm
 from scipy.ndimage.filters import gaussian_filter1d #, median_filter

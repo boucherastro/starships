@@ -12,18 +12,18 @@ import astropy.constants as const
 from astropy.convolution import convolve, Gaussian1DKernel
 from astropy.table import Table
 
-from starships.list_of_dict import *
-import starships.orbite as o
+from .list_of_dict import *
+import .orbite as o
 from starships import transpec as ts
 from starships import homemade as hm
 from starships import spectrum as spectrum
-from starships.mask_tools import interp1d_masked
-from starships.plotting_fcts import plot_all_orders_correl
-from starships.analysis import calc_snr_1d
-from starships.extract import get_mask_tell, get_mask_noise
-from starships.correlation import calc_logl_BL_ord, quick_correl_3dmod # calc_logl_OG_cst, calc_logl_OG_ord
-# from starships.analysis import make_quick_model
-# from starships.extract import quick_norm
+from .mask_tools import interp1d_masked
+from .plotting_fcts import plot_all_orders_correl
+from .analysis import calc_snr_1d
+from .extract import get_mask_tell, get_mask_noise
+from .correlation import calc_logl_BL_ord, quick_correl_3dmod # calc_logl_OG_cst, calc_logl_OG_ord
+# from .analysis import make_quick_model
+# from .extract import quick_norm
 # from transit_prediction.masterfile import MasterFile 
 # from masterfile.archive import MasterFile
 from exofile.archive import ExoFile

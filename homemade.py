@@ -24,7 +24,7 @@ import matplotlib as mpl
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
-from starships.mask_tools import interp1d_masked
+from .mask_tools import interp1d_masked
 interp1d_masked.iprint = False
 
 # def idx2(array,value):
