@@ -39,8 +39,8 @@ from collections import OrderedDict
 import gc
 import logging
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
 
 
 # Constants
@@ -52,14 +52,18 @@ DEFAULT_LISTS_FILENAMES = {False: {'file_list': 'list_e2ds',
                                   'file_list_recon': 'list_tellu_recon_1d'}}
 
 # Dictionaries for different instruments and/or DRS
+
 # spirou (apero)
 spirou = dict()
+spirou['name'] = 'SPIRou-APERO'
 spirou['airmass'] = 'AIRMASS'
 spirou['telaz'] = 'TELAZ'
 spirou['adc1'] = 'SBADC1_P'
 spirou['adc2'] = 'SBADC2_P'
+
 # nirps, apero DRS
 nirps_apero = dict()
+nirps_apero['name'] = 'NIRPS-APERO'
 nirps_apero['airmass'] = 'HIERARCH ESO TEL AIRM START'
 nirps_apero['telaz'] = 'HIERARCH ESO TEL AZ'
 nirps_apero['adc1'] = 'HIERARCH ESO INS ADC1 START'
@@ -652,7 +656,6 @@ class Observations():
         
         
     def select_transit(self, transit_tag, bloc=None):
-        
         """
         To split down all the data into singular observing blocks/nights
         """
@@ -2288,7 +2291,7 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
 
             merge_tr_idx = [int(tag_i) for tag_i in name_tag]
 
-            list_tr[name_tag]  = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags,
+            list_tr[name_tag] = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags,
                                                coeffs, ld_model, kind_trans)
 
     return list_tr
