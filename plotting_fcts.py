@@ -599,51 +599,127 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
     ax[1].set_title(r'with $\sigma$ division')
     
     
+# def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
+#                            vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr', 
+#                            return_snr=False):
+#     if icorr is None:
+#         icorr = tr.icorr
+        
+        
+#     if vrp is None:
+#         vrp = (tr.vrp-tr.vr).value
+#     if RV_sys is None:
+#         RV_sys = tr.planet.RV_sys
+        
+#     fig, ax = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=sharey)
+# #     fig_shift, ax_shift = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
+#     fig_single, ax_single = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
+#     mean_snr = np.ma.median(tr.SNR, axis=0)
+#     pix_frac = tr.N_frac
+    
+#     snr_list = []
+#     for i in range(7):
+#         for j in range(7):
+#             if i*7+j in a.bands(tr.wv, 'y'):
+#                 fg_color = 'goldenrod'
+#             if i*7+j in a.bands(tr.wv, 'j'):
+#                 fg_color = 'olivedrab'
+#             if i*7+j in a.bands(tr.wv, 'h'):
+#                 fg_color = 'steelblue'
+#             if i*7+j in a.bands(tr.wv, 'k'):
+#                 fg_color = 'rebeccapurple'
+#             if pix_frac[i*7+j] < tresh:
+#                 fg_color = 'firebrick'
+            
+#             if logl is True:
+#                 ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), \
+#                                    ccf[:,i*7+j]-np.nanmean(ccf[:,i*7+j], axis=-1)[:,None], vmin=vmin, vmax=vmax)
+#             else:
+#                 ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), ccf[:,i*7+j], vmin=vmin, vmax=vmax)
+#             ax[i,j].plot(vrp, np.arange(ccf.shape[0]), 'k:', alpha=0.5)
+
+            
+# #             ax[i,j].plot(tr.berv, np.arange(ccf.shape[0]), 'r--', alpha=0.5)
+#             ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*7+j, mean_snr[i*7+j], pix_frac[i*7+j]), 
+#                               color=fg_color)
+            
+#             shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*7+j], corrRV, \
+#                                                             vrp[icorr], RV_sys=RV_sys)
+#             snr_list.append(snr)
+#             if kind == 'courbe':
+#                 ax_single[i,j].plot(interp_grid, courbe)
+#             else:
+#                 ax_single[i,j].plot(interp_grid, snr)
+#                 ax_single[i,j].set_ylim(-4,4)
+#             ax_single[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*7+j, mean_snr[i*7+j], pix_frac[i*7+j]), 
+#                                      color=fg_color)
+#             ax_single[i,j].axvline(0, linestyle=':', alpha=0.5)
+#             if vline is not None:
+#                 ax_single[i,j].axvline(vline, linestyle='-', alpha=0.5, color='navy')
+#             if hline is not None:
+#                 ax_single[i,j].axhline(hline, linestyle='-', alpha=0.5, color='navy')
+#             ax_single[i,j].axvline(np.mean(tr.berv), linestyle='--', color='red', alpha=0.5)
+
+#     if output_file is not None:
+#         output_file = Path(output_file)
+#         fig.savefig(output_file.with_stem(f'{output_file.stem}_2d'))
+#         fig_single.savefig(output_file.with_stem(f'{output_file.stem}_single'))
+
+#     if return_snr is True:
+#         return interp_grid, snr_list
+
 def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
-                           vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr', 
-                           return_snr=False):
+                            vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr',
+                            return_snr=False):
     if icorr is None:
         icorr = tr.icorr
-        
-        
+
     if vrp is None:
         vrp = (tr.vrp-tr.vr).value
     if RV_sys is None:
         RV_sys = tr.planet.RV_sys
-        
-    fig, ax = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=sharey)
-#     fig_shift, ax_shift = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
-    fig_single, ax_single = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
+
+    # Get the number of orders
+    n_orders = ccf.shape[1]
+    # Get the number of rows
+    n_rows = int(np.ceil(n_orders/7))
+    # Get the number of columns
+    n_cols = int(np.ceil(n_orders/n_rows))
+    
+    fig, ax = plt.subplots(n_rows,n_cols, figsize=(16,12), sharex=True, sharey=sharey)
+    fig_single, ax_single = plt.subplots(n_rows,n_cols, figsize=(16,12), sharex=True, sharey=True)
+
     mean_snr = np.ma.median(tr.SNR, axis=0)
     pix_frac = tr.N_frac
-    
+
     snr_list = []
-    for i in range(7):
-        for j in range(7):
-            if i*7+j in a.bands(tr.wv, 'y'):
+    for i in range(n_rows):
+        for j in range(n_cols):
+            index = i * n_cols + j
+            if index >= n_orders:
+                break  # Exit the loop if the index is out of bounds
+            if index in a.bands(tr.wv, 'y'):
                 fg_color = 'goldenrod'
-            if i*7+j in a.bands(tr.wv, 'j'):
+            if index in a.bands(tr.wv, 'j'):
                 fg_color = 'olivedrab'
-            if i*7+j in a.bands(tr.wv, 'h'):
+            if index in a.bands(tr.wv, 'h'):
                 fg_color = 'steelblue'
-            if i*7+j in a.bands(tr.wv, 'k'):
+            if index in a.bands(tr.wv, 'k'):
                 fg_color = 'rebeccapurple'
-            if pix_frac[i*7+j] < tresh:
+            if index >= len(pix_frac) or pix_frac[index] < tresh:
                 fg_color = 'firebrick'
-            
+
             if logl is True:
                 ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), \
-                                   ccf[:,i*7+j]-np.nanmean(ccf[:,i*7+j], axis=-1)[:,None], vmin=vmin, vmax=vmax)
+                                   ccf[:,i*n_cols+j]-np.nanmean(ccf[:,i*n_cols+j], axis=-1)[:,None], vmin=vmin, vmax=vmax)
             else:
-                ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), ccf[:,i*7+j], vmin=vmin, vmax=vmax)
+                ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), ccf[:,i*n_cols+j], vmin=vmin, vmax=vmax)
             ax[i,j].plot(vrp, np.arange(ccf.shape[0]), 'k:', alpha=0.5)
+            
+            ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]),
+                                color=fg_color)
 
-            
-#             ax[i,j].plot(tr.berv, np.arange(ccf.shape[0]), 'r--', alpha=0.5)
-            ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*7+j, mean_snr[i*7+j], pix_frac[i*7+j]), 
-                              color=fg_color)
-            
-            shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*7+j], corrRV, \
+            shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*n_cols+j], corrRV, \
                                                             vrp[icorr], RV_sys=RV_sys)
             snr_list.append(snr)
             if kind == 'courbe':
@@ -651,8 +727,8 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
             else:
                 ax_single[i,j].plot(interp_grid, snr)
                 ax_single[i,j].set_ylim(-4,4)
-            ax_single[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*7+j, mean_snr[i*7+j], pix_frac[i*7+j]), 
-                                     color=fg_color)
+            ax_single[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]),
+                                        color=fg_color)
             ax_single[i,j].axvline(0, linestyle=':', alpha=0.5)
             if vline is not None:
                 ax_single[i,j].axvline(vline, linestyle='-', alpha=0.5, color='navy')
@@ -666,8 +742,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
         fig_single.savefig(output_file.with_stem(f'{output_file.stem}_single'))
 
     if return_snr is True:
-        return interp_grid, snr_list
-            
+        return snr_list            
             
 def plot_all_orders_spectra(tr, flux=None):
     
@@ -1651,7 +1726,7 @@ def plot_airmass(list_tr, markers=['o','s','d'],
 
     ax[0].set_ylabel('Mean S/N\nper order', fontsize=16)
     ax[0].set_xlabel(r'Wavelength ($\mu$m)', fontsize=16)
-    ax[0].axvspan(np.mean(tr.wv,axis=-1)[28], np.mean(tr.wv,axis=-1)[36], alpha=0.2, color='darkorange',label='H-band')
+    # ax[0].axvspan(np.mean(tr.wv,axis=-1)[28], np.mean(tr.wv,axis=-1)[36], alpha=0.2, color='darkorange',label='H-band')
     ax[0].legend(loc='upper left', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
 
     for i,tr in enumerate(list_tr):
