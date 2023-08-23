@@ -1,8 +1,8 @@
 from starships import extract as ext
 from starships import analysis as a
 from starships import homemade as hm
-from starships.extract import quick_norm, running_filter
-from starships.mask_tools import interp1d_masked
+from .extract import quick_norm, running_filter
+from .mask_tools import interp1d_masked
 
 import numpy as np
 # import scipy.constants as cst

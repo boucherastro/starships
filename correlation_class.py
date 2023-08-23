@@ -1,9 +1,9 @@
-import starships.orbite as o
-import starships.analysis as a
-import starships.correlation as corr
-import starships.homemade as hm
-import starships.ttest_fcts as nf
-import starships.plotting_fcts as pf
+import .orbite as o
+import .analysis as a
+import .correlation as corr
+import .homemade as hm
+import .ttest_fcts as nf
+import .plotting_fcts as pf
 from starships import spectrum as spectrum
 
 import numpy as np

@@ -4,14 +4,14 @@ import astropy.units as u
 import matplotlib.pyplot as plt
 
 from starships import homemade as hm
-# import starships.analysis as a
+# import .analysis as a
 # from spirou_exo.extract import quick_norm
-from starships.spectrum import quick_inject_clean
+from .spectrum import quick_inject_clean
 # from spirou_exo.transpec import remove_dem_pca_all
-from starships.orbite import rv_theo_nu, rv_theo_t
+from .orbite import rv_theo_nu, rv_theo_t
 
-from starships.mask_tools import interp1d_masked
-from starships.transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, \
+from .mask_tools import interp1d_masked
+from .transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, \
                                 remove_dem_pca_all, build_trans_spectrum4
 
 

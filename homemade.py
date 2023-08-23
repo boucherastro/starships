@@ -24,7 +24,7 @@ import matplotlib as mpl
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
-from starships.mask_tools import interp1d_masked
+from .mask_tools import interp1d_masked
 interp1d_masked.iprint = False
 
 # def idx2(array,value):
@@ -788,6 +788,7 @@ def stop():
 
 def get_colors(cmap, nb, inv=False):
     '''generate a color array from a deesired colormap'''
+    color = None  # to avoid warning
     exec('color = [mpl.cm.{}(x) for x in np.linspace(0, 1.0, {})]'.format(cmap, nb), globals())
     #colors = [mpl.cm.magma(x) for x in np.linspace(0, 1.0, nb_plot)][::-1]
     colors = color[::-1] if inv is True else color

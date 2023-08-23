@@ -13,8 +13,8 @@ import astropy.constants as const
 
 from molmass import Formula
 
-from starships.analysis import resamp_model
-from starships.spectrum import RotKerTransitCloudy
+from .analysis import resamp_model
+from .spectrum import RotKerTransitCloudy
 
 from astropy.table import Table
 

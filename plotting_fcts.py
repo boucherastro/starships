@@ -1,12 +1,10 @@
 import numpy as np
-from starships import homemade as hm
-# from starships.spectrum import find_R, quick_inject
-from starships import analysis as a
-# from spirou_exo import transpec as ts
-# from spirou_exo import correlation as corr
-import starships.ttest_fcts as nf
-from starships.orbite import rv_theo_nu
-from starships.mask_tools import interp1d_masked
+from . import homemade as hm
+from . import analysis as a
+from .retrieval_utils import get_all_param_names
+from . import ttest_fcts as nf
+from .orbite import rv_theo_nu
+from .mask_tools import interp1d_masked
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # import scipy.constants as cst
@@ -42,8 +40,62 @@ retrieval_plot_labels = { 'H2O': r"$\log_{10}$ H$_2$O",
                           'tp_ptrans': r'$\log P_{trans}$',
                           'tp_alpha': r'$\alpha$'}
 
+# Define colors gradations for plots
+# Copied from pyGTCT.
+colorsDict = {# Match pygtc up to v0.2.4
+    'blues_old': ('#4c72b0', '#7fa5e3', '#b2d8ff'),
+    'greens_old': ('#55a868', '#88db9b', '#bbffce'),
+    'yellows_old': ('#f5964f', '#ffc982', '#fffcb5'),
+    'reds_old': ('#c44e52', '#f78185', '#ffb4b8'),
+    'purples_old': ('#8172b2', '#b4a5e5', '#37d8ff'),
+    # New color scheme, dark colors match matplotlib v2
+    'blues': ('#1f77b4', '#52aae7', '#85ddff'),
+    'oranges': ('#ff7f0e', '#ffb241', '#ffe574'),
+    'greens': ('#2ca02c', '#5fd35f', '#92ff92'),
+    'reds': ('#d62728', '#ff5a5b', '#ff8d8e'),
+    'purples': ('#9467bd', '#c79af0', '#facdff'),
+    'browns': ('#8c564b', '#bf897e', '#f2bcb1'),
+    'pinks': ('#e377c2', '#ffaaf5', '#ffddff'),
+    'grays': ('#7f7f7f', '#b2b2b2', '#e5e5e5'),
+    'yellows': ('#bcbd22', '#eff055', '#ffff88'),
+    'cyans': ('#17becf', '#4af1ff', '#7dffff')
+}
+defaultColorsOrder = ['blues', 'oranges', 'greens', 'reds', 'purples',
+                      'browns', 'pinks', 'grays', 'yellows', 'cyans']
 
-def get_plot_labels_from_retrieval(retrieval_obj):
+
+
+def setup_default_plot_params():
+    """
+    Setup plot parameters for nice looking plots in latex.
+    """
+    # Set up latex fonts
+    plt.rc('text', usetex=True)
+    plt.rc('font', family='serif')
+    plt.rc('font', size=16)
+
+    # Set up tick parameters
+    plt.rc('xtick', direction='in')
+    plt.rc('xtick', top=True)
+    plt.rc('xtick', bottom=True)
+    plt.rc('xtick', labelsize=16)
+    plt.rc('xtick.major', size=8)
+    plt.rc('xtick.minor', size=4)
+    plt.rc('xtick.major', width=1)
+    plt.rc('xtick.minor', width=1)
+
+    plt.rc('ytick', direction='in')
+    plt.rc('ytick', left=True)
+    plt.rc('ytick', right=True)
+    plt.rc('ytick', labelsize=16)
+    plt.rc('ytick.major', size=8)
+    plt.rc('ytick.minor', size=4)
+    plt.rc('ytick.major', width=1)
+    plt.rc('ytick.minor', width=1)
+
+    return
+
+def get_plot_labels(params=None, retrieval_obj=None):
     """
     Get labels for plots from retrieval object.
     Args:
@@ -53,16 +105,14 @@ def get_plot_labels_from_retrieval(retrieval_obj):
     Returns:
         labels for corner and chains plots
     """
-    # Get params names (other then species)
-    params_id = retrieval_obj.params_id
-    valid_params = [key for key, idx in params_id.items() if idx is not None]
+    if params is None:
+        if retrieval_obj is None:
+            raise ValueError('Either params or retrieval_obj must be specified.')
+        else:
+            # Get all params names from retrieval object
+            params = get_all_param_names(retrieval_obj)
 
-    # Sort with respect to param_id
-    valid_params = sorted(valid_params, key=lambda x: params_id[x])
-
-    # Combine all params
-    params = retrieval_obj.list_mols + retrieval_obj.continuum_opacities + valid_params
-
+    # Get corresponding labels (if not found, use param name)
     labels = list()
     for key in params:
         try:
@@ -549,51 +599,127 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
     ax[1].set_title(r'with $\sigma$ division')
     
     
+# def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
+#                            vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr', 
+#                            return_snr=False):
+#     if icorr is None:
+#         icorr = tr.icorr
+        
+        
+#     if vrp is None:
+#         vrp = (tr.vrp-tr.vr).value
+#     if RV_sys is None:
+#         RV_sys = tr.planet.RV_sys
+        
+#     fig, ax = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=sharey)
+# #     fig_shift, ax_shift = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
+#     fig_single, ax_single = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
+#     mean_snr = np.ma.median(tr.SNR, axis=0)
+#     pix_frac = tr.N_frac
+    
+#     snr_list = []
+#     for i in range(7):
+#         for j in range(7):
+#             if i*7+j in a.bands(tr.wv, 'y'):
+#                 fg_color = 'goldenrod'
+#             if i*7+j in a.bands(tr.wv, 'j'):
+#                 fg_color = 'olivedrab'
+#             if i*7+j in a.bands(tr.wv, 'h'):
+#                 fg_color = 'steelblue'
+#             if i*7+j in a.bands(tr.wv, 'k'):
+#                 fg_color = 'rebeccapurple'
+#             if pix_frac[i*7+j] < tresh:
+#                 fg_color = 'firebrick'
+            
+#             if logl is True:
+#                 ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), \
+#                                    ccf[:,i*7+j]-np.nanmean(ccf[:,i*7+j], axis=-1)[:,None], vmin=vmin, vmax=vmax)
+#             else:
+#                 ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), ccf[:,i*7+j], vmin=vmin, vmax=vmax)
+#             ax[i,j].plot(vrp, np.arange(ccf.shape[0]), 'k:', alpha=0.5)
+
+            
+# #             ax[i,j].plot(tr.berv, np.arange(ccf.shape[0]), 'r--', alpha=0.5)
+#             ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*7+j, mean_snr[i*7+j], pix_frac[i*7+j]), 
+#                               color=fg_color)
+            
+#             shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*7+j], corrRV, \
+#                                                             vrp[icorr], RV_sys=RV_sys)
+#             snr_list.append(snr)
+#             if kind == 'courbe':
+#                 ax_single[i,j].plot(interp_grid, courbe)
+#             else:
+#                 ax_single[i,j].plot(interp_grid, snr)
+#                 ax_single[i,j].set_ylim(-4,4)
+#             ax_single[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*7+j, mean_snr[i*7+j], pix_frac[i*7+j]), 
+#                                      color=fg_color)
+#             ax_single[i,j].axvline(0, linestyle=':', alpha=0.5)
+#             if vline is not None:
+#                 ax_single[i,j].axvline(vline, linestyle='-', alpha=0.5, color='navy')
+#             if hline is not None:
+#                 ax_single[i,j].axhline(hline, linestyle='-', alpha=0.5, color='navy')
+#             ax_single[i,j].axvline(np.mean(tr.berv), linestyle='--', color='red', alpha=0.5)
+
+#     if output_file is not None:
+#         output_file = Path(output_file)
+#         fig.savefig(output_file.with_stem(f'{output_file.stem}_2d'))
+#         fig_single.savefig(output_file.with_stem(f'{output_file.stem}_single'))
+
+#     if return_snr is True:
+#         return interp_grid, snr_list
+
 def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
-                           vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr', 
-                           return_snr=False):
+                            vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr',
+                            return_snr=False):
     if icorr is None:
         icorr = tr.icorr
-        
-        
+
     if vrp is None:
         vrp = (tr.vrp-tr.vr).value
     if RV_sys is None:
         RV_sys = tr.planet.RV_sys
-        
-    fig, ax = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=sharey)
-#     fig_shift, ax_shift = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
-    fig_single, ax_single = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
+
+    # Get the number of orders
+    n_orders = ccf.shape[1]
+    # Get the number of rows
+    n_rows = int(np.ceil(n_orders/7))
+    # Get the number of columns
+    n_cols = int(np.ceil(n_orders/n_rows))
+    
+    fig, ax = plt.subplots(n_rows,n_cols, figsize=(16,12), sharex=True, sharey=sharey)
+    fig_single, ax_single = plt.subplots(n_rows,n_cols, figsize=(16,12), sharex=True, sharey=True)
+
     mean_snr = np.ma.median(tr.SNR, axis=0)
     pix_frac = tr.N_frac
-    
+
     snr_list = []
-    for i in range(7):
-        for j in range(7):
-            if i*7+j in a.bands(tr.wv, 'y'):
+    for i in range(n_rows):
+        for j in range(n_cols):
+            index = i * n_cols + j
+            if index >= n_orders:
+                break  # Exit the loop if the index is out of bounds
+            if index in a.bands(tr.wv, 'y'):
                 fg_color = 'goldenrod'
-            if i*7+j in a.bands(tr.wv, 'j'):
+            if index in a.bands(tr.wv, 'j'):
                 fg_color = 'olivedrab'
-            if i*7+j in a.bands(tr.wv, 'h'):
+            if index in a.bands(tr.wv, 'h'):
                 fg_color = 'steelblue'
-            if i*7+j in a.bands(tr.wv, 'k'):
+            if index in a.bands(tr.wv, 'k'):
                 fg_color = 'rebeccapurple'
-            if pix_frac[i*7+j] < tresh:
+            if index >= len(pix_frac) or pix_frac[index] < tresh:
                 fg_color = 'firebrick'
-            
+
             if logl is True:
                 ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), \
-                                   ccf[:,i*7+j]-np.nanmean(ccf[:,i*7+j], axis=-1)[:,None], vmin=vmin, vmax=vmax)
+                                   ccf[:,i*n_cols+j]-np.nanmean(ccf[:,i*n_cols+j], axis=-1)[:,None], vmin=vmin, vmax=vmax)
             else:
-                ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), ccf[:,i*7+j], vmin=vmin, vmax=vmax)
+                ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), ccf[:,i*n_cols+j], vmin=vmin, vmax=vmax)
             ax[i,j].plot(vrp, np.arange(ccf.shape[0]), 'k:', alpha=0.5)
+            
+            ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]),
+                                color=fg_color)
 
-            
-#             ax[i,j].plot(tr.berv, np.arange(ccf.shape[0]), 'r--', alpha=0.5)
-            ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*7+j, mean_snr[i*7+j], pix_frac[i*7+j]), 
-                              color=fg_color)
-            
-            shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*7+j], corrRV, \
+            shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*n_cols+j], corrRV, \
                                                             vrp[icorr], RV_sys=RV_sys)
             snr_list.append(snr)
             if kind == 'courbe':
@@ -601,8 +727,8 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
             else:
                 ax_single[i,j].plot(interp_grid, snr)
                 ax_single[i,j].set_ylim(-4,4)
-            ax_single[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*7+j, mean_snr[i*7+j], pix_frac[i*7+j]), 
-                                     color=fg_color)
+            ax_single[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]),
+                                        color=fg_color)
             ax_single[i,j].axvline(0, linestyle=':', alpha=0.5)
             if vline is not None:
                 ax_single[i,j].axvline(vline, linestyle='-', alpha=0.5, color='navy')
@@ -616,8 +742,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
         fig_single.savefig(output_file.with_stem(f'{output_file.stem}_single'))
 
     if return_snr is True:
-        return interp_grid, snr_list
-            
+        return snr_list            
             
 def plot_all_orders_spectra(tr, flux=None):
     
@@ -1601,7 +1726,7 @@ def plot_airmass(list_tr, markers=['o','s','d'],
 
     ax[0].set_ylabel('Mean S/N\nper order', fontsize=16)
     ax[0].set_xlabel(r'Wavelength ($\mu$m)', fontsize=16)
-    ax[0].axvspan(np.mean(tr.wv,axis=-1)[28], np.mean(tr.wv,axis=-1)[36], alpha=0.2, color='darkorange',label='H-band')
+    # ax[0].axvspan(np.mean(tr.wv,axis=-1)[28], np.mean(tr.wv,axis=-1)[36], alpha=0.2, color='darkorange',label='H-band')
     ax[0].legend(loc='upper left', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
 
     for i,tr in enumerate(list_tr):
@@ -1802,8 +1927,26 @@ def plot_spectra_sample(wave, spectra_stats, line_color='forestgreen', region_co
 
 
 def plot_single_line_sample(wave, spectra_stats, centered=True, dv_units=False, sp_line_type='emission',
-                            # or absorption
                             wv_range=None, **kwargs):
+    """
+    Plot a single line from a sample of spectra.
+    Args:
+        wave:
+        spectra_stats:
+        centered: bool
+             If True, the line is centered at the maximum or minimum value of the median spectrum,
+              depending on the `line_type` argument (absorption or emission line).
+        dv_units:
+        sp_line_type:
+        wv_range:
+        **kwargs:
+
+    Returns:
+
+    """
+    # Initialize Center wavelength (will be an output of the function)
+    wv_c = None
+
     if centered or dv_units:
         # In range
         idx = _get_idx_in_range(wave, wv_range)
@@ -1836,7 +1979,7 @@ def plot_single_line_sample(wave, spectra_stats, centered=True, dv_units=False, 
     fig, ax = plot_spectra_sample(wave, spectra_stats, wv_range=wv_range, **kwargs)
     ax.set_xlabel(xlabel)
 
-    return fig, ax
+    return fig, ax, wv_c
 
 def _get_stat_of_spectrum_distributions(fct, spectra_stats, idx_range=None):
     if idx_range is None:
@@ -1863,3 +2006,121 @@ def _get_stat_of_spectrum_distributions(fct, spectra_stats, idx_range=None):
     idx_best = index_list[idx_best]
 
     return best_val, idx_best
+
+
+def get_GTC_axes_idx(n_param):
+    """
+    Get the position of the axes of a corner plot for a given number of parameters.
+    Args:
+        n_param: integer
+            Number of parameters in the corner plot.
+    Returns:
+        x-position: list with length == n_param
+        y-position: list with length == n_param
+        So if `ax` is the 2d array of axes, then
+        `ax[x-position[0], y-position[0]]` gives the axe of the first parameter.
+    """
+    y_idx = []
+    last_idx = 0
+    for idx in np.arange(n_param - 1):
+        y_idx.append(idx + last_idx)
+        last_idx = y_idx[-1]
+
+    x_idx = [i + last_idx for i in range(n_param - 1)]
+    x_idx.append(x_idx[-1] + n_param)
+
+    return x_idx, y_idx
+
+
+def _assign_color_to_stat_key(keys, color_list):
+    """Create a dictionary that assigns color to each keys and check that the number of color is sufficient.
+    Returns a dictionnary to map each of these keys with a color."""
+
+    color_dict = dict()
+
+    # Get colors and assign one for each statistic in sample_stats (so each key)
+    for idx_stat, key in enumerate(keys):
+        try:
+            color_dict[key] = color_list[idx_stat]
+        except IndexError:
+            raise IndexError(f"To many satistics to plot for available colors (length = {len(color_list)})")
+
+    return color_dict
+
+
+def plot_spectra_sample_GTC(wave, spectra_stats_list, colorsOrder=None, wv_range=None, scale_factor=1., fig=None,
+                            ax=None, stats_keys=('1-sig', '2-sig'), **kwargs):
+    """
+    Plot intervals (1-sigma and 2-sigma) of a sample of spectra with pyGTC style.
+    Many cases can be overlaid on the same plot.
+    Args:
+        wave: array or list of arrays
+            Wavelengths of the spectra. If list, must have the same length as `spectra_stats_list`. Else, the same
+            wavelength grid is used for all spectra.
+        spectra_stats_list: list of dictionaries
+            List of dictionaries containing the statistics of the spectra.
+            Each dictionary must have the keys given by `stats_keys`.
+            The length of the list is the number of cases to be overlaid on the same plot, the first one being on top.
+        colorsOrder: list of strings
+            List of colors to use for each case. If None, the default color order from pyGTC is used. Available colors
+            are the same as pyGTC.
+        wv_range: 2-tuple of floats
+            Wavelength range to plot. If None, the full range is used.
+        scale_factor: float
+            Scale factor to apply to the spectra. Useful to change the units of the spectra.
+        fig: figure object
+            Figure object to use for the plot. If `ax` and `fig` are not specified, a new figure is created.
+        ax: axes object
+            Axes object to use for the plot. If `ax` and `fig` are not specified, a new figure is created.
+        stats_keys: list of dict keys
+            Keys of the dictionaries in `spectra_stats_list` that contain the statistics of the spectra to be plotted.
+        **kwargs:
+            Additional arguments to be passed to the plt.plot for the contour lines.
+
+    Returns:
+        fig, ax: figure and axes objects
+
+    """
+
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+
+    # Number of different cases for plot
+    n_case = len(spectra_stats_list)
+
+    # Use default color order from pyGTC
+    if colorsOrder is None:
+        colorsOrder = list(defaultColorsOrder[:n_case])
+
+    # Make sure `wave` is a list with the same length as `spectra_stats_list`
+    if len(wave) != n_case:
+        wave = [wave for _ in range(n_case)]
+
+    # Get idx for plot for each wave
+    spec_idx_list = [_get_idx_in_range(wv, wv_range) for wv in wave]
+
+    # Get color for each stats
+    color_region = [_assign_color_to_stat_key(stats_keys, colorsDict[cs]) for cs in colorsOrder]
+
+    # Plot region before the lines (so that the lines are on top)
+    # The loop is reversed so that the first case is on top
+    for i_case in reversed(range(n_case)):
+        color_dict = color_region[i_case]
+        wv = wave[i_case]
+        idx_plt = spec_idx_list[i_case]
+        # Plot regions corresponding statistics (1-sigma, 2-sigma, etc.)
+        for key in reversed(stats_keys):
+            y1, y2 = spectra_stats_list[i_case][key] * scale_factor
+            ax.fill_between(wv[idx_plt], y1[idx_plt], y2[idx_plt], color=color_dict[key])
+
+    # Plot contours. Skip the first case (which is the one on top).
+    for i_case in reversed(range(1, n_case)):
+        color_dict = color_region[i_case]
+        wv = wave[i_case]
+        idx_plt = spec_idx_list[i_case]
+        # Plot contours corresponding statistics (1-sigma, 2-sigma, etc.)
+        for key in reversed(stats_keys):
+            y1, y2 = spectra_stats_list[i_case][key] * scale_factor
+            ax.plot(wv[idx_plt], y1[idx_plt], color=color_dict[key], **kwargs)
+            ax.plot(wv[idx_plt], y2[idx_plt], color=color_dict[key], **kwargs)
+
+    return fig, ax

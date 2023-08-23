@@ -9,7 +9,7 @@ from __future__ import division
 import numpy as np
 
 from starships import homemade as hm
-from starships.extract import get_var_res, get_res
+from .extract import get_var_res, get_res
 from astroquery.vizier import Vizier
 from astropy import units as u
 from astropy import constants as const
@@ -25,7 +25,7 @@ import os.path
 # from .config import *
 # from importlib import reload
 
-from starships.mask_tools import interp1d_masked
+from .mask_tools import interp1d_masked
 # import spirou_exo.analysis as a
 
 # from scipy.interpolate import interp1d
