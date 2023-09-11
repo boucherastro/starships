@@ -50,7 +50,7 @@ starships relies on atmospheric models from petitRADTRANS, so also install that 
 For this, you'll need the input_data folder, where the corr-k and line-by-line (lbl) opacities grids are. This folder is very massive, so it would be best to point toward an existing one already on the server.
 
 ```shell
-echo export pRT_input_data_path=\"/path/to/where/the/existing/or/new/folder/is/input_data\" >> ~/.bashrc
+echo export pRT_input_data_path="/path/to/where/the/existing/or/new/folder/is/input_data\" >> ~/.bashrc
 source ~/.bashrc
 ```
 For narval cluster of **compute canada**:
