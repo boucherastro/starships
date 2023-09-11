@@ -265,7 +265,7 @@ def calc_logl_OG_ord(flux_norm, model, sig_ord, cst, s2f, axis=-1):
     return R - cst - (s2f + s2g)/2  
 
 
-def calc_logl_BL_ord(flux, model, N, s2f=None, axis=-1, nolog=False):
+def calc_logl_BL_ord(flux, model, N, alpha=1., s2f=None, axis=-1, nolog=False):
     R = np.ma.sum(flux * model, axis=axis) 
     if s2f is None:
 #         s2f = np.ma.var(flux, axis=axis)
@@ -274,9 +274,10 @@ def calc_logl_BL_ord(flux, model, N, s2f=None, axis=-1, nolog=False):
     s2g = np.ma.sum(model**2, axis=axis)
     
     if nolog is True:
-        return (s2f - 2 * R + s2g)
+        return (s2f - 2 * alpha * R + alpha**2 * s2g)
     else:
-        return - N / 2 * np.log( 1/N * (s2f - 2 * R + s2g) )
+        return - N / 2 * np.log( 1/N * (s2f - 2 * alpha * R + alpha**2 * s2g) )
+
     
 def calc_corr_ord(flux, model, axis=-1, N=1):
     return np.ma.sum(flux * model, axis=axis) / N
