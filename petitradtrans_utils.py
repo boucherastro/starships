@@ -1,6 +1,9 @@
 import numpy as np
-from petitRADTRANS import Radtrans
-from petitRADTRANS import nat_cst as nc
+try:
+    from petitRADTRANS import Radtrans
+    from petitRADTRANS import nat_cst as nc
+except ModuleNotFoundError:
+    print('petitRADTRANS is not installed on this system')
 
 import matplotlib.pyplot as plt
 from matplotlib import cm

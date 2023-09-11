@@ -13,7 +13,7 @@ from astropy.convolution import convolve, Gaussian1DKernel
 from astropy.table import Table
 
 from .list_of_dict import *
-import .orbite as o
+import starships.orbite as o
 from starships import transpec as ts
 from starships import homemade as hm
 from starships import spectrum as spectrum
@@ -61,6 +61,10 @@ spirou['airmass'] = 'AIRMASS'
 spirou['telaz'] = 'TELAZ'
 spirou['adc1'] = 'SBADC1_P'
 spirou['adc2'] = 'SBADC2_P'
+spirou['mjd'] = 'MJD-OBS'
+spirou['bjd'] = 'BJD'
+spirou['exptime'] = 'EXPTIME'
+spirou['berv'] = 'BERV'
 
 # nirps, apero DRS
 nirps_apero = dict()
@@ -69,11 +73,25 @@ nirps_apero['airmass'] = 'HIERARCH ESO TEL AIRM START'
 nirps_apero['telaz'] = 'HIERARCH ESO TEL AZ'
 nirps_apero['adc1'] = 'HIERARCH ESO INS ADC1 START'
 nirps_apero['adc2'] = 'HIERARCH ESO INS ADC2 START'
+nirps_apero['mjd'] = 'MJD-OBS'
+nirps_apero['bjd'] = 'BJD'
+nirps_apero['exptime'] = 'EXPTIME'
+nirps_apero['berv'] = 'BERV'
 # nirps, geneva/ESPRESSO DRS
-# not yet implemented
+# implementing
 nirps_geneva = dict()
+nirps_geneva['name'] = 'NIRPS-GENEVA'
+nirps_geneva['airmass'] = 'HIERARCH ESO TEL AIRM START'
+nirps_geneva['telaz'] = 'HIERARCH ESO TEL AZ'
+nirps_geneva['adc1'] = 'HIERARCH ESO INS ADC1 START'
+nirps_geneva['adc2'] = 'HIERARCH ESO INS ADC2 START'
+nirps_geneva['mjd'] = 'MJD-OBS'
+nirps_geneva['bjd'] = 'HIERARCH ESO QC BJD'
+nirps_geneva['exptime'] = 'EXPTIME'
+nirps_geneva['berv'] = 'HIERARCH ESO QC BERV'
 
 igrins_zoe = dict()
+igrins_zoe['name'] = 'IGRINS'
 igrins_zoe['airmass'] = 'AMSTART'
 # igrins_zoe['telaz'] = 'TELRA'
 igrins_zoe['adc1'] = 'NADCS'
@@ -82,6 +100,13 @@ igrins_zoe['bjd'] = 'JD-OBS'
 igrins_zoe['mjd'] = 'MJD-OBS'
 igrins_zoe['exptime'] = 'EXPTIMET'
 
+# dictionary with instrument-DRS names
+instruments_drs = {
+    'SPIRou-APERO': spirou,
+    'NIRPS-APERO': nirps_apero,
+    'NIRPS-GENEVA': nirps_geneva,
+    'IGRINS': igrins_zoe
+}
 
 # def fits2wave(file_or_header):
 #     info = """
@@ -464,10 +489,68 @@ def read_all_sp_nirps_apero(path, file_list, wv_default=None, blaze_default=None
 
     return headers, np.array(wv), np.array(count), np.array(blaze), filenames
 
+def read_all_sp_nirps_geneva(path, file_list, wv_default=None, blaze_default=None,
+                             blaze_path=None, debug=False, cheby=False):
+    """
+    Read all spectra
+    Must have a list with all filename to read
+    """
+
+    headers, count, wv, blaze = list_of_dict([]), [], [], []
+    blaze_path = blaze_path or path
+
+    # headers_princ = list_of_dict([])
+    filenames = []
+    blaze0 = None
+
+    path = Path(path)
+    blaze_path = Path(blaze_path)
+    file_list = Path(file_list)
+
+    with open(path / file_list) as f:
+
+        for file in f:
+            filename = file.split('\n')[0]
+
+            if debug:
+                print(filename)
+
+            filenames.append(filename)
+            hdul = fits.open(path / Path(filename))
+
+            header = hdul[0].header
+            image = hdul[1].data
+
+            headers.append(header)
+            count.append(image)
+
+            # vacuum wavelengths
+            wvsol = hdul[4].data
+
+            # remove berv correction (Geneva data is already berv corrected)
+            # barycentric correction (km/s)
+            berv = header['HIERARCH ESO QC BERV']
+            shift = hm.calc_shift(-berv, kind='rel')
+            wvsol = wvsol/shift
+
+            try:
+                blaze_file = blaze_default or header['HIERARCH ESO PRO REC1 CAL24 NAME']
+            except KeyError:
+                blaze_file = header['HIERARCH ESO PRO REC1 CAL24 NAME']
+
+            blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
+
+            blaze.append(blaze0)
+
+            wv.append(wvsol / 10000)
+
+    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
+
 
 # give the appropriate functions to read spectra to all the instrument/DRS dictionaries
 spirou['read_all_sp'] = read_all_sp_spirou_apero
 nirps_apero['read_all_sp'] = read_all_sp_nirps_apero
+nirps_geneva['read_all_sp'] = read_all_sp_nirps_geneva
 igrins_zoe['read_all_sp'] = read_all_sp_igrins
 
 
@@ -641,7 +724,7 @@ class Observations():
     def __init__(self, wave=np.array([]), count=np.array([]), blaze=np.array([]),
                  headers = list_of_dict([]), headers_image = list_of_dict([]), headers_tellu = list_of_dict([]), 
                  tellu=np.array([]), uncorr=np.array([]), 
-                 name='', path='',filenames=[], planet=None, CADC=False, pl_kwargs=None, instrument=spirou):
+                 name='', path='',filenames=[], planet=None, CADC=False, pl_kwargs=None, instrument='SPIRou-APERO'):
         
         self.name = name
         self.path = Path(path)
@@ -666,13 +749,16 @@ class Observations():
         self.uncorr=uncorr
         self.tellu=tellu
         self.CADC = CADC
-        # pass the instrument argument to the object
-        self.instrument = instrument
+        # get the instrument dictionary from the dict of instruments
+        # the string/name
+        self.instrument_name = instrument
+        # the dictionary
+        self.instrument = instruments_drs[instrument]
 
                      
     def fetch_data(self, path, CADC=False, list_e2ds='list_e2ds',
                    list_tcorr='list_tellu_corrected', list_recon='list_tellu_recon',
-                   read_fct=read_all_sp_spirou_apero, **kwargs):
+                   read_sp=None, **kwargs):
 
         """
         Retrieve all the relevent data in path 
@@ -683,7 +769,9 @@ class Observations():
         self.CADC = CADC
 
         # get the appropriate function to read spectra from the instrument's dictionary
-        read_sp = self.instrument['read_all_sp']
+        # if read function is not specified as an argument
+        if not read_sp:
+            read_sp = self.instrument['read_all_sp']
 
         if CADC:
 
@@ -727,8 +815,8 @@ class Observations():
             else:
                 log.info("Fetching the tellurics")
                 log.info(f"File: {list_recon}")
-                # _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
-                tellu = read_sp(path, list_recon, input_type='recon', **kwargs)
+                _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
+                # tellu = read_sp(path, list_recon, input_type='recon', **kwargs)
 
         self.headers = headers
         self.wave = np.array(wave)
@@ -798,7 +886,7 @@ class Observations():
                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
                             # filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
                             CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl,
-                            instrument=self.instrument)
+                            instrument=self.instrument_name)
     
     # switched hard '49' value to self.nord
     # call instrument dictionary for problematic header keys
@@ -820,6 +908,8 @@ class Observations():
                 if time_type == 'BJD':
                     self.t_start = Time(np.array(self.headers.get_all(self.instrument['bjd'])[0], dtype='float'),
                                 format='jd').jd.squeeze()# * u.d
+                # TODO check for start, end or mid mjd keys for instruments
+                # or take mjd + exptime / 2
                 elif time_type == 'MJD':
                     self.t_start = Time((np.array(self.headers.get_all('MJDATE')[0], dtype='float') + \
                                         np.array(self.headers.get_all('MJDEND')[0], dtype='float')) / 2, 
@@ -828,11 +918,11 @@ class Observations():
                 try:
                     self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0],
                                 dtype='float') for order in range(self.nord)]).T
-                except:
-                    self.SNR = np.ma.median(self.count,axis=-1)
+                except KeyError:
+                    self.SNR = np.sqrt(np.ma.median(self.count,axis=-1))
 
                 try:
-                    self.berv0 = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
+                    self.berv0 = np.array(self.headers.get_all(self.instrument['berv'])[0], dtype='float').squeeze()
                 except KeyError:
                     ra = self.headers[0]['OBJRA']
                     dec = self.headers[0]['OBJDEC']
@@ -857,7 +947,7 @@ class Observations():
                                 format='jd').jd.squeeze() #* u.d
                 elif time_type == 'MJD':
                     self.t_start = Time((np.array(self.headers_image.get_all('MJDATE')[0], dtype='float') + \
-                                        np.array(self.headers_image.get_all('MJDEND')[0], dtype='float')) / 2, 
+                                        np.array(self.headers_image.get_all('MJDEND')[0], dtype='float')) / 2,
                                 format='jd').jd.squeeze() #* u.d
 
                 # try:

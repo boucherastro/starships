@@ -19,12 +19,15 @@ import astropy.constants as const
 # from .plotting_fcts import _get_idx_in_range
 import random
 
-import .petitradtrans_utils as prt
+import starships.petitradtrans_utils as prt
 
 try:
     from petitRADTRANS.physics import guillot_global, guillot_modif
 except ModuleNotFoundError:
-    from petitRADTRANS.nat_cst import guillot_global, guillot_modif
+    try:
+        from petitRADTRANS.nat_cst import guillot_global, guillot_modif
+    except ModuleNotFoundError:
+        print('petitRADTRANS is not installed on this system')
 
 import logging
 
