@@ -494,6 +494,7 @@ def read_all_sp_nirps_geneva(path, file_list, wv_default=None, blaze_default=Non
     """
     Read all spectra
     Must have a list with all filename to read
+    Include 'recon' in the name of the file list for the recon files
     """
 
     headers, count, wv, blaze = list_of_dict([]), [], [], []
@@ -502,6 +503,8 @@ def read_all_sp_nirps_geneva(path, file_list, wv_default=None, blaze_default=Non
     # headers_princ = list_of_dict([])
     filenames = []
     blaze0 = None
+
+    recon = 'recon' in file_list
 
     path = Path(path)
     blaze_path = Path(blaze_path)
@@ -519,13 +522,19 @@ def read_all_sp_nirps_geneva(path, file_list, wv_default=None, blaze_default=Non
             hdul = fits.open(path / Path(filename))
 
             header = hdul[0].header
-            image = hdul[1].data
+            if recon:
+                image = hdul[6].data
+            else:
+                image = hdul[1].data
 
             headers.append(header)
             count.append(image)
 
             # vacuum wavelengths
-            wvsol = hdul[4].data
+            if recon:
+                wvsol = hdul[2].data
+            else:
+                wvsol = hdul[4].data
 
             # remove berv correction (Geneva data is already berv corrected)
             # barycentric correction (km/s)
