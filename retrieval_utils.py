@@ -19,7 +19,7 @@ import astropy.constants as const
 # from .plotting_fcts import _get_idx_in_range
 import random
 
-import .petitradtrans_utils as prt
+from . import petitradtrans_utils as prt
 
 try:
     from petitRADTRANS.physics import guillot_global, guillot_modif

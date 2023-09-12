@@ -341,7 +341,10 @@ def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flu
     if s2f is None:
         s2f = data_tr['s2f']
 
-    model_seq = gen_model_sequence_noinj([RV, vrp_orb-vr_orb, data_tr['RV_const']], 
+    # Simulated velocities = (specified rv) + (planet's rv) - (star's rv) + (systemic rv)
+    velocities = RV + vrp_orb - vr_orb + data_tr['RV_const']
+
+    model_seq = gen_model_sequence_noinj(velocities, 
                                          # data_tr['wave'], data_tr['sep'],
                                          # data_tr['pca'], int(data_tr['params'][5]), #data_tr['noise'],
                                          data_tr=data_tr,
@@ -401,7 +404,7 @@ def gen_model_sequence_noinj(velocities, data_wave=None, data_sep=None, data_pca
     # --- inject model in an empty sequence of ones
     flux_inj, _ = quick_inject_clean(data_wave, data_recon,
                                                   model_wave, model_spec, 
-                                                 np.sum(velocities), data_sep, planet.R_star, planet.A_star, 
+                                                 velocities, data_sep, planet.R_star, planet.A_star, 
                                                                   RV=0.0, dv_star=0., 
                                                  R0 = planet.R_pl, alpha=alpha, **kwargs)
    

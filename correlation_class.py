@@ -1,10 +1,10 @@
-import .orbite as o
-import .analysis as a
-import .correlation as corr
-import .homemade as hm
-import .ttest_fcts as nf
-import .plotting_fcts as pf
-from starships import spectrum as spectrum
+from . import orbite as o
+from . import analysis as a
+from . import correlation as corr
+from . import homemade as hm
+from . import ttest_fcts as nf
+from . import plotting_fcts as pf
+from . import spectrum as spectrum
 
 import numpy as np
 import matplotlib.pyplot as plt

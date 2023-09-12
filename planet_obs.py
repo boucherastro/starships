@@ -13,10 +13,10 @@ from astropy.convolution import convolve, Gaussian1DKernel
 from astropy.table import Table
 
 from .list_of_dict import *
-import .orbite as o
-from starships import transpec as ts
-from starships import homemade as hm
-from starships import spectrum as spectrum
+from . import orbite as o
+from . import transpec as ts
+from . import homemade as hm
+from . import spectrum as spectrum
 from .mask_tools import interp1d_masked
 from .plotting_fcts import plot_all_orders_correl
 from .analysis import calc_snr_1d
