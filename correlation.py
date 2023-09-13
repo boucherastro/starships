@@ -158,7 +158,11 @@ def CCF_1D(wave, flux, corrRV, mod_x, mod_y):
 
 def sum_logl(loglbl, icorr, orders, N, alpha=None, axis=0, del_idx=None,
              nolog=True, verbose=False, N_ord=None, scaling=None, calc_snr=False):
-
+    """Sum the log likelihood over the orders and the spectra.
+    This may be done differently depending on the log likelihood prescription
+    (e.g. Brogi 2019, 2 possible versions of Gibson 2020).
+    When `nolog`=True, the Bro.
+    """
 
     if del_idx is not None:
         correlation = loglbl.copy()
@@ -317,6 +321,33 @@ def calc_logl_G_corr_ord(flux, model, N, s2f=None, axis=-1, nolog=True):
         return (s2f - 2 * R + s2g), R
     else:
         return - N / 2 * np.log( 1/N * (s2f - 2 * R + s2g) ), R
+    
+def calc_logl_G_plain_ord(flux, model, uncert, N=None, s2f=None, alpha=1., beta=1., axis=-1):
+    """Compute log likelihood for Gibson2020 without the optimization of the noise.
+    s2f (= sum(flux**2 / uncert**2)) can be pre-computed and passed to the function to save time.
+    """
+    
+    # Compute N if not given
+    if N is None:
+        N = np.sum(~flux.mask, axis=axis)
+
+    # Divide by the uncertainty
+    flux = flux / uncert
+    model = model / uncert
+
+    # Compute eache term of the chi2
+    R = np.ma.sum(flux * model, axis=axis) 
+    if s2f is None:
+        s2f = np.ma.sum(flux**2, axis=axis)
+    s2g = np.ma.sum(model**2, axis=axis)
+    
+    chi2 = (s2f - 2 * alpha * R + alpha**2 * s2g) / beta**2
+    uncert_sum = np.ma.sum(np.log(uncert), axis=axis)
+    cst = -N / 2 * np.log(2. * np.pi) - N * np.log(beta) - uncert_sum
+    logl = cst - chi2 / 2
+    
+    return logl
+    
 
 
 
@@ -380,6 +411,12 @@ def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flu
 def gen_model_sequence_noinj(velocities, data_wave=None, data_sep=None, data_pca=None, data_npc=None, #data_noise,
                              planet=None, model_wave=None, model_spec=None, #resol=64000,norm=True,debug=False,
                             alpha=None, data_tr=None, data_recon=None,  **kwargs):
+    """
+    alpha: np.ndarray of shape (n_spec,)
+        Fraction of planetary signal. Depends on `kind_trans`:
+        - If 'transmission': fraction of the stellar disk hidden by the planet
+        - If 'emission': fraction of the planetary disk not hidden by the star
+    """
 
     if data_wave is None:
         data_wave = data_tr['wave']
