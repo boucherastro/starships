@@ -2097,6 +2097,12 @@ def binning_model(wave0, model0, wv_borders):
 def quick_inject_clean(wave, flux, P_x, P_y, dv_pl, sep, R_star, A_star,
                   R0=None, RV=0, dv_star=0,
                        alpha=None,  kind_trans='transmission'):
+    """
+    alpha: 
+        Fraction of planetary signal. Depends on `kind_trans`:
+        - If 'transmission': fraction of the stellar disk hidden by the planet
+        - If 'emission': fraction of the planetary disk not hidden by the star
+    """
 
     _, nord, _ = flux.shape
 #     wv = np.mean(wave, axis=0)
