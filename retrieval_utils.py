@@ -2903,3 +2903,85 @@ def get_all_param_names(retrieval_obj):
     params = retrieval_obj.list_mols + retrieval_obj.continuum_opacities + valid_params
 
     return params
+
+
+def prepare_shared_array_obj(shared_obj):
+    """Save (big) arrays and their name in a numpy object.
+    This allows to share them between processes without copying them.
+    Input:
+        shared_obj: dict or npz file
+            Dictionary or numpy npzFile containing the numpy arrays to share.
+            It needs to have the method `items()` to iterate over keys and arrays.
+    This function creates two global variables:
+        - shared_arrays: numpy array of objects
+        - shared_keys: list of keys associated to each object
+    which will be available in the global namespace.
+    Use get_shared_array_index to get the index of a key in the shared arrays.
+    For example:
+    ```
+        idx_list = get_shared_array_index('cross_terms')
+        f_x_g = shared_arrays[idx_list]
+    ```
+    """
+
+    out = [(obj, key) for key, obj in shared_obj.items()
+           if isinstance(obj, np.ndarray)]
+    
+    arrays, keys = zip(*out)  # transpose result
+    arrays = np.array(arrays, dtype=object)
+    
+    globals()['shared_arrays'] = arrays
+    globals()['shared_keys'] = keys
+    
+    return 
+
+# Define util functions to get the index of a key in the shared arrays.
+def get_shared_array_index(*args):
+    """Get the index of a key in the shared arrays"""
+    idx_list = [globals()['shared_keys'].index(key) for key in args]
+    return idx_list
+
+def get_logl(alpha=1., beta=1., kind='BL', idx_orders=None, idx_exposure=None, sum_axis=None):
+    idx_list = get_shared_array_index('cross_terms', 'squared_terms', 's2f', 'uncert_sum', 'N')
+    f_x_g, s2g, s2f, uncert_sum, N = globals()['shared_arrays'][idx_list]
+    
+    # Mask N = 0
+    
+    N = np.ma.array(N, mask=(N == 0))
+    
+    if idx_exposure is None:
+        idx_exposure = slice(None)
+    else:
+        idx_exposure = np.array(idx_exposure)[:, None]
+        
+    if idx_orders is None:
+        idx_orders = np.arange(N.shape[-1])
+
+    # Predifine the slicing
+    idx = (..., idx_exposure, idx_orders)
+    
+    # Apply slicing to some arrays
+    uncert_sum = uncert_sum[idx]
+    N = N[idx]
+    
+    # Compute chi2
+    chi2 = s2f[idx] -2 * alpha * f_x_g[idx] + alpha**2 * s2g[idx]
+    
+    if sum_axis is not None:
+        # Needed for all logl prescriptions
+        chi2 = np.ma.sum(chi2, axis=sum_axis)
+        N = np.ma.sum(N, axis=sum_axis)
+        
+        # Needed for specific logl presciptions
+        if kind == 'G':
+            uncert_sum = np.sum(uncert_sum, axis=sum_axis)
+
+    if kind == 'BL':
+        # Brogi and Line logl
+        logl = -N / 2 * np.ma.log(chi2 / N)
+    elif kind == 'G':
+        # Gibson logl
+        cst = -N / 2 * np.ma.log(2. * np.pi) - N * np.log(beta) - uncert_sum
+        logl = cst - 0.5 * chi2 / beta**2
+    
+    return logl
