@@ -609,7 +609,9 @@ class BaseKer:
             fwhm = self.res_elem
 
         if rot_ker is None: 
-            v_grid, rot_ker = self.get_ker(norm=norm, **kwargs)
+            results = self.get_ker(norm=norm, **kwargs)
+            v_grid, rot_ker = results[:2]
+            
         gauss_ker = hm.gauss(v_grid, 0.0, FWHM=fwhm)
         out_ker = np.convolve(rot_ker, gauss_ker, mode='same')
         if norm:
