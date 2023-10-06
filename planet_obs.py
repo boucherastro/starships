@@ -539,7 +539,7 @@ def read_all_sp_nirps_geneva(path, file_list, wv_default=None, blaze_default=Non
             # remove berv correction (Geneva data is already berv corrected)
             # barycentric correction (km/s)
             berv = header['HIERARCH ESO QC BERV']
-            shift = hm.calc_shift(-berv, kind='rel')
+            shift = hm.calc_shift(berv, kind='rel')
             wvsol = wvsol/shift
 
             try:
