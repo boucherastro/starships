@@ -7,6 +7,6 @@ exofile>=0.2.2
 h5py<=3.7
 matplotlib<3.7
 numpy<=1.23.0
-pymultinest
-seaborn
+scikit-learn==1.0.2
+arviz==0.13.0
 molmass
