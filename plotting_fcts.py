@@ -2124,3 +2124,29 @@ def plot_spectra_sample_GTC(wave, spectra_stats_list, colorsOrder=None, wv_range
             ax.plot(wv[idx_plt], y2[idx_plt], color=color_dict[key], **kwargs)
 
     return fig, ax
+
+
+def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None):
+    """Plot horizontal and vertical line at a given position.
+    Leave a hole at this position so the lines don't overplot at the wanted position."""
+    
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+    
+    # x_hole is the size of the region around x where the vertical line is not shown.
+    # y_hole is the size of the region around y where the horizontal line is not shown.
+    # x_hole and y_hole are in fraction of the x and y range.
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
+    x_hole = x_hole * (x_max - x_min)
+    y_hole = y_hole * (y_max - y_min)
+    
+    # Plot vertical and horizontal lines around the hole.
+    ax.vline(x, y_min, y - y_hole,  color='grey', linestyle='--')
+    ax.vline(x, y + y_hole, y_max, color='grey', linestyle='--')
+    ax.hline(y, x_min, x - x_hole,  color='grey', linestyle='--')
+    ax.hline(y, x + x_hole, x_max, color='grey', linestyle='--')
+    
+    return fig, ax
+    
+    
+    
