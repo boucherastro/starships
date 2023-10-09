@@ -2930,6 +2930,8 @@ def prepare_shared_array_obj(shared_obj):
     arrays, keys = zip(*out)  # transpose result
     arrays = np.array(arrays, dtype=object)
     
+    log.info(f"Shared arrays keys: {keys}")
+    
     globals()['shared_arrays'] = arrays
     globals()['shared_keys'] = keys
     

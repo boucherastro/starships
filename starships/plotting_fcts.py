@@ -2141,10 +2141,10 @@ def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None):
     y_hole = y_hole * (y_max - y_min)
     
     # Plot vertical and horizontal lines around the hole.
-    ax.vline(x, y_min, y - y_hole,  color='grey', linestyle='--')
-    ax.vline(x, y + y_hole, y_max, color='grey', linestyle='--')
-    ax.hline(y, x_min, x - x_hole,  color='grey', linestyle='--')
-    ax.hline(y, x + x_hole, x_max, color='grey', linestyle='--')
+    ax.vlines(x, y_min, y - y_hole,  color='grey', linestyle='--')
+    ax.vlines(x, y + y_hole, y_max, color='grey', linestyle='--')
+    ax.hlines(y, x_min, x - x_hole,  color='grey', linestyle='--')
+    ax.hlines(y, x + x_hole, x_max, color='grey', linestyle='--')
     
     return fig, ax
     
