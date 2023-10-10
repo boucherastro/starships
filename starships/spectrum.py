@@ -613,7 +613,10 @@ class BaseKer:
             v_grid, rot_ker = results[:2]
             
         gauss_ker = hm.gauss(v_grid, 0.0, FWHM=fwhm)
+        gauss_ker /= gauss_ker.sum()
+        
         out_ker = np.convolve(rot_ker, gauss_ker, mode='same')
+        
         if norm:
             out_ker /= out_ker.sum()
         return v_grid, out_ker
@@ -641,9 +644,11 @@ class BaseKer:
         dv_new = const.c / res_sampling
         dv_new = dv_new.to('m/s').value
         v_grid, kernel = self.degrade_ker(rot_ker=rot_ker, v_grid=v_grid, norm=norm, fwhm=fwhm, **kwargs)
+        dv_old = np.diff(v_grid).mean()
         ker_spl = interp1d(v_grid, kernel, kind='linear')
         v_grid = np.arange(v_grid.min(), v_grid.max(), dv_new)
         out_ker = ker_spl(v_grid)
+        out_ker *= dv_new / dv_old
         return out_ker
     
     def show(self, norm=True, **kwargs):
@@ -657,8 +662,8 @@ class BaseKer:
         res_elem = self.res_elem
         v_grid, kernel = self.get_ker(norm=norm, **kwargs)
         gauss_ker = hm.gauss(v_grid, 0.0, FWHM=res_elem)
-        if norm:
-            gauss_ker /= gauss_ker.sum()
+        # if norm:
+        #     gauss_ker /= gauss_ker.sum()
         _, ker_degraded = self.degrade_ker(norm=norm, **kwargs)
         fig = plt.figure()
         plt.plot(v_grid/1e3, gauss_ker, "--", color="gray",
@@ -672,6 +677,10 @@ class BaseKer:
         plt.legend()
         plt.xlabel('dv [km/s]')
         plt.ylabel('Kernel')
+        
+        axtwin = plt.gca().twinx()
+        axtwin.plot(v_grid/1e3, gauss_ker, "--", color="gray",
+                    label='Instrumental resolution element')
 
         return fig
 
@@ -1108,7 +1117,7 @@ class RotKerTransitCloudy(BaseKer):
         self.amp1 = amp1
         self.amp2 = amp2
         
-    def get_ker(self, n_os=None, pad=7, v_grid=None):
+    def get_ker(self, n_os=None, pad=7, v_grid=None, norm=False):
         '''
         n_os: scalar, oversampling (to sample the kernel)
         pad: scalar
@@ -1147,19 +1156,24 @@ class RotKerTransitCloudy(BaseKer):
 
         # Get cloud transmission function
         idx_valid = (kernel > 0)
+        norm_factor = kernel[idx_valid].sum()  # normalization factor
         if idx_valid.sum() <= 1:
-            raise KernelIndexError("Kernel size too small for grid.")
+            idx_valid = np.searchsorted(v_grid, 0)
+            kernel[idx_valid] = 1
+            # raise KernelIndexError("Kernel size too small for grid.")
         clouds = np.ones_like(kernel) * np.nan
-        clouds[idx_valid] = box_smoothed_step(v_grid[idx_valid], *clouds_args)
+        clouds[idx_valid] = box_smoothed_step(v_grid[idx_valid], *clouds_args)        
         kernel[idx_valid] = kernel[idx_valid] * clouds[idx_valid]
-
-        # normalize
-        kernel /= kernel.sum()
+        kernel /= norm_factor
+        
+        # normalize to unity
+        if norm:
+            kernel /= kernel.sum()
 
         return v_grid, kernel, clouds
     
     # TODO: Should be the get_ker method in a separate class
-    def get_ker_vphi(self, n_os=1000, pad=7):
+    def get_ker_vphi(self, n_os=1000, pad=7, norm=False):
         '''
         n_os: scalar, oversampling (to sample the kernel)
         pad: scalar
@@ -1201,7 +1215,8 @@ class RotKerTransitCloudy(BaseKer):
 #         v_grid = 0.5*(bins[1:] + bins[:-1])        
         kernel = np.array(kernel)
 #         ker_sum = kernel.sum()
-        kernel = kernel/(kernel.sum())
+        if norm:
+            kernel = kernel/(kernel.sum())
 
 
 #         v_max = np.max(np.abs([self.amp1, self.amp2])) + pad*res_elem*(u.m/u.s).to(u.km/u.s)#.value
