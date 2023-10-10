@@ -8,6 +8,10 @@ For now, you will have to clone this repository
 ````shell
 git clone https://github.com/AntoineDarveau/starships.git
 ````
+Go into the directory and change the branch to develop
+```shell
+git checkout develop
+```
 and use the file ``requirements.txt``
 to install the packages needed.
 The current versions is tested for python 3.9.
