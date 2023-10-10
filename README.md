@@ -6,7 +6,7 @@ Spectral Transmission And Radiation Search for High resolutIon Planet Signal
 Eventually, there will be  an installation via pip install.
 For now, you will have to clone this repository
 ````shell
-git clone https://github.com/boucherastro/.git
+git clone https://github.com/AntoineDarveau/starships.git
 ````
 and use the file ``requirements.txt``
 to install the packages needed.
