@@ -129,7 +129,25 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         'H-': 'H-',
         'H': 'H',
         'e-': 'e-',
+        'Al': 'Al',
+        'B': 'B',
+        'Be': 'Be',
+        'Ca': 'Ca',
+        'CaII': 'Ca+',
+        'Cr': 'Cr',
+        'Fe': 'Fe',
+        'FeII': 'Fe+',
+        'Li': 'Li',
+        'Mg': 'Mg',
+        'MgII': 'Mg+',
+        'N': 'N',
+        'Si': 'Si',
+        'Ti': 'Ti',
+        'V': 'V',
+        'VII': 'V+',
+        'Y': 'Y',      
     })
+
     species_linelists['low'] = OrderedDict({
         'H2O': 'H2O_HITEMP',
         'CO': 'CO_all_iso_HITEMP',
@@ -147,8 +165,38 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         'H-': 'H-',
         'H': 'H',
         'e-': 'e-',
-
+        'Al': 'Al',
+        'AlII': 'Al+',
+        'Ca': 'Ca',
+        'CaII': 'Ca+',
+        'Cr': 'Cr',
+        'Fe': 'Fe',
+        'FeII': 'Fe+',
+        'Li': 'Li',
+        'Mg': 'Mg',
+        'MgII': 'Mg+',
+        'N': 'N',
+        'Si': 'Si',
+        'Ti': 'Ti',
+        'V': 'V',
+        'VII': 'V+',
+        'Y': 'Y',
     })
+        # 'Al+': 'Al+',
+        # 'Ca': 'Ca',
+        # 'Ca+': 'Ca+',
+        # 'Fe': 'Fe',
+        # 'Fe+': 'Fe+',
+        # 'Li': 'Li',
+        # 'Mg': 'Mg',
+        # 'Mg+': 'Mg+',
+        # 'O': 'O',
+        # 'Si': 'Si',
+        # 'Si+': 'Si+',
+        # 'Ti': 'Ti',
+        # 'Ti+': 'Ti+',
+        # 'V': 'V',
+        # 'V+': 'V+',
 
     if add_line_list is not None:
         print('Adding')
@@ -160,11 +208,15 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         for changed_mol in change_line_list:
             species_linelists[kind_res][changed_mol[0]] = changed_mol[1]
 
+    if list_values is None:
+        list_values = [1e-99] * len(list_mols)
+
     for i_mol, mol in enumerate(list_mols):
-        if list_values is None:
-            species_list[species_linelists[kind_res][mol]] = [1e-99]
-        else:
+        try:
             species_list[species_linelists[kind_res][mol]] = list_values[i_mol]
+        except KeyError:
+            log.info(f'Adding {mol} to species_list')
+            species_list[mol] = list_values[i_mol]
 
     return species_list
 
