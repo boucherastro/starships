@@ -479,7 +479,7 @@ class Correlations():
         
         self.idx_bruit_rv = idx_bruit
         self.idx_bruit_rv0 = idx_bruit0
-        bruit = np.nanstd(courbe[idx_bruit])
+        bruit = np.ma.std(courbe[idx_bruit])
         self.bruit = bruit
         self.snr = (courbe - np.ma.mean(courbe[idx_bruit])) / np.ma.masked_invalid(bruit)
         
