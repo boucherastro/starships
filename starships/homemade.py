@@ -1339,3 +1339,29 @@ def get_c_matrix(kernel, grid, bounds=None, i_bounds=None, norm=True,
         kernel = sparse_c(kernel, len(grid), a)
 
     return kernel
+
+
+# ==============================================================================
+# One to one mappping
+# ==============================================================================
+
+class OneToOneMap:
+    
+    def __init__(self, keys, values):
+        
+        self.keys = tuple(keys)
+        self.values = tuple(values)
+        
+    def __getitem__(self, args):
+        
+        if isinstance(args, list):
+            idx_list = [self.keys.index(key) for key in args]
+            out = tuple(self.values[idx] for idx in idx_list)
+        else:
+            idx = self.keys.index(args)
+            out = self.values[idx]
+            
+        return out
+    
+    def inverse(self):
+        return OneToOneMap(self.values, self.keys)
