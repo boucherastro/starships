@@ -2534,6 +2534,39 @@ def plot_p_profile_sample(pressures, sample_stats, line_color=None, region_color
 #
 #     return total
 
+# def gaussian_prior(cube, mu, sigma):
+#     #     SQRT2 = math.sqrt(2.)
+#     #     return mu + sigma*SQRT2*erfcinv(2.0*(1.0 - cube))
+#     return -(((cube - mu) / sigma) ** 2.) / 2.
+
+def gaussian_prior(x, prior_inputs):
+    """Gaussian prior"""
+    mu, sigma = prior_inputs
+    out = -(((x - mu) / sigma) ** 2.) / 2.
+
+    return out
+
+
+def init_gaussian_prior(prior_inputs, n_wlkr):
+    """Initialize from gaussian prior"""
+    mu, sigma = prior_inputs
+    sample = np.random.normal(mu, sigma, size=(n_wlkr, 1))
+
+    return sample
+    
+
+def uniform_prior(x, prior_inputs):
+    """Uniform prior"""
+    low, high = prior_inputs
+    if x < low:
+        out = -np.inf
+    elif x > high:
+        out = -np.inf
+    else:
+        out = 0.
+        
+    return out
+
 
 def init_uniform_prior(prior_inputs, n_wlkr):
     """Initialize from uniform prior"""
@@ -2541,6 +2574,35 @@ def init_uniform_prior(prior_inputs, n_wlkr):
     sample = np.random.uniform(low, high, size=(n_wlkr, 1))
 
     return sample
+
+default_prior_init_func = {'gaussian': init_gaussian_prior,
+                            'uniform': init_uniform_prior,
+                            'log_uniform': init_uniform_prior}
+
+default_prior_func = {'gaussian': gaussian_prior,
+                      'uniform': uniform_prior,
+                      'log_uniform': uniform_prior}
+
+
+def log_prior(theta, params_prior, prior_func_dict=None):
+    
+    if prior_func_dict is None:
+        prior_func_dict = default_prior_func
+    
+    total = 0.
+    
+    # Get the parameters and unpack them in a dictionnary.
+    theta_dict = {key: val for key, val in zip(params_prior.keys(), theta)}
+    
+    for key, prior_info in params_prior.items():
+        prior_name, prior_args = prior_info[0], prior_info[1:]
+        prior_func = prior_func_dict[prior_name]
+        total += prior_func(theta_dict[key], prior_args)
+
+        if total == -np.inf:
+            return total
+        
+    return total
 
 
 def init_from_prior(n_wlkrs, prior_init_func, prior_dict, n_mol=1, special_treatment=None):
@@ -2905,51 +2967,117 @@ def get_all_param_names(retrieval_obj):
     return params
 
 
+# Initialize global variables to store the shared arrays and their names if needed.
+shared_arrays = None
+shared_keys = None
+non_array_dict = None
+
+
 def prepare_shared_array_obj(shared_obj):
     """Save (big) arrays and their name in a numpy object.
-    This allows to share them between processes without copying them.
-    Input:
-        shared_obj: dict or npz file
-            Dictionary or numpy npzFile containing the numpy arrays to share.
-            It needs to have the method `items()` to iterate over keys and arrays.
-    This function creates two global variables:
-        - shared_arrays: numpy array of objects
-        - shared_keys: list of keys associated to each object
-    which will be available in the global namespace.
-    Use get_shared_array_index to get the index of a key in the shared arrays.
-    For example:
-    ```
-        idx_list = get_shared_array_index('cross_terms')
-        f_x_g = shared_arrays[idx_list]
-    ```
-    """
-
-    out = [(obj, key) for key, obj in shared_obj.items()
-           if isinstance(obj, np.ndarray)]
+    The best way to share data between processes is to use a numpy array
+    since it is stored in a single block of memory.
+    Once the array is created, it can be accessed using:
+    shared_arrays[shared_keys.index(key)].
     
-    arrays, keys = zip(*out)  # transpose result
+    Inputs:
+    - shared_obj: dictionary-like object
+        Dictionary-like object containing the arrays to be shared. Simply needs to
+        support the method items() to iterate over the key-value pairs.
+        
+    Outputs:
+    - shared_arrays: numpy array
+        Array containing the shared arrays.
+    - shared_keys: list of strings
+        List containing the names of the shared arrays.
+    - non_array_dict: dictionary-like object
+        Dictionary-like object containing the non-array objects.
+        
+    Notes:
+    The best usage would be to import this package in the main script.
+    Example:
+    import this_package as tp
+    
+    # Load a file containing multiple arrays (could be also a dictionary)
+    npz_file = np.load('data.npz')
+    
+    # Prepare the shared arrays
+    shared_array, _, shared_dict = logl_a.prepare_shared_array_obj(npz_file)
+    
+    # Then it can be accessed anywhere (like in a function)
+    # First get the index of the array in the shared arrays
+    idx, key_idx, keys_dict = tp.get_shared_array_index('key_1', 'key_2')
+    
+    # Put them  in a dictionary
+    array_dict = {key: shared_array[i] for i, key in zip(idx, key_idx)}
+    non_arr_dict = {key: shared_dict[key] for key in keys_dict}
+    # Which can be combined with the non-array dictionary
+    all_dict = {**array_dict, **non_arr_dict}
+    """
+    arrays, keys = [], []
+    non_array_dict = {}
+    for key, obj in shared_obj.items():
+        if isinstance(obj, np.ndarray):
+            arrays.append(obj)
+            keys.append(key)
+        else:
+            non_array_dict[key] = obj
     arrays = np.array(arrays, dtype=object)
     
-    log.info(f"Shared arrays keys: {keys}")
-    
+    # Save the outputs in global variables
     globals()['shared_arrays'] = arrays
     globals()['shared_keys'] = keys
+    globals()['non_array_dict'] = non_array_dict
     
-    return 
+    return globals()['shared_arrays'], globals()['shared_keys'], globals()['non_array_dict']
 
-# Define util functions to get the index of a key in the shared arrays.
+
 def get_shared_array_index(*args):
-    """Get the index of a key in the shared arrays"""
-    idx_list = [globals()['shared_keys'].index(key) for key in args]
-    return idx_list
+    """Get the index of a key in the shared arrays and in the non-array dictionary.
+    Returns:
+    - idx_shared: list of indices
+        Indices of the shared arrays.
+    - keys_shared: list of strings
+        Names of the shared arrays.
+    - keys_non_arr: list of strings
+        Names of the non-array objects.
+    """
+    idx_shared, keys_shared, keys_non_arr = [], [], []
+    for key in args:
+        try:
+            idx_shared.append(shared_keys.index(key))
+            keys_shared.append(key)
+        except ValueError:
+            keys_non_arr.append(key)
 
-def get_logl(alpha=1., beta=1., kind='BL', idx_orders=None, idx_exposure=None, sum_axis=None):
-    idx_list = get_shared_array_index('cross_terms', 'squared_terms', 's2f', 'uncert_sum', 'N')
-    f_x_g, s2g, s2f, uncert_sum, N = globals()['shared_arrays'][idx_list]
+    return idx_shared, keys_shared, keys_non_arr
+
+
+def get_logl(alpha=1., beta=1., kind='BL', f_x_g=None, s2g=None, s2f=None,
+             uncert_sum=None, N=None, idx_orders=None, idx_exposure=None, sum_axis=None):
     
-    # Mask N = 0
+    if f_x_g is None:
+        idx = get_shared_array_index('cross_terms')
+        f_x_g = shared_arrays[idx][0]
     
-    N = np.ma.array(N, mask=(N == 0))
+    if s2g is None:
+        idx = get_shared_array_index('squared_terms')
+        s2g = shared_arrays[idx][0]
+        
+    if s2f is None:
+        idx = get_shared_array_index('s2f')
+        s2f = shared_arrays[idx][0]
+        
+    if uncert_sum is None:
+        idx = get_shared_array_index('uncert_sum')
+        uncert_sum = shared_arrays[idx][0]
+        
+    if N is None:
+        idx = get_shared_array_index('N')
+        N = shared_arrays[idx][0]
+    
+    # Mask N = 0 or nans
+    N = np.ma.array(N, mask=((N == 0) | (N == np.nan)))
     
     if idx_exposure is None:
         idx_exposure = slice(None)
