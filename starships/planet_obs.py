@@ -1503,7 +1503,7 @@ class Planet():
         self.name = name
         
         if parametres is None:
-            print('Getting {} from ExoFile'.format(name))
+            log.info('Getting {} from ExoFile'.format(name))
             # Try locally, if not available, try to query the exofile
             try:
                 parametres = ExoFile.load(query=False, use_alt_file=True).by_pl_name(name)
@@ -2325,7 +2325,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
 
     if len(do_tr) > 1 :
         out_filename = Path(f'{filename.name}_data_info.npz')
-        print('Reading:', path / out_filename)
+        log.info('Reading:', path / out_filename)
         data_info_file = np.load(path / out_filename)
         data_info = {}
 
@@ -2342,7 +2342,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
         data_trs[str(i_tr)] = {}
 
         out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
-        print('Reading:', path / out_filename)
+        log.info('Reading:', path / out_filename)
         data_tr = np.load(path / out_filename)
 
         if len(do_tr) <= 1:
@@ -2354,7 +2354,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
                 data_info['bad_indexs'] = data_tr['bad_indexs']
             except KeyError:
                 out_filename = Path(f'{filename.name}_data_info.npz')
-                print('Reading:', path / out_filename)
+                log.info('Reading:', path / out_filename)
                 data_info_file = np.load(path / out_filename)
                 data_info = {}
 
