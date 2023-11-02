@@ -2,6 +2,7 @@ import numpy as np
 try:
     from petitRADTRANS import Radtrans
     from petitRADTRANS import nat_cst as nc
+    from petitRADTRANS.poor_mans_nonequ_chem import interpol_abundances
 except ModuleNotFoundError:
     print('petitRADTRANS is not installed on this system')
 
@@ -81,7 +82,7 @@ def gen_atm(species_list, pressures, mode='lbl', wl_range=[0.95, 2.55],
 
 
 def gen_atm_all(species_list, pressures=None, limP=[-12, 4], n_pts=150, indiv=False, **kwargs):
-    print(species_list)
+    log.info(species_list)
     if pressures is None:
         pressures = np.logspace(*limP, n_pts)
 
@@ -92,18 +93,18 @@ def gen_atm_all(species_list, pressures=None, limP=[-12, 4], n_pts=150, indiv=Fa
 
     atmos_full = gen_atm(species_list, pressures, **kwargs)
 
-    print('Generating atmosphere with pressures from {} to {}'.format(pressures.max(), pressures.min()))
+    log.info('Generating atmosphere with pressures from {} to {}'.format(pressures.max(), pressures.min()))
     if indiv is True:
         atmos_i_list = []
         for specie in species_list:
             mol = specie.split('_')[0]
-            print('Generating pure {} atmosphere'.format(mol))
+            log.info('Generating pure {} atmosphere'.format(mol))
             atm_i = gen_atm([specie], pressures, **kwargs)
             atmos_i_list.append(atm_i)
 
         return atmos_full, pressures, atmos_i_list
     else:
-        print("You are not getting the individual contributions of the species")
+        log.info("You are not getting the individual contributions of the species")
         return atmos_full, pressures
 
 
@@ -199,9 +200,8 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         # 'V+': 'V+',
 
     if add_line_list is not None:
-        print('Adding')
         for added_mol in add_line_list:
-            print(added_mol[0], ' as ', added_mol[1])
+            log.info(f'Adding {added_mol[0]} as {added_mol[1]}')
             species_linelists[kind_res][added_mol[0]] = added_mol[1]
 
     if change_line_list is not None:
@@ -981,22 +981,75 @@ def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None,
     return modelWave0[:-1][15:-15], resampled[15:-15]
 
 
+def get_Fe_from_metallicity(VMR, Fe_to_H):
+    """Return VMR of Fe given Fe/H."""
+    
+    total_H = [VMR[key] for key in ['H2', 'H-', 'H'] if key in VMR]
+    total_H = np.sum(total_H, axis=0)
+    
+    # log10 VMR_Fe / VMR_H = -4.33  (solar)
+    out = (Fe_to_H - 4.33) + np.log10(total_H)
+    
+    return 10 ** out
+
+
 def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures,
-                          gravity, P0, cloud, R_pl, R_star,
+                          gravity, P0, cloud, R_pl, R_star, C_to_O=None, Fe_to_H=None,
                           kappa_factor=None, gamma_scat=None, vmrh2he=None, plot_abundance=False,
                           kind_trans='transmission', dissociation=False, fct_star=None,
-                          contribution=False, **kwargs):
+                          contribution=False, specie_2_lnlst=None, **kwargs):
     if vmrh2he is None:
         vmrh2he = [0.85, 0.15]
     if kappa_factor is not None:
         kappa_zero = kappa_factor * (5.31e-31 * u.m ** 2 / u.u).cgs.value
     else:
         kappa_zero = None
-
-    abundances, MMW, _ = gen_abundances([*species.keys()], [*species.values()],
+    
+    if specie_2_lnlst is None:
+        specie_2_lnlst = dict()
+        
+    if C_to_O is None and Fe_to_H is None:
+        chemical_equilibrium = False
+    else:
+        chemical_equilibrium = True
+        # Use solar abundances if one of the ratios is not provided
+        if C_to_O is None:
+            C_to_O = 0.55
+        if Fe_to_H is None:
+            Fe_to_H = 0.0   
+    log.debug(f'Chemical equilibrium = {chemical_equilibrium}')
+    
+    # Compute the abundances (and add species that need to be included if not fitted)
+    abundances, MMW, VMR = gen_abundances([*species.keys()], [*species.values()],
                                      pressures, temperatures,
                                      verbose=False, vmrh2he=vmrh2he,
                                      dissociation=dissociation, plot=plot_abundance)
+    
+    if chemical_equilibrium:        
+        # Same shape as T and P
+        C_to_O = C_to_O * np.ones_like(temperatures)
+        Fe_to_H = Fe_to_H * np.ones_like(temperatures)
+        # Get abundances (=mass fraction) from PRT poorman equilibrium chemistry
+        mass_frac_eq = interpol_abundances(C_to_O, Fe_to_H, temperatures, pressures)
+        
+        # Update abundances with the new species
+        for mol in mass_frac_eq:
+            try:
+                key = specie_2_lnlst[mol]
+            except KeyError:
+                key = mol
+                
+            if key in abundances:
+                abundances[key] = mass_frac_eq[mol]
+                log.debug(f'Updating {key} abundance with equilibrium value {mol} = {mass_frac_eq[mol]}')
+                
+        MMW = mass_frac_eq['MMW']
+        
+        # Compute VMR of Fe from Fe/H if chemical equilibrium is used
+        if 'Fe' in abundances:
+            abundances['Fe'] = get_Fe_from_metallicity(VMR, Fe_to_H)
+            # Convert VMR to mass fraction
+            abundances['Fe'] = abundances['Fe'] * calc_single_mass('Fe') / MMW
 
     if kind_trans == 'transmission':
         atmos_object.calc_transm(temperatures, abundances, gravity, MMW,
