@@ -2700,10 +2700,16 @@ def init_from_burnin(n_walkers, n_best_min=1000, quantile=None, wlkr_file=None, 
 
 ## Utilities to compute model profiles and spectra from sample
 def get_tp_from_retrieval(param, retrieval_obj):
-    prt_args, prt_kwargs, rot_kwargs, _ = retrieval_obj.prepare_prt_inputs(param)
+    # Older version of the retrieval code uses `prepare_prt_inputs`
+    if hasattr(retrieval_obj, 'prepare_prt_inputs'):
+        prt_args, _, _, _ = retrieval_obj.prepare_prt_inputs(param)
+        pressures = retrieval_obj.temp_params['pressures']
+        temperatures = prt_args[0]
+    else:
+        theta_dict = retrieval_obj.unpack_theta(param)
 
-    pressures = retrieval_obj.temp_params['pressures']
-    temperatures = prt_args[0]
+        pressures = theta_dict['pressures']
+        temperatures = theta_dict['temperatures']
 
     return pressures, temperatures
 
