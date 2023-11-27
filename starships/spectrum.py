@@ -18,6 +18,8 @@ from astropy.convolution import Gaussian1DKernel
 # import astropy.io.ascii as ascii_ap
 from astropy.io import fits
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.colors import ListedColormap
 import scipy.constants as cst
 from scipy.interpolate import interp1d
 from scipy.io.idl import readsav
@@ -441,17 +443,19 @@ def resampling(wl, flux, Raf, Rbf=None, lb_range=None, ptsPerElem=1, sample=None
                 profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=fwhm)
 
             else:
-#                 print('Resampling with rotation')
-                # R_af is implicitly included in the rot_ker object
-                try:
-                    profil = rot_ker.resample(R_sampling, n_os=1000, pad=7)
-                except KernelIndexError:
-                    # - On on va vouloir un vecteur de taille ~7xfwhm
-                    taille = hm.myround(fwhm * 7, base=2) + 1
-                    # - On génère notre gaussienne avec le nb de point (pxl) qu'on vient de calculer
-                    profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=fwhm)
-#             print(flux)
-#             print(profil)
+                if isinstance(rot_ker, np.ndarray):
+                    profil = rot_ker
+                else:
+    #                 print('Resampling with rotation')
+                    # R_af is implicitly included in the rot_ker object
+                    try:
+                        profil = rot_ker.resample(R_sampling, n_os=500, pad=7)
+                    except KernelIndexError:
+                        # - On on va vouloir un vecteur de taille ~7xfwhm
+                        taille = hm.myround(fwhm * 7, base=2) + 1
+                        # - On génère notre gaussienne avec le nb de point (pxl) qu'on vient de calculer
+                        profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=fwhm)
+            
             # - On convolue notre ancien spectre avec le nouveau profil
             new_flux = np.convolve(flux, profil, mode='same')
             # - Notre nouveau spectre a la bonne résolution, mais pas le bon échantillonnage
@@ -779,9 +783,14 @@ class BaseKerMulti:
         out_ker_list = []
         for rot_ker in rot_ker_list:
             ker_spl = interp1d(v_grid, rot_ker, kind='linear')
-            v_grid = np.arange(v_grid.min(), v_grid.max(), dv_new)
-            out_ker_list.append(ker_spl(v_grid))
-
+            v_grid_new = np.arange(v_grid.min(), v_grid.max(), dv_new)
+            out_ker_list.append(ker_spl(v_grid_new))
+            
+        # Make sure the sum over all kernels is 1 (conservation of flux)
+        if norm == True:
+            all_sum = np.sum(out_ker_list)
+            out_ker_list = [ker / all_sum for ker in out_ker_list]
+            
         return out_ker_list
 
 
@@ -1463,6 +1472,60 @@ def citrus_to_ker(y_coord, citrus_phases, phase, radius=1.):
     return v_lengths
 
 
+def plot_sphere(phase_limits, colors=None, viewing_phase=0.):
+    
+    phase_limits = (np.array(phase_limits) % 1)
+    
+    # Define the sphere's surface
+    theta = np.linspace(0, 2.*np.pi, 100)  # longitude
+    phi = np.linspace(0, np.pi, 100)  # latitude
+    theta, phi = np.meshgrid(theta, phi)
+    x = np.sin(phi) * np.cos(theta)
+    y = np.sin(phi) * np.sin(theta)
+    z = np.cos(phi)
+
+    # Define a list of colors for the different regions
+    color_map = np.zeros(theta.shape, dtype=float)
+    for idx, end in enumerate(phase_limits):
+        start = phase_limits[idx - 1]
+        start = start * 2 * np.pi
+        end = end * 2 * np.pi
+        if (start < end):
+            cond = (theta >= start) & (theta < end)
+        else:
+            cond = (theta >= start) | (theta < end)
+        color_map[cond] = idx / (len(phase_limits) - 1)
+    
+    if colors is None:
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    cmap = ListedColormap(colors[:len(phase_limits)])
+
+    # Create a 3D plot
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(x, y, z, rstride=1, cstride=1, facecolors=cmap(color_map), shade=False)
+    ax.set_xlim([-1, 1])
+    ax.set_ylim([-1, 1])
+    ax.set_zlim([-1, 1])
+    ax.set_aspect('equal')
+
+    # Remove axes
+    ax.axis('off')
+
+    # Set the viewing angle to longitude 180
+    ax.view_init(azim=viewing_phase * 360, elev=0)
+    
+    # Add legend
+    for idx, end in enumerate(phase_limits):
+        start = phase_limits[idx - 1]
+        color = colors[idx]
+        ax.plot([0], [0], 's', color=color, label=f'{start:0.2}° to {end}°')
+
+    ax.legend(loc='upper right')
+
+    return fig, ax
+
+
 class CitrusRotationKernel(BaseKerMulti):
     """
     Class to compute the rotation kernel for a planet with a solid rotation
@@ -1472,8 +1535,8 @@ class CitrusRotationKernel(BaseKerMulti):
     ----------
     citrus_phases: list of floats
         phases of the citrus boundaries
-    pl_rad: scalar astropy quantity, planet radius
-    omega: scalar astropy quantity, rotation rate
+    pl_rad: scalar astropy quantity, planet radius in m
+    omega: scalar astropy quantity, angular frequency (2 pi / period) in rad/s
     resolution: scalar (float or int)
         spectral resolution of the instrument
 
@@ -1509,6 +1572,7 @@ class CitrusRotationKernel(BaseKerMulti):
         self.omega = omega
         self.r_p = pl_rad
         self.citrus_phases = citrus_phases
+        self.n_kernel = len(citrus_phases)
 
     def get_ker(self, phase, n_os=None, pad=7, norm=True):
         """
@@ -1629,8 +1693,12 @@ class CitrusRotationKernel(BaseKerMulti):
         plt.xlabel('dv [km/s]')
         ax_native.set_ylabel('Kernel')
         ax_degraded.set_ylabel('Kernel * Instrumental')
+        
+        # Plot the sphere
+        phase_limits = self.citrus_phases
+        fig_sphere, _ = plot_sphere(phase_limits, viewing_phase=-kwargs['phase'])
 
-        return fig
+        return fig, fig_sphere
 
 
 #####################################################
