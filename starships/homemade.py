@@ -1365,3 +1365,26 @@ class OneToOneMap:
     
     def inverse(self):
         return OneToOneMap(self.values, self.keys)
+    
+    
+# ==============================================================================
+# Function to deal with command line arguments
+# ==============================================================================
+# Get kwargs from command line (if called from command line)
+def unpack_kwargs_from_command_line(sys_argv):
+    kwargs_in = dict([arg.split('=') for arg in sys_argv[1:]])
+    if kwargs_in:
+        for key, value in kwargs_in.items():
+            print(f"Keyword argument from command line: {key} = {value}")
+    return kwargs_in
+
+
+def get_kwargs_with_message(key, kwargs_from_cmd_line, default_val=None):
+    """Function to access keywords from command line and print an message when using a default value."""
+    try:
+        val = kwargs_from_cmd_line[key]
+    except KeyError:
+        print(f"{key} not provided, using default value of {default_val}")
+        val = default_val
+    
+    return val
