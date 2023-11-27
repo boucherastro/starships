@@ -325,7 +325,7 @@ def update_dissociation_abundance_profile(profile, specie_name, pressures, tempe
         try:
             profile['H'] += (A0 - profile_updt) * scale
         except KeyError:
-            print("You must add H- to your species")
+            log.debug("H- not found. You may need to add H- to your species")
     # if (specie_name.split('_')[0] == 'H2O'):
     #     #         profile['OH_SCARLET'] += (A0 - profile_updt)*scale
     #     #     if specie_name == 'H2O_HITEMP':
@@ -959,21 +959,13 @@ def gen_cases_file(planet, temps, cloudTop, haze, P0, MMW, R_pl, species, cases_
 #                        'CH4_main_iso':[-6, -10]})
 
 
-def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None,
-                  # left_val=1., right_val=1.,
+def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None, rot_ker=None,
                   **kwargs):
-    if rot_params is not None:
+    
+    if rot_ker is None and rot_params is not None:
         rot_ker = RotKerTransitCloudy(rot_params[0], rot_params[1], rot_params[2],
                                       np.array(rot_params[3]) / u.day, Raf,
-                                      # left_val=left_val, right_val=right_val,
                                       step_smooth=250., v_mid=0., **kwargs)
-    #     if rot_params is not None:
-    #         R_pl, M_pl, T_pl, freq, right_cl = rot_params
-    #         rot_ker = RotKerTransitCloudy(R_pl, M_pl, T_pl, np.array(freq) / u.day, Raf,
-    #                                                   left_val=1., right_val=right_cl,
-    #                                                step_smooth=250., v_mid=0., **kwargs)
-    else:
-        rot_ker = None
 
     resampled = np.ma.masked_invalid(resamp_model(modelWave0[:-1], modelTD0[:-1], Rbf,
                                                   Raf=Raf, rot_ker=rot_ker))
