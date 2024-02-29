@@ -281,7 +281,7 @@ def read_all_sp_spirou_apero(path, file_list, wv_default=None, blaze_default=Non
             try:
                 wv_file = wv_default or hdul[0].header['WAVEFILE']
                 with fits.open(path / Path(wv_file)) as f:
-                    wvsol = f[0].data
+                      wvsol = f[1].data
             except (KeyError,FileNotFoundError) as e:
                 if cheby is False:
                     wvsol = fits2wave(image, header)
@@ -639,7 +639,8 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
     if tag == 'secondary':
         T0 = p.mid_tr + 0.5 * p.period.to(u.d)
         z = None
-
+    
+    
     i_peri = np.searchsorted(self.t, p.mid_tr)
 
     p.b = (p.bRstar / p.R_star).decompose()
@@ -2082,8 +2083,8 @@ def load_single_sequences(filename, name, path='',
     tr.phase = data_tr['phase']
 
     tr.icorr = data_tr['icorr']
-    #     tr.iIn = data_tr['iIn']
-    #     tr.iOut = data_tr['iOut']
+    # tr.iIn = data_tr['iIn']
+    # tr.iOut = data_tr['iOut']
 
     tr.AM = data_tr['AM']
     tr.berv0 = data_tr['berv0']
@@ -2113,13 +2114,14 @@ def load_single_sequences(filename, name, path='',
     gen_transit_model(tr, tr.planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
 
     # --- Radial velocities
-
     gen_rv_sequence(tr, tr.planet, plot=False)
 
     tr.norv_sequence(RV=data_tr['RV_sys'])
 
     return tr
-        
+
+
+
 def load_single_data_dict(path, filename, load_all=False, filename_end='', data_trs=None):
     
     if data_trs is None:

@@ -54,7 +54,7 @@ def calc_single_mass(mol):
 
 
 def mass_fraction(mol, vmr, mmw=2.33):
-    return calc_single_mass(mol) / mmw * vmr
+    return (calc_single_mass(mol) / mmw) * vmr
 
 
 # def save_models(atmosphere, mod_array, VMRs, mol, R_star, pl_name, path):
@@ -925,7 +925,7 @@ def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None,
 
     resampled = np.ma.masked_invalid(resamp_model(modelWave0[:-1], modelTD0[:-1], Rbf,
                                                   Raf=Raf, rot_ker=rot_ker))
-
+    
     return modelWave0[:-1][15:-15], resampled[15:-15]
 
 
