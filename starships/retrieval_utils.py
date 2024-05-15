@@ -2539,8 +2539,9 @@ def plot_p_profile_sample(pressures, sample_stats, line_color=None, region_color
 #     #     return mu + sigma*SQRT2*erfcinv(2.0*(1.0 - cube))
 #     return -(((cube - mu) / sigma) ** 2.) / 2.
 
-def gaussian_prior(x, prior_inputs):
+def gaussian_prior(theta_dict, key, prior_inputs):
     """Gaussian prior"""
+    x = theta_dict[key]
     mu, sigma = prior_inputs
     out = -(((x - mu) / sigma) ** 2.) / 2.
 
@@ -2555,8 +2556,9 @@ def init_gaussian_prior(prior_inputs, n_wlkr):
     return sample
     
 
-def uniform_prior(x, prior_inputs):
+def uniform_prior(theta_dict, key, prior_inputs):
     """Uniform prior"""
+    x = theta_dict[key]
     low, high = prior_inputs
     if x < low:
         out = -np.inf
@@ -2574,6 +2576,22 @@ def init_uniform_prior(prior_inputs, n_wlkr):
     sample = np.random.uniform(low, high, size=(n_wlkr, 1))
 
     return sample
+
+
+def ordered_prior(theta_dict, key, prior_inputs):
+        
+    ordered_keys, prior_func, prior_func_inputs = prior_inputs
+    
+    # First, check if the order is respected
+    # (theta_dict[keys] in ordered_keys must be in increasing order)
+    ordered_values = [theta_dict[k] for k in ordered_keys]
+    if not np.all(np.diff(ordered_values) > 0):
+        return -np.inf
+        
+    # Then apply the correct prior
+
+    
+    return out
 
 default_prior_init_func = {'gaussian': init_gaussian_prior,
                             'uniform': init_uniform_prior,
@@ -2597,7 +2615,7 @@ def log_prior(theta, params_prior, prior_func_dict=None):
     for key, prior_info in params_prior.items():
         prior_name, prior_args = prior_info[0], prior_info[1:]
         prior_func = prior_func_dict[prior_name]
-        total += prior_func(theta_dict[key], prior_args)
+        total += prior_func(theta_dict, key, prior_args)
 
         if total == -np.inf:
             return total
