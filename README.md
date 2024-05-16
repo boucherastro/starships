@@ -12,12 +12,10 @@ Go into the directory and change the branch to develop
 ```shell
 git checkout develop
 ```
-and use the file ``requirements.txt``
-to install the packages needed.
 The current versions is tested for python 3.9.
 Note that petitRADTRANS needs to be installed separately.
 
-If you are on compute canada servers, I've put the exact instruction in the installation guidelines.
+If you are on compute canada servers, I've put the exact instruction in the installation guidelines at the end of this README.
 
 ### General guidelines for installation:
 (after you cloned the `starships` repository)
@@ -38,11 +36,14 @@ source /path/to/new/virtualenv/bin/activate
 NOTE: If you don't know your path to python3.9, run `which python` or `which python3`
 
 For **compute canada**:
+If you are on compute canada, you can use the following script to install starships and petitRADTRANS. 
 ```shell
 module load gcc python/3.9 mpi4py
 virtualenv /path/to/new/virtualenv/
+pip install --no-index --upgrade pip
 source /path/to/new/virtualenv/bin/activate
 ```
+A good name for the virtual environment would be `starships_39` for example, so you would do `virtualenv ~/path/to/starships_39`. I personnaly put my environments in ~/venvs/ so I would do `virtualenv ~/venvs/starships_39`.
 
 #### 2. Install STARSHIPS
 Navigate into starhips directory (`cd /path/to/starships`). Then install the package in editor mode (temporary until we upload starships on pyPI).
@@ -99,6 +100,18 @@ edit_param(exofile_alt='/path/to/my_local_exofile_alt.ecsv')
 ```
 If you want to use the database without internet, use `ExoFile.load(query=False, ...)`
 
+### Adding the environment to jupyter notebook (or any iPython kernel)
+
+You can create a kernel for the virtual environment to use it in Jupyter notebooks. I generally do this will all my environment. This will also become handy in VSCode to execute some specific part of a python code or play in an interactive ipython console. Here is how to do it:
+
+ ```bash
+ # Make sure you are in the virtual environment (source /path/to/new/virtualenv/bin/activate)
+ mkdir -p ~/.local/share/jupyter/kernels # Create the directory where the kernels are saved
+ pip install --no-index ipykernel  # Install the ipykernel package
+ python -m ipykernel install --user --name starships_39 --display-name "STARSHIPS Kernel (3.9)"  # Create the kernel
+ ```
+
+ See https://docs.alliancecan.ca/wiki/Advanced_Jupyter_configuration#Python_kernel for more details.
 
 ## Usage 
 
