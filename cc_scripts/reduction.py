@@ -19,7 +19,7 @@ from starships.planet_obs import Observations, instruments_drs
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", RuntimeWarning)
 
-def set_save_location(obs_dir, pl_name, reduction, instrument):
+def set_save_location(pl_name, reduction, instrument):
 
     ''' Note: Better to use the scratch space to save the reductions.
     You have infinte space, but the files are deleted if untouched for 2 months. It allows to save as 
@@ -46,7 +46,9 @@ def set_save_location(obs_dir, pl_name, reduction, instrument):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Where to save figures?
-    path_fig = Path('Figures/Reductions')
+    path_fig = Path(str(out_dir) + f'/Figures/')
+
+    return out_dir, path_fig
 
 def load_planet(pl_name, obs_dir, pl_kwargs, instrument):
     # --- Where to find the observations?
@@ -88,14 +90,14 @@ def load_planet(pl_name, obs_dir, pl_kwargs, instrument):
     # Get the data
     obs.fetch_data(obs_dir, **list_filenames)
 
-    # new_mask = obs.count.mask | (obs.count < 400.)
+    new_mask = obs.count.mask | (obs.count < 400.)
     # obs.flux = np.ma.array(obs.flux, mask=new_mask)
     return p, obs
 
 '''**********************************************************************************************'''
 '''                                  Build Transmission Spectrum                                 '''
 
-def build_trans_spec(visit_name, mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans, iout_all, 
+def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans, iout_all, 
                         clip_ratio, clip_ts, unberv_it, obs, planet):
 
     # visit_name = 'tr1'  # Choose a visit name for the saved file names
@@ -165,13 +167,20 @@ def save_pl_sig(list_tr, out_dir, n_pc, mask_wings, visit_name, do_tr = [1]):
     # pl_obs.save_single_sequences(out_filename, list_tr['1'], path=out_dir, save_all=True)
 
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
-    out_filename = f'retrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_{visit_name}'
+    out_filename = f'TESTretrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_{visit_name}'
     pl_obs.save_sequences(out_filename, list_tr, do_tr, path=out_dir)
 
     # print('Kp =', list_tr['1'].Kp)
 
 '''**********************************************************************************************'''
 '''                                      Output Result Plots                                     '''
+
+def reduction_plots(list_tr, idx_ord, path_fig):
+    visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
+    pf.plot_airmass(visit_list, path_fig=str(path_fig))
+
+    sequence_obj = list_tr['1']
+    pf.plot_steps(sequence_obj, idx_ord, path_fig = str(path_fig))
 
 # visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
 # pf.plot_airmass(visit_list)
@@ -180,3 +189,50 @@ def save_pl_sig(list_tr, out_dir, n_pc, mask_wings, visit_name, do_tr = [1]):
 
 # idx_ord = 40
 # pf.plot_steps(sequence_obj, idx_ord)
+
+if __name__ == "__main__" :
+    ''' testing functions for WASP 127-b '''
+
+    # setting parameters that would be set in a YAML file
+    obs_dir = Path.home() / Path(f'projects/def-dlafre/fgenest/nirps/WASP-127b/')
+    reduction = 'genest'
+    pl_name = 'WASP-127 b'
+    instrument = 'NIRPS-APERO'
+    visit_name = 'tr1'
+    mask_tellu = 0.2
+    mask_wings = 0.9
+    n_pc = 3
+    kind_trans = 'transmission'
+    coeffs = [ 0.02703969,  1.10037972, -0.96372403,  0.28750393]
+    ld_model = 'nonlinear'
+    iout_all = ['all']
+    pl_kwargs = {}
+    clip_ratio = 6
+    clip_ts = 6
+    unberv_it = True
+
+    # recreating notebook outputs to compare
+    out_dir, path_fig = set_save_location(pl_name, reduction, instrument)
+    p, obs = load_planet(pl_name, obs_dir, pl_kwargs, instrument)
+
+    # Print some parameters (to check if they are satisfying)
+    print((f"M_pl: {p.M_pl.to('Mjup')}\n"
+        f"M_star: {p.M_star.to('Msun')}\n"
+        f"R_star: {p.R_star.to('Rsun')}\n"
+        f"R_pl: {p.R_pl.to('Rjup')}\n"
+        f"RV_sys: {p.RV_sys}"))
+
+    list_tr = build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans, iout_all, 
+                        clip_ratio, clip_ts, unberv_it, obs, p)
+    
+    save_pl_sig(list_tr, out_dir, n_pc, mask_wings, visit_name, do_tr = [1])
+    # check in folder
+
+    print('Kp =', list_tr['1'].Kp)
+    reduction_plots(list_tr, idx_ord = 40, path_fig = path_fig)
+
+
+
+
+    
+    
