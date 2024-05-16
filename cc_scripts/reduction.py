@@ -1,4 +1,5 @@
-import os, sys
+import os, warnings
+# import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -7,7 +8,6 @@ from starships import spectrum
 from starships.mask_tools import interp1d_masked
 
 interp1d_masked.iprint=False
-import warnings
 
 import astropy.constants as const
 import astropy.units as u
@@ -15,8 +15,6 @@ import numpy as np
 import starships.planet_obs as pl_obs
 import starships.plotting_fcts as pf
 from starships.planet_obs import Observations, instruments_drs
-
-from starships.planet_obs import instruments_drs
 
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", RuntimeWarning)
@@ -50,7 +48,7 @@ def set_save_location(obs_dir, pl_name, reduction, instrument):
     # Where to save figures?
     path_fig = Path('Figures/Reductions')
 
-def load_planet(obs_dir, pl_kwargs, instrument):
+def load_planet(pl_name, obs_dir, pl_kwargs, instrument):
     # --- Where to find the observations?
     # obs_dir = Path.home() / Path(f'projects/def-dlafre/fgenest/nirps/WASP-127b/')
 
@@ -97,9 +95,10 @@ def load_planet(obs_dir, pl_kwargs, instrument):
 '''**********************************************************************************************'''
 '''                                  Build Transmission Spectrum                                 '''
 
-def build_trans_spec(visit_name, mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans, i_out):
+def build_trans_spec(visit_name, mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans, iout_all, 
+                        clip_ratio, clip_ts, unberv_it, obs, planet):
 
-    visit_name = 'tr1'  # Choose a visit name for the saved file names
+    # visit_name = 'tr1'  # Choose a visit name for the saved file names
 
     # Parameters for extraction
     # param_all: Reduction parameters
@@ -128,9 +127,9 @@ def build_trans_spec(visit_name, mask_tellu, mask_wings, n_pc, coeffs, ld_model,
     # ld_model = 'nonlinear'
     # kind_trans='transmission'
 
-    cbp=True  # Correct bad pixels
+    # cbp=True  # Correct bad pixels
 
-    RVsys = [p.RV_sys.value[0]]
+    RVsys = [planet.RV_sys.value[0]]
     # iout_all = ['all']  # Which exposures are used to build the star's reference spectrum
     transit_tags = [None]
 
@@ -140,15 +139,14 @@ def build_trans_spec(visit_name, mask_tellu, mask_wings, n_pc, coeffs, ld_model,
     'do_tr' : [1],
     'kind_trans' : kind_trans,
     'polynome' : [False],
-    'cbp': cbp
+    'cbp': True
     }
 
     kwargs_build_ts = {
-    'clip_ratio' : 6,
-    'clip_ts' : 6,
-    'unberv_it' : True,
+    'clip_ratio' : clip_ratio,
+    'clip_ts' : clip_ts,
+    'unberv_it' : unberv_it,
     }
-
 
     # If you want to test many different parameters (like n_pc, mask_tellu, mask_wings),
     # You could start a for loop here, changing the corresponding value in `params_all`.
@@ -157,6 +155,10 @@ def build_trans_spec(visit_name, mask_tellu, mask_wings, n_pc, coeffs, ld_model,
     list_tr = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, iout_all,
                                         **kwargs_gen_tr, **kwargs_build_ts)
 
+    return list_tr
+
+
+def save_pl_sig(list_tr, out_dir, n_pc, mask_wings, visit_name, do_tr = [1]):
     # Save sequence with all reduction steps
     # For this example, we will comment this part to save disk space on your computer
     # out_filename = f'sequence_{n_pc}-pc_mask_wings{mask_wings*100:n}_{visit_name}'
