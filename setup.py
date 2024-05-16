@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='starships',
-    version='0.1',
+    version='0.1.1',
     packages=find_packages(),
     install_requires=[
         'astropy==5.1',
@@ -11,11 +11,10 @@ setup(
         'emcee<=3.1.3',
         'exo-k<=1.2.0',
         'exofile>=0.2.2',
-        'h5py==3.7',
+        'h5py>=3.7,<3.11.0',
         'matplotlib<3.7',
         'numpy==1.23.0',
         'scikit-learn==1.0.2',
-        'arviz==0.13.0',
         'astroquery==0.4.6',
         'molmass',
         'arviz==0.13.0',
