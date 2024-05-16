@@ -22,16 +22,9 @@ warnings.simplefilter("ignore", RuntimeWarning)
 def set_save_location(pl_name, reduction, instrument):
 
     ''' Note: Better to use the scratch space to save the reductions.
-    You have infinte space, but the files are deleted if untouched for 2 months. It allows to save as 
-    many reductions as desired. Once the correct reduction parameters are set, you can either move them 
-    into your home directory. '''
-
-    # finding WASP-127b files to be reduced
-    # os.system("!ls /home/opereira/projects/def-dlafre/fgenest/nirps/WASP-127b/")
-
-    # pl_name = 'WASP-127 b'
-    # reduction = 'genest'    # naming of reduction, YAML input
-    # instrument = input on YAML file
+    You have infinte space, but the files are deleted if untouched for 2 months. It allows to save 
+    as many reductions as desired. Once the correct reduction parameters are set, you can either 
+    move them into your home directory. '''
 
     # Use scratch if available, use home if not.
     try:
@@ -42,6 +35,7 @@ def set_save_location(pl_name, reduction, instrument):
     # Output reductions in dedicated directory
     pl_name_fname = ''.join(pl_name.split())
     out_dir /= Path(f'DataAnalysis/{instrument}/Reductions/{pl_name_fname}_{reduction}')
+
     # Make sure the directory exists
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -51,26 +45,12 @@ def set_save_location(pl_name, reduction, instrument):
     return out_dir, path_fig
 
 def load_planet(pl_name, obs_dir, pl_kwargs, instrument):
-    # --- Where to find the observations?
-    # obs_dir = Path.home() / Path(f'projects/def-dlafre/fgenest/nirps/WASP-127b/')
 
     # All the observations must be listed in files.
     # We need the e2ds, the telluric corrected and the reconstructed spectra.
     list_filenames = {'list_e2ds': 'list_e2ds',
                     'list_tcorr': 'list_tellu_corrected',
                     'list_recon': 'list_tellu_recon'}
-
-    # Available instruments
-    # print(list(instruments_drs.keys()))
-
-    # Some parameter of the planet system can be specified here.
-    # If not, the default parameter from exofile are taken. Make sure they are ok (see cell below).
-    pl_kwargs = {
-    #     'M_star': 1.89 *u.M_sun,
-    #     'R_star': 1.60 *u.R_sun,
-    #     'M_pl' : 3.38 * u.M_jup,
-    #     'R_pl' : 1.83 * u.R_jup,
-                }
 
     # check if any planet attributes were manually specified
     if bool(pl_kwargs): 
@@ -80,13 +60,6 @@ def load_planet(pl_name, obs_dir, pl_kwargs, instrument):
 
     p = obs.planet
 
-    # Print some parameters (to check if they are satisfying)
-    # print((f"M_pl: {p.M_pl.to('Mjup')}\n"
-    #     f"M_star: {p.M_star.to('Msun')}\n"
-    #     f"R_star: {p.R_star.to('Rsun')}\n"
-    #     f"R_pl: {p.R_pl.to('Rjup')}\n"
-    #     f"RV_sys: {p.RV_sys}"))
-
     # Get the data
     obs.fetch_data(obs_dir, **list_filenames)
 
@@ -94,13 +67,9 @@ def load_planet(pl_name, obs_dir, pl_kwargs, instrument):
     # obs.flux = np.ma.array(obs.flux, mask=new_mask)
     return p, obs
 
-'''**********************************************************************************************'''
-'''                                  Build Transmission Spectrum                                 '''
 
 def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans, iout_all, 
                         clip_ratio, clip_ts, unberv_it, obs, planet):
-
-    # visit_name = 'tr1'  # Choose a visit name for the saved file names
 
     # Parameters for extraction
     # param_all: Reduction parameters
@@ -114,25 +83,10 @@ def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans,
     #     sigma clips params (fixed at 5.0)
     #     ]
     # (So I basically only change tellu frac, the wings and nPC)
-    # mask_tellu = 0.2  # Identify the deep tellurics that will be masked (in fraction of abosption)
-    # mask_wings = 0.9  # Mask wings of these deep tellurics (in fraction of absorption)
-    # n_pc = 3
+
     params_all=[[mask_tellu, mask_wings, 51, 41, 5, n_pc, 5.0, 5.0, 5.0, 5.0]]
 
-
-    # --- For emission spectra
-    # coeffs = [0.532]
-    # ld_model = 'linear'
-    # kind_trans='emission'
-    # --- For transmission spectra
-    # coeffs = [ 0.02703969,  1.10037972, -0.96372403,  0.28750393]  # For transits
-    # ld_model = 'nonlinear'
-    # kind_trans='transmission'
-
-    # cbp=True  # Correct bad pixels
-
     RVsys = [planet.RV_sys.value[0]]
-    # iout_all = ['all']  # Which exposures are used to build the star's reference spectrum
     transit_tags = [None]
 
     kwargs_gen_tr = {
@@ -141,7 +95,7 @@ def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans,
     'do_tr' : [1],
     'kind_trans' : kind_trans,
     'polynome' : [False],
-    'cbp': True
+    'cbp': True # correct bad pixels
     }
 
     kwargs_build_ts = {
@@ -149,9 +103,6 @@ def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans,
     'clip_ts' : clip_ts,
     'unberv_it' : unberv_it,
     }
-
-    # If you want to test many different parameters (like n_pc, mask_tellu, mask_wings),
-    # You could start a for loop here, changing the corresponding value in `params_all`.
 
     # Extract the planetary signal
     list_tr = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, iout_all,
@@ -161,19 +112,10 @@ def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans,
 
 
 def save_pl_sig(list_tr, out_dir, n_pc, mask_wings, visit_name, do_tr = [1]):
-    # Save sequence with all reduction steps
-    # For this example, we will comment this part to save disk space on your computer
-    # out_filename = f'sequence_{n_pc}-pc_mask_wings{mask_wings*100:n}_{visit_name}'
-    # pl_obs.save_single_sequences(out_filename, list_tr['1'], path=out_dir, save_all=True)
-
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
-    out_filename = f'TESTretrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_{visit_name}'
+    out_filename = f'retrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_{visit_name}'
     pl_obs.save_sequences(out_filename, list_tr, do_tr, path=out_dir)
 
-    # print('Kp =', list_tr['1'].Kp)
-
-'''**********************************************************************************************'''
-'''                                      Output Result Plots                                     '''
 
 def reduction_plots(list_tr, idx_ord, path_fig):
     visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
@@ -182,31 +124,37 @@ def reduction_plots(list_tr, idx_ord, path_fig):
     sequence_obj = list_tr['1']
     pf.plot_steps(sequence_obj, idx_ord, path_fig = str(path_fig))
 
-# visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
-# pf.plot_airmass(visit_list)
-
-# sequence_obj = list_tr['1']
-
-# idx_ord = 40
-# pf.plot_steps(sequence_obj, idx_ord)
-
+'''                              TEST RUN FOR WASP 127-B TRANSIT 1                               '''
 if __name__ == "__main__" :
-    ''' testing functions for WASP 127-b '''
-
     # setting parameters that would be set in a YAML file
     obs_dir = Path.home() / Path(f'projects/def-dlafre/fgenest/nirps/WASP-127b/')
-    reduction = 'genest'
+    reduction = 'TEST'
     pl_name = 'WASP-127 b'
     instrument = 'NIRPS-APERO'
     visit_name = 'tr1'
-    mask_tellu = 0.2
-    mask_wings = 0.9
+    mask_tellu = 0.2 # Identify the deep tellurics that will be masked (in fraction of abosption)
+    mask_wings = 0.9 # Mask wings of these deep tellurics (in fraction of absorption)
     n_pc = 3
-    kind_trans = 'transmission'
-    coeffs = [ 0.02703969,  1.10037972, -0.96372403,  0.28750393]
+
+    # --- For emission spectra
+    # coeffs = [0.532]
+    # ld_model = 'linear'
+    # kind_trans='emission'
+
+    # --- For transmission spectra
+    coeffs = [ 0.02703969,  1.10037972, -0.96372403,  0.28750393]  # For transits
     ld_model = 'nonlinear'
+    kind_trans='transmission'
+
     iout_all = ['all']
-    pl_kwargs = {}
+    
+    pl_kwargs = {
+    #     'M_star': 1.89 *u.M_sun,
+    #     'R_star': 1.60 *u.R_sun,
+    #     'M_pl' : 3.38 * u.M_jup,
+    #     'R_pl' : 1.83 * u.R_jup,
+                }
+    
     clip_ratio = 6
     clip_ts = 6
     unberv_it = True
@@ -230,9 +178,3 @@ if __name__ == "__main__" :
 
     print('Kp =', list_tr['1'].Kp)
     reduction_plots(list_tr, idx_ord = 40, path_fig = path_fig)
-
-
-
-
-    
-    
