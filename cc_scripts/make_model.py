@@ -52,7 +52,7 @@ except ModuleNotFoundError:
 def init_model_retrieval(mol_species=None, kind_res='high', lbl_opacity_sampling=None,
                          wl_range=None, continuum_species=None, pressures=None, **kwargs):
     """
-    Initialize some objects needed for modelization: atmo, species, star_fct, pressures
+    Initialize some objects needed for model: atmo, species, star_fct, pressures
     :param mol_species: list of species included (without continuum opacities)
     :param kind_res: str, 'high' or 'low'
     :param lbl_opacity_sampling: ?
@@ -293,6 +293,8 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
 
     return wv_out, model_out
 
+
+
 # initialisation
 pl_name = 'KELT-20 b'
 # Name used for filenames
@@ -493,27 +495,6 @@ if n_regions > 1:
                 log.debug(f'Parameter {key} already in params_prior or reg_fixed_params. Skipping.')
         # Remove the global parameter
         params_prior.pop(param)
-
-# --- Assign the prior names to a log_prior function using a dictionnary ---
-# The functions take the value from theta and return the log of the prior.
-# prior_func_dict = ru.default_prior_func
-# You can add or replace with custom prior functions in the dictionnary.
-# Ex: prior_func_dict['your_prior'] = your_prior_func
-
-# --- Initialize walkers using the prior ---
-# Define the initialisation function for each type of prior.
-# If you create your own prior function, you need to add it here.
-# prior_init_func = ru.default_prior_init_func
-# You can add or replace with custom prior functions in the dictionnary.
-# Ex: prior_init_func['your_prior'] = your_prior_init_func
-# Special treatment for some paramters
-# special_treatment = {'kp': ['uniform', 150, 190],
-#                      'rv': ['uniform', -20, 20],
-#                      'phase1': ['uniform', 0.2, 0.6],
-#                      'H2O_1': ['log_uniform', -6.0, -0.5],
-#                      }
-# walker_init = ru.init_from_prior(n_walkers, prior_init_func, params_prior,
-#                                  special_treatment=special_treatment)
 
 
 ####################################################
