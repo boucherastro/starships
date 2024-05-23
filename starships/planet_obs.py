@@ -2,6 +2,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+from copy import deepcopy
+
+from pathlib import Path
 import astropy.units as u
 from astropy.time import Time
 from astropy.io import fits
@@ -9,18 +12,18 @@ import astropy.constants as const
 from astropy.convolution import convolve, Gaussian1DKernel
 from astropy.table import Table
 
-from starships.list_of_dict import *
-import starships.orbite as o
-from starships import transpec as ts
-from starships import homemade as hm
-from starships import spectrum as spectrum
-from starships.mask_tools import interp1d_masked
-from starships.plotting_fcts import plot_all_orders_correl
-from starships.analysis import calc_snr_1d
-from starships.extract import get_mask_tell, get_mask_noise
-from starships.correlation import calc_logl_BL_ord, quick_correl_3dmod # calc_logl_OG_cst, calc_logl_OG_ord
-# from starships.analysis import make_quick_model
-# from starships.extract import quick_norm
+from .list_of_dict import *
+from . import orbite as o
+from . import transpec as ts
+from . import homemade as hm
+from . import spectrum as spectrum
+from .mask_tools import interp1d_masked
+from .plotting_fcts import plot_all_orders_correl
+from .analysis import calc_snr_1d
+from .extract import get_mask_tell, get_mask_noise
+from .correlation import calc_logl_BL_ord, quick_correl_3dmod # calc_logl_OG_cst, calc_logl_OG_ord
+# from .analysis import make_quick_model
+# from .extract import quick_norm
 # from transit_prediction.masterfile import MasterFile 
 # from masterfile.archive import MasterFile
 from exofile.archive import ExoFile
@@ -34,7 +37,76 @@ from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from collections import OrderedDict
 import gc
+import logging
+from PyAstronomy import pyasl
 
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+
+
+# Constants
+DEFAULT_LISTS_FILENAMES = {False: {'file_list': 'list_e2ds',
+                                   'file_list_tcorr': 'list_tellu_corrected',
+                                   'file_list_recon': 'list_tellu_recon'},
+                           True: {'file_list': 'list_s1d',
+                                  'file_list_tcorr': 'list_tellu_corrected_1d',
+                                  'file_list_recon': 'list_tellu_recon_1d'}}
+
+# Dictionaries for different instruments and/or DRS
+
+# spirou (apero)
+spirou = dict()
+spirou['name'] = 'SPIRou-APERO'
+spirou['airmass'] = 'AIRMASS'
+spirou['telaz'] = 'TELAZ'
+spirou['adc1'] = 'SBADC1_P'
+spirou['adc2'] = 'SBADC2_P'
+spirou['mjd'] = 'MJD-OBS'
+spirou['bjd'] = 'BJD'
+spirou['exptime'] = 'EXPTIME'
+spirou['berv'] = 'BERV'
+
+# nirps, apero DRS
+nirps_apero = dict()
+nirps_apero['name'] = 'NIRPS-APERO'
+nirps_apero['airmass'] = 'HIERARCH ESO TEL AIRM START'
+nirps_apero['telaz'] = 'HIERARCH ESO TEL AZ'
+nirps_apero['adc1'] = 'HIERARCH ESO INS ADC1 START'
+nirps_apero['adc2'] = 'HIERARCH ESO INS ADC2 START'
+nirps_apero['mjd'] = 'MJD-OBS'
+nirps_apero['bjd'] = 'BJD'
+nirps_apero['exptime'] = 'EXPTIME'
+nirps_apero['berv'] = 'BERV'
+# nirps, geneva/ESPRESSO DRS
+# implementing
+nirps_geneva = dict()
+nirps_geneva['name'] = 'NIRPS-GENEVA'
+nirps_geneva['airmass'] = 'HIERARCH ESO TEL AIRM START'
+nirps_geneva['telaz'] = 'HIERARCH ESO TEL AZ'
+nirps_geneva['adc1'] = 'HIERARCH ESO INS ADC1 START'
+nirps_geneva['adc2'] = 'HIERARCH ESO INS ADC2 START'
+nirps_geneva['mjd'] = 'MJD-OBS'
+nirps_geneva['bjd'] = 'HIERARCH ESO QC BJD'
+nirps_geneva['exptime'] = 'EXPTIME'
+nirps_geneva['berv'] = 'HIERARCH ESO QC BERV'
+
+igrins_zoe = dict()
+igrins_zoe['name'] = 'IGRINS'
+igrins_zoe['airmass'] = 'AMSTART'
+# igrins_zoe['telaz'] = 'TELRA'
+igrins_zoe['adc1'] = 'NADCS'
+igrins_zoe['adc2'] = 'NADCS'
+igrins_zoe['bjd'] = 'JD-OBS'
+igrins_zoe['mjd'] = 'MJD-OBS'
+igrins_zoe['exptime'] = 'EXPTIMET'
+
+# dictionary with instrument-DRS names
+instruments_drs = {
+    'SPIRou-APERO': spirou,
+    'NIRPS-APERO': nirps_apero,
+    'NIRPS-GENEVA': nirps_geneva,
+    'IGRINS': igrins_zoe
+}
 
 # def fits2wave(file_or_header):
 #     info = """
@@ -118,9 +190,57 @@ def fits2wave(image, header):
     # return wave grid
     return wavesol
 
-def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=None,
-                blaze_path=None, debug=False, ver06=False):
-    
+
+def fits2wavenew(image, hdr):
+    """
+    Get the wave solution from the header using a filename
+    """
+    # size of the image
+    nbypix, nbxpix = image.shape
+    # get the keys with the wavelength polynomials
+    wave_hdr = hdr['WAVE0*']
+    # concatenate into a numpy array
+    wave_poly = np.array([wave_hdr[i] for i in range(len(wave_hdr))])
+    # get the number of orders
+    nord = hdr['WAVEORDN']
+    # get the per-order wavelength solution
+    wave_poly = wave_poly.reshape(nord, len(wave_poly) // nord)
+    # project polynomial coefficiels
+    wavesol = np.zeros_like(image)
+    # xpixel grid
+    xpix = np.arange(nbxpix)
+    # loop around orders
+    for order_num in range(nord):
+        # calculate wave solution for this order
+        owave = val_cheby(wave_poly[order_num], xpix, domain=[0, nbxpix])
+        # push into wave map
+        wavesol[order_num] = owave
+    # return wave grid
+    return wavesol
+
+def val_cheby(coeffs, xvector,  domain):
+    """
+    Using the output of fit_cheby calculate the fit to x  (i.e. y(x))
+    where y(x) = T0(x) + T1(x) + ... Tn(x)
+
+    :param coeffs: output from fit_cheby
+    :param xvector: x value for the y values with fit
+    :param domain: domain to be transformed to -1 -- 1. This is important to
+    keep the components orthogonal. For SPIRou orders, the default is 0--4088.
+    You *must* use the same domain when getting values with fit_cheby
+    :return: corresponding y values to the x inputs
+    """
+    # transform to a -1 to 1 domain
+    domain_cheby = 2 * (xvector - domain[0]) / (domain[1] - domain[0]) - 1
+    # fit values using the domain and coefficients
+    yvector = np.polynomial.chebyshev.chebval(domain_cheby, coeffs)
+    # return y vector
+    return yvector
+
+
+def read_all_sp_spirou_apero(path, file_list, wv_default=None, blaze_default=None,
+                blaze_path=None, debug=False, ver06=False, cheby=False):
+
     """
     Read all spectra
     Must have a list with all filename to read 
@@ -133,7 +253,11 @@ def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=No
     filenames = []
     blaze0 = None
 
-    with open(path + file_list) as f:
+    path = Path(path)
+    blaze_path = Path(blaze_path)
+    file_list = Path(file_list)
+
+    with open(path / file_list) as f:
 
         for file in f:
             filename = file.split('\n')[0]
@@ -142,60 +266,51 @@ def read_all_sp(path, file_list, onedim=False, wv_default=None, blaze_default=No
                 print(filename)
 
             filenames.append(filename)
-            hdul = fits.open(path + filename)
-        
-            # --- If not 1D spectra (so if they are E2DS) ---
-            if onedim is False: 
-                if ver06 is False: # --- for V0.6 data ---
-                    header = hdul[0].header
-                    image = hdul[1].data
-                else:
-                    header = hdul[0].header
-                    image = hdul[0].data
-                
-                headers.append(header)
-                count.append(image)
+            hdul = fits.open(path / Path(filename))
 
-                try:
-                    wv_file = wv_default or hdul[0].header['WAVEFILE']
-                    with fits.open(path + wv_file) as f:
-                        wvsol = f[0].data
-                except (KeyError,FileNotFoundError) as e:
-                    wvsol = fits2wave(image, header)
-    #                 if debug:
-    #                     print(wvsol)
-                
-#                 if blaze0 is None:
-                try:
-                    blaze_file = blaze_default or header['CDBBLAZE']
-                except KeyError:
-                    blaze_file = header['CDBBLAZE']
-                
-                if ver06 is False:
-                    blaze0 = fits.getdata(blaze_path + blaze_file, ext=1)
-                else:
-                    with fits.open(blaze_path + blaze_file) as f:
-#                         header = fits.getheader(filename, ext=0) 
-                        blaze0 = f[0].data
-#                         print(blaze)
-                blaze.append(blaze0)
-
-            # --- For 1D spectra --- (probably old)
+            if ver06 is False: # --- for V0.6 data ---
+                header = hdul[0].header
+                image = hdul[1].data
             else:
-                headers.append(hdul[1].header)
+                header = hdul[0].header
+                image = hdul[0].data
 
-                data = Table.read(path+filename)
-                wvsol = data['wavelength'][None,:]
-                count.append(data['flux'][None,:])
-        #         eflux = data['eflux']
-                blaze.append(data['weight'][None,:])
+            headers.append(header)
+            count.append(image)
+
+            try:
+                wv_file = wv_default or hdul[0].header['WAVEFILE']
+                with fits.open(path / Path(wv_file)) as f:
+                    wvsol = f[0].data
+            except (KeyError,FileNotFoundError) as e:
+                if cheby is False:
+                    wvsol = fits2wave(image, header)
+                else:
+                    wvsol = fits2wavenew(image, header)
+#                 if debug:
+#                     print(wvsol)
+
+#                 if blaze0 is None:
+            try:
+                blaze_file = blaze_default or header['CDBBLAZE']
+            except KeyError:
+                blaze_file = header['CDBBLAZE']
+
+            if ver06 is False:
+                blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
+            else:
+                with fits.open(blaze_path / Path(blaze_file)) as f:
+#                         header = fits.getheader(filename, ext=0) 
+                    blaze0 = f[0].data
+#                         print(blaze)
+            blaze.append(blaze0)
                 
             wv.append(wvsol/1000)
 
     return headers, np.array(wv), np.array(count), np.array(blaze), filenames
 
 
-def read_all_sp_CADC(path, file_list):
+def read_all_sp_spirou_CADC(path, file_list):
     
     """
     Read all CADC-type spectra
@@ -232,6 +347,220 @@ def read_all_sp_CADC(path, file_list):
     
     return headers_princ, headers_image, headers_tellu, np.array(wv), \
             np.array(count), np.array(blaze), np.array(recon), filenames
+
+
+def read_all_sp_igrins(path, file_list, blaze_path=None, input_type='data'):
+
+    """
+    Read all spectra
+    Must have a list with all filename to read
+
+    input_type: 'data'-observation data, 'recon'-telluric reconstruction
+    """
+
+    # create some empty list and append later
+
+    file_list = path/Path(file_list)
+    with open(file_list, 'r') as file:
+        file_paths = file.readlines()
+    file_paths = [path.strip() for path in file_paths]
+
+    if input_type == 'data':
+
+        headers, count, wv, blaze = list_of_dict([]), [], [], []
+        # headers, count, wv, blaze = [], [], [], []
+        filenames = []
+
+        blaze_path = Path(blaze_path)
+
+        # Iterate over the file paths and open each FITS file
+        for file in file_paths:
+            try:
+                filenames.append(file)
+
+                hdul = fits.open(file)
+
+                header = hdul[0].header
+                image = hdul[0].data
+                wvsol = hdul[1].data
+
+                headers.append(header)
+                count.append(image)
+                wv.append(wvsol)
+
+                hdul.close()  # Close the FITS file after processing
+
+            except IOError:
+                print(f"Error opening FITS file: {file}")
+
+        with fits.open(blaze_path) as hdul:
+            b = hdul[0].data
+            blaze.append(b)
+
+        return headers, np.array(wv), np.array(count), np.array(blaze), filenames
+
+    elif input_type == 'recon': # file_list is telluric_recon
+
+        tellu_recon = []
+
+        for file in file_paths:
+            try:
+                hdul = fits.open(file)
+
+                tellu = hdul[0].data
+                tellu_recon.append(tellu)
+
+                hdul.close()
+
+            except IOError:
+                print(f"Error opening FITS file: {file}")
+
+        return np.array(tellu_recon)
+
+
+# a very slight modification of the spirou function: the wave solution is now in the second extension of the wave file
+def read_all_sp_nirps_apero(path, file_list, wv_default=None, blaze_default=None,
+                            blaze_path=None, debug=False, ver06=False, cheby=False):
+    """
+    Read all spectra
+    Must have a list with all filename to read
+    """
+
+    headers, count, wv, blaze = list_of_dict([]), [], [], []
+    blaze_path = blaze_path or path
+
+    headers_princ = list_of_dict([])
+    filenames = []
+    blaze0 = None
+
+    path = Path(path)
+    blaze_path = Path(blaze_path)
+    file_list = Path(file_list)
+
+    with open(path / file_list) as f:
+
+        for file in f:
+            filename = file.split('\n')[0]
+
+            if debug:
+                print(filename)
+
+            filenames.append(filename)
+            hdul = fits.open(path / Path(filename))
+
+            if ver06 is False:  # --- for V0.6 data ---
+                header = hdul[0].header
+                image = hdul[1].data
+            else:
+                header = hdul[0].header
+                image = hdul[0].data
+
+            headers.append(header)
+            count.append(image)
+
+            try:
+                wv_file = wv_default or hdul[0].header['WAVEFILE']
+                with fits.open(path / Path(wv_file)) as f:
+                    wvsol = f[1].data
+            except (KeyError, FileNotFoundError) as e:
+                if cheby is False:
+                    wvsol = fits2wave(image, header)
+                else:
+                    wvsol = fits2wavenew(image, header)
+            #                 if debug:
+            #                     print(wvsol)
+
+            #                 if blaze0 is None:
+            try:
+                blaze_file = blaze_default or header['CDBBLAZE']
+            except KeyError:
+                blaze_file = header['CDBBLAZE']
+
+            if ver06 is False:
+                blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
+            else:
+                with fits.open(blaze_path / Path(blaze_file)) as f:
+                    #                         header = fits.getheader(filename, ext=0)
+                    blaze0 = f[0].data
+            #                         print(blaze)
+            blaze.append(blaze0)
+
+            wv.append(wvsol / 1000)
+
+    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
+
+def read_all_sp_nirps_geneva(path, file_list, wv_default=None, blaze_default=None,
+                             blaze_path=None, debug=False, cheby=False):
+    """
+    Read all spectra
+    Must have a list with all filename to read
+    Include 'recon' in the name of the file list for the recon files
+    """
+
+    headers, count, wv, blaze = list_of_dict([]), [], [], []
+    blaze_path = blaze_path or path
+
+    # headers_princ = list_of_dict([])
+    filenames = []
+    blaze0 = None
+
+    recon = 'recon' in file_list
+
+    path = Path(path)
+    blaze_path = Path(blaze_path)
+    file_list = Path(file_list)
+
+    with open(path / file_list) as f:
+
+        for file in f:
+            filename = file.split('\n')[0]
+
+            if debug:
+                print(filename)
+
+            filenames.append(filename)
+            hdul = fits.open(path / Path(filename))
+
+            header = hdul[0].header
+            if recon:
+                image = hdul[6].data
+            else:
+                image = hdul[1].data
+
+            headers.append(header)
+            count.append(image)
+
+            # vacuum wavelengths
+            if recon:
+                wvsol = hdul[2].data
+            else:
+                wvsol = hdul[4].data
+
+            # remove berv correction (Geneva data is already berv corrected)
+            # barycentric correction (km/s)
+            berv = header['HIERARCH ESO QC BERV']
+            shift = hm.calc_shift(berv, kind='rel')
+            wvsol = wvsol/shift
+
+            try:
+                blaze_file = blaze_default or header['HIERARCH ESO PRO REC1 CAL24 NAME']
+            except KeyError:
+                blaze_file = header['HIERARCH ESO PRO REC1 CAL24 NAME']
+
+            blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
+
+            blaze.append(blaze0)
+
+            wv.append(wvsol / 10000)
+
+    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
+
+
+# give the appropriate functions to read spectra to all the instrument/DRS dictionaries
+spirou['read_all_sp'] = read_all_sp_spirou_apero
+nirps_apero['read_all_sp'] = read_all_sp_nirps_apero
+nirps_geneva['read_all_sp'] = read_all_sp_nirps_geneva
+igrins_zoe['read_all_sp'] = read_all_sp_igrins
 
 
 def fake_noise(flux, gwidth=1):
@@ -292,10 +621,24 @@ def gen_rv_sequence(self, p, plot=False, K=None):
 
 
 def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=False):
-    self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.mid_tr, e=p.excent)
+    self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.t_peri, e=p.excent)
 
     rp, x, y, z, self.sep, p.bRstar = o.position(self.nu, e=p.excent, i=p.incl, w=p.w, omega=p.omega,
                                                  Rstar=p.R_star, P=p.period, ap=p.ap, Mp=p.M_pl, Mstar=p.M_star)
+
+
+    self.phase = ((self.t - p.mid_tr) / p.period).decompose().value
+    self.phase -= np.round(self.phase.mean())
+    if kind_trans == 'emission':
+        if (self.phase < 0).all():
+            self.phase += 1.0
+
+    tag = ['primary', 'secondary'][np.argmin([np.abs(np.mean(self.phase) - 0), np.abs(np.mean(self.phase) - 0.5)])]
+    # if tag == 'primary':
+    T0 = p.mid_tr
+    if tag == 'secondary':
+        T0 = p.mid_tr + 0.5 * p.period.to(u.d)
+        z = None
 
     i_peri = np.searchsorted(self.t, p.mid_tr)
 
@@ -336,34 +679,34 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
     self.icorr = self.iIn
 
     if plot is True:
-        fig, ax = plt.subplots(3, 1, sharex=True)
-        ax[2].plot(self.t, np.nanmean(self.SNR[:, :], axis=-1), 'o-')
+        fig, ax = plt.subplots(2, 1, sharex=True)
+        ax[1].plot(self.t, np.nanmean(self.SNR[:, :], axis=-1), 'o-')
         if out.size > 0:
             ax[0].plot(self.t[self.iOut], self.AM[self.iOut], 'ro')
             #             ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'ro')
-            ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'ro')
+            ax[1].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'ro')
         if part.size > 0:
             ax[0].plot(self.t[self.part], self.AM[self.part], 'go')
             #             ax[1].plot(self.t[self.part], self.adc1[self.part],'go')
-            ax[2].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :], axis=-1), 'go')
+            ax[1].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :], axis=-1), 'go')
         if total.size > 0:
             ax[0].plot(self.t[self.total], self.AM[self.total], 'bo')
             #             ax[1].plot(self.t[self.total], self.adc1[self.total],'bo')
-            ax[2].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :], axis=-1), 'bo')
+            ax[1].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :], axis=-1), 'bo')
         if self.iin.size > 0:
             ax[0].plot(self.t[self.iIn], self.AM[self.iIn], 'g.')
             #             ax[1].plot(self.t[self.iIn], self.adc1[self.iIn],'g.')
-            ax[2].plot(self.t[self.iIn], np.nanmean(self.SNR[self.iIn, :], axis=-1), 'g.')
+            ax[1].plot(self.t[self.iIn], np.nanmean(self.SNR[self.iIn, :], axis=-1), 'g.')
         if self.iout.size > 0:
             ax[0].plot(self.t[self.iOut], self.AM[self.iOut], 'r.')
             #             ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'r.')
-            ax[2].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'r.')
+            ax[1].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'r.')
 
         ax[0].set_ylabel('Airmass')
-        ax[1].set_ylabel('ADC1 angle')
-        ax[2].set_ylabel('Mean SNR')
+        # ax[1].set_ylabel('ADC1 angle')
+        ax[1].set_ylabel('Mean SNR')
 
-    self.alpha = hm.calc_tr_lightcurve(p, coeffs, self.t.value, ld_model=ld_model, kind_trans=kind_trans)
+    self.alpha = hm.calc_tr_lightcurve(p, coeffs, self.t, T0, ld_model=ld_model, kind_trans=kind_trans)
     #         self.alpha = np.array([(hm.circle_overlap(p.R_star.to(u.m), p.R_pl.to(u.m), sep) / \
     #                         p.A_star).value for sep in self.sep]).squeeze()
     #         self.alpha = np.array([hm.circle_overlap(p.R_star, p.R_pl, sep).value for sep in self.sep])
@@ -371,6 +714,10 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
 
     self.kind_trans, self.coeffs, self.ld_model = kind_trans, coeffs, ld_model
 
+
+#######################
+### Observation class
+#######################
 
 class Observations():
     
@@ -380,17 +727,23 @@ class Observations():
     Note : Probably could be optimized
     """
 
+    # added an instrument argument to pass the appropriate dictionary. Default=spirou
+    # to properly pass a dictionary from outside (e.g. a jupyter notebook),
+    # need to write e.g. instrument=planet_obs.nirps_apero
     def __init__(self, wave=np.array([]), count=np.array([]), blaze=np.array([]),
                  headers = list_of_dict([]), headers_image = list_of_dict([]), headers_tellu = list_of_dict([]), 
                  tellu=np.array([]), uncorr=np.array([]), 
-                 name='', path='',filenames=[], planet=None, pl_kwargs=None, CADC=False):
+                 name='', path='',filenames=[], planet=None, CADC=False, pl_kwargs=None, instrument='SPIRou-APERO'):
         
         self.name = name
-        self.path=path
+        self.path = Path(path)
         
         # --- Get the system parameters from the ExoFile
         if planet is None:
-            self.planet = Planet(name, **pl_kwargs)
+            if pl_kwargs is not None:
+                self.planet = Planet(name, **pl_kwargs)
+            else:
+                self.planet = Planet(name)
         else:
             self.planet=planet
         
@@ -405,65 +758,80 @@ class Observations():
         self.uncorr=uncorr
         self.tellu=tellu
         self.CADC = CADC
+        # get the instrument dictionary from the dict of instruments
+        # the string/name
+        self.instrument_name = instrument
+        # the dictionary
+        self.instrument = instruments_drs[instrument]
 
                      
-    def fetch_data(self, path, onedim=False, CADC=False, sanit=False, **kwargs):
-        
+    def fetch_data(self, path, CADC=False, list_e2ds='list_e2ds',
+                   list_tcorr='list_tellu_corrected', list_recon='list_tellu_recon',
+                   read_sp=None, **kwargs):
+
         """
         Retrieve all the relevent data in path 
         (tellu corrected, tellu recon and uncorrected spectra from lists of files)
         """
-        
+
+        # TODO Remove CADC references -> Use an instrument/reduction configuration instead
         self.CADC = CADC
-        
-        if onedim is False:
-            file_list = 'list_e2ds'
-            file_list_tcorr = 'list_tellu_corrected'
-            file_list_recon = 'list_tellu_recon'
-#             if sanit is True:
-#                 file_list = 'list_e2ds_sanit'
-#                 file_list_tcorr = 'list_sanit'
-#                 file_list_recon = 'list_tellu_recon_sanit'
-            
-        else:
-            file_list = 'list_s1d'
-            file_list_tcorr = 'list_tellu_corrected_1d'
-            file_list_recon = 'list_tellu_recon_1d'
-        
-        if CADC is False:
 
-            print('Fetching data')
-            headers, wv, count, blaze, filenames = read_all_sp(path, file_list_tcorr, onedim=onedim, **kwargs)
+        # get the appropriate function to read spectra from the instrument's dictionary
+        # if read function is not specified as an argument
+        if not read_sp:
+            read_sp = self.instrument['read_all_sp']
 
-#             self.headers = headers
-#             self.wave = np.array(wv)
-#             self.count = np.ma.masked_invalid(count)
-#             self.blaze = np.ma.masked_array(blaze)
-#             self.filenames  = filenames
+        if CADC:
 
-            print("Fetching the tellurics")
-            _, _, tellu, _, _ = read_all_sp(path, file_list_recon, onedim=onedim, **kwargs)
-
-            print("Fetching the uncorrected spectra")
-            
-            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_all_sp(path, file_list, onedim=onedim, **kwargs)
-
-        else:
-            print('Fetching data')
+            log.info('Fetching data')
             headers, headers_image, headers_tellu, \
-            wv, count, blaze, tellu, filenames = read_all_sp_CADC(path, 'list_tellu_corrected')
-            
+            wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr)
+
             self.headers_image, self.headers_tellu = headers_image, headers_tellu
-            
-            print("Fetching the uncorrected spectra")
-            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_CADC(path, 'list_e2ds')
-           
-            
+
+            log.info("Fetching the uncorrected spectra")
+            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds)
+
+        else:
+            log.info("Fetching the uncorrected spectra")
+            log.info(f"File: {list_e2ds}")
+
+            headers, wave, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, **kwargs)
+
+            if list_tcorr is None:
+                log.info('No telluric correction available')
+                count = count_uncorr.copy()
+                blaze = blaze_uncorr.copy()
+                filenames = filenames_uncorr
+
+            else:
+                log.info('Fetching data')
+                log.info(f"File: {list_tcorr}")
+                headers, wave, count, blaze, filenames = read_sp(path, list_tcorr, **kwargs)
+
+            #             self.headers = headers
+            #             self.wave = np.array(wv)
+            #             self.count = np.ma.masked_invalid(count)
+            #             self.blaze = np.ma.masked_array(blaze)
+            #             self.filenames  = filenames
+
+
+            if list_recon is None:
+                log.info('No reconstruction available')
+                tellu = np.ones_like(count)
+
+            else:
+                log.info("Fetching the tellurics")
+                log.info(f"File: {list_recon}")
+                _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
+                # tellu = read_sp(path, list_recon, input_type='recon', **kwargs)
+
         self.headers = headers
-        self.wave = np.array(wv)
+        self.wave = np.array(wave)
         self.count = np.ma.masked_invalid(count)
         self.blaze = np.ma.masked_invalid(blaze)
-        self.filenames  = filenames
+        self.filenames = filenames
         self.filenames_uncorr = filenames_uncorr
 
         self.tellu = np.ma.masked_invalid(tellu)
@@ -474,14 +842,12 @@ class Observations():
 
         self.uncorr = count_uncorr
 
-        if onedim is False:
-            self.uncorr_fl = self.uncorr/(blaze_uncorr/np.nanmax(blaze_uncorr, axis=-1)[:,:,None])
+        self.uncorr_fl = self.uncorr/(blaze_uncorr/np.nanmax(blaze_uncorr, axis=-1)[:,:,None])
             
-        self.path=path
+        self.path = Path(path)
         
         
     def select_transit(self, transit_tag, bloc=None):
-        
         """
         To split down all the data into singular observing blocks/nights
         """
@@ -518,7 +884,9 @@ class Observations():
             
         
 #         return sub_obs
-        return Observations(headers=new_headers, 
+
+        # add instrument argument
+        return Observations(headers=new_headers,
                             wave=self.wave[transit_tag],
                             count=self.count[transit_tag], blaze=self.blaze[transit_tag], 
                             tellu=self.tellu[transit_tag], 
@@ -526,9 +894,12 @@ class Observations():
                             name=self.name, planet=self.planet , 
                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
                             # filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
-                            CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl)
+                            CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl,
+                            instrument=self.instrument_name)
     
-    def calc_sequence(self, plot=True, sequence=None, K=None, uncorr=False, iin=False, 
+    # switched hard '49' value to self.nord
+    # call instrument dictionary for problematic header keys
+    def calc_sequence(self, plot=True, sequence=None, K=None, uncorr=False, iin=False,
                       coeffs=[0.4], ld_model='linear', time_type='BJD', kind_trans='transmission'):
         
         """
@@ -537,34 +908,43 @@ class Observations():
         """
         
         p = self.planet
-        self.headers[0]['VERSION']
-#         if self.count.ndim == 3:
-#             self.n_spec, self.nord, self.npix = self.count.shape
-#             self.onedim = False
-#         elif self.count.ndim == 2:
-#             self.n_spec, self.npix = self.count.shape
-#             self.nord = 1
-#             self.onedim = True
+        # self.headers[0]['VERSION']
         self.n_spec, self.nord, self.npix = self.count.shape
-        if self.nord == 1:
-             self.onedim = True
-        else:
-             self.onedim = False
         
         if sequence is None:
             
             if self.CADC is False:
                 if time_type == 'BJD':
-                    self.t_start = Time(np.array(self.headers.get_all('BJD')[0], dtype='float'), 
-                                format='jd').jd.squeeze() * u.d
+                    self.t_start = Time(np.array(self.headers.get_all(self.instrument['bjd'])[0], dtype='float'),
+                                format='jd').jd.squeeze()# * u.d
+                # TODO check for start, end or mid mjd keys for instruments
+                # or take mjd + exptime / 2
                 elif time_type == 'MJD':
                     self.t_start = Time((np.array(self.headers.get_all('MJDATE')[0], dtype='float') + \
                                         np.array(self.headers.get_all('MJDEND')[0], dtype='float')) / 2, 
-                                format='jd').jd.squeeze() * u.d
+                                format='jd').jd.squeeze()# * u.d
                     
-                self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0], 
-                                 dtype='float') for order in range(49)]).T
-                self.berv0 = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
+                try:
+                    self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0],
+                                dtype='float') for order in range(self.nord)]).T
+                except KeyError:
+                    self.SNR = np.sqrt(np.ma.median(self.count,axis=-1))
+
+                try:
+                    self.berv0 = np.array(self.headers.get_all(self.instrument['berv'])[0], dtype='float').squeeze()
+                except KeyError:
+                    ra = self.headers[0]['OBJRA']
+                    dec = self.headers[0]['OBJDEC']
+                    bjds = [hdr['JD-OBS'] for hdr in self.headers]
+
+                    # Cerro Pachon, Chile
+                    lat = -70.73669
+                    lon = -30.24075
+                    alt = 2722.0
+                    berv = np.array([pyasl.helcorr(lat, lon, alt, ra, dec, bjd)[0] for bjd in bjds])
+                    # berv = np.zeros_like(berv)
+                    self.berv0 = berv
+
             else:
 #                 obs_date = [date+' '+hour for date,hour in zip(self.headers_image.get_all('DATE-OBS')[0], \
 #                                                self.headers.get_all('UTIME')[0])]
@@ -572,29 +952,36 @@ class Observations():
 #                 self.t_start = Time(np.array(self.headers_image.get_all('BJD')[0], dtype='float'), 
 #                                 format='jd').jd.squeeze() * u.d
                 if time_type == 'BJD':
-                    self.t_start = Time(np.array(self.headers_image.get_all('BJD')[0], dtype='float'), 
-                                format='jd').jd.squeeze() * u.d
+                    self.t_start = Time(np.array(self.headers_image.get_all(self.instrument['bjd'])[0], dtype='float'),
+                                format='jd').jd.squeeze() #* u.d
                 elif time_type == 'MJD':
                     self.t_start = Time((np.array(self.headers_image.get_all('MJDATE')[0], dtype='float') + \
-                                        np.array(self.headers_image.get_all('MJDEND')[0], dtype='float')) / 2, 
-                                format='jd').jd.squeeze() * u.d
+                                        np.array(self.headers_image.get_all('MJDEND')[0], dtype='float')) / 2,
+                                format='jd').jd.squeeze() #* u.d
 
-                try:
-                    self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
-                                             dtype='float') for order in range(49)]).T
-                except KeyError:
-                    self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:03}'.format(order))[0], \
-                                         dtype='float') for order in range(49)]).T
-                self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
+                # try:
+                #     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
+                #                              dtype='float') for order in range(self.nord)]).T
+                # except KeyError:
+                #     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:03}'.format(order))[0], \
+                #                          dtype='float') for order in range(self.nord)]).T
+                # self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
             
-            self.dt = np.array(np.array(self.headers.get_all('EXPTIME')[0], dtype='float') ).squeeze() * u.s
-            self.AM = np.array(self.headers.get_all('AIRMASS')[0], dtype='float').squeeze()
-            self.telaz = np.array(self.headers.get_all('TELAZ')[0], dtype='float').squeeze()
-            self.adc1 = np.array(self.headers.get_all('SBADC1_P')[0], dtype='float').squeeze()
-            self.adc2 = np.array(self.headers.get_all('SBADC2_P')[0], dtype='float').squeeze()
+            self.dt = np.array(np.array(self.headers.get_all(self.instrument['exptime'])[0], dtype='float') ).squeeze() * u.s
+            self.AM = np.array(self.headers.get_all(self.instrument['airmass'])[0], dtype='float').squeeze()
+
+            try:
+                self.telaz = np.array(self.headers.get_all(self.instrument['telaz'])[0], dtype='float').squeeze()
+            except KeyError:
+                self.telaz = None
+
+            self.adc1 = np.array(self.headers.get_all(self.instrument['adc1'])[0], dtype='float').squeeze()
+            self.adc2 = np.array(self.headers.get_all(self.instrument['adc2'])[0], dtype='float').squeeze()
             self.SNR = np.clip(self.SNR, 0,None)
-        else : 
-            self.t_start = sequence[0] * u.d
+            self.flux = self.count/(self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None])
+
+        else :
+            self.t_start = sequence[0] #* u.d
             self.SNR = sequence[1]
             self.berv0 = sequence[2]
             self.dt = sequence[3] * u.s
@@ -604,15 +991,12 @@ class Observations():
             self.adc1 = np.empty_like(self.AM)
             self.adc2 = np.empty_like(self.AM)
         
-        if self.onedim is False:
             self.flux = self.count/(self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None])
-        else:
-            self.flux = self.count
-            
+
         self.berv= self.berv0.copy()
         light_curve = np.ma.sum(np.ma.sum(self.count, axis=-1), axis=-1)
         self.light_curve = light_curve / np.nanmax(light_curve)
-        self.t = self.t_start #+ self.dt/2
+        self.t = self.t_start.copy() * u.d #+ self.dt/2
         
         self.N0f= (~np.isnan(self.flux)).sum(axis=-1)
         self.N0= (~np.isnan(self.uncorr)).sum(axis=-1)
@@ -757,11 +1141,12 @@ class Observations():
 #             plt.plot(self.t, self.vr+p.RV_sys, 'ro')
 
 #         self.phase = (((self.t_start - p.mid_tr - p.period/2) % p.period)/p.period) - 0.5
-        self.phase = ((self.t-p.mid_tr)/p.period).decompose().value
-        self.phase -= np.round(self.phase.mean())
-        if kind_trans == 'emission':
-            if (self.phase < 0).all():
-                self.phase += 1.0
+
+#         self.phase = ((self.t-p.mid_tr)/p.period).decompose().value
+#         self.phase -= np.round(self.phase.mean())
+#         if kind_trans == 'emission':
+#             if (self.phase < 0).all():
+#                 self.phase += 1.0
 
         self.wv = np.mean(self.wave, axis=0)     
         
@@ -1013,7 +1398,7 @@ class Observations():
         
     def get_template(self, file):
 
-        data = Table.read(self.path+file)
+        data = Table.read(self.path / Path(file))
         self.wvsol = np.ma.masked_invalid(data['wavelength']/1e3)  # [None,:]
         self.template = np.ma.masked_invalid(data['flux'])   # [None,:]
 
@@ -1118,8 +1503,12 @@ class Planet():
         self.name = name
         
         if parametres is None:
-            print('Getting {} from ExoFile'.format(name))
-            parametres = ExoFile.load(use_alt_file=True).by_pl_name(name)
+            log.info('Getting {} from ExoFile'.format(name))
+            # Try locally, if not available, try to query the exofile
+            try:
+                parametres = ExoFile.load(query=False, use_alt_file=True).by_pl_name(name)
+            except FileNotFoundError:
+                parametres = ExoFile.load(use_alt_file=True).by_pl_name(name)
 
         #  --- Propriétés du système
         self.R_star = parametres['st_rad'].to(u.m)
@@ -1166,6 +1555,12 @@ class Planet():
         self.incl = parametres['pl_orbincl'].to(u.rad)
         self.w = parametres['pl_orblper'].to(u.rad) + (3 * np.pi / 2) * u.rad
         self.omega = np.radians(0) * u.rad
+        # time of periastron passage; if not available, set it to the same value as the mid transit time
+        self.t_peri = parametres['pl_orbtper'].data
+        if not self.t_peri:
+            self.t_peri = self.mid_tr
+        else:
+            self.t_peri = self.t_peri * u.d
 
         for key in list(kwargs.keys()):
             new_value = kwargs[key]
@@ -1202,7 +1597,7 @@ class Planet():
 from astropy.io import ascii
 
 
-def get_blaze_file(path, file_list='list_tellu_corrected', onedim=False, blaze_default=None,
+def get_blaze_file(path, file_list='list_tellu_corrected', blaze_default=None,
                 blaze_path=None, debug=False, folder='cfht_sept1'):
     blaze_path = blaze_path or path
 
@@ -1217,15 +1612,13 @@ def get_blaze_file(path, file_list='list_tellu_corrected', onedim=False, blaze_d
 
             hdul = fits.open(path + filename)
 
-            if onedim is False:
-                    
-                try:
-                    blaze_file = blaze_default or hdul[0].header['CDBBLAZE']
-                except KeyError:
-                    blaze_file = hdul[0].header['CDBBLAZE']
-                
-                date = hdul[0].header['DATE-OBS']
-                blaze_file_list.append(date+'/'+blaze_file)
+            try:
+                blaze_file = blaze_default or hdul[0].header['CDBBLAZE']
+            except KeyError:
+                blaze_file = hdul[0].header['CDBBLAZE']
+
+            date = hdul[0].header['DATE-OBS']
+            blaze_file_list.append(date+'/'+blaze_file)
 
     x = []
  
@@ -1268,8 +1661,13 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     tr_merge.icorr = np.concatenate(icorr_list)
     tr_merge.iIn = np.concatenate(iIn_list)
     tr_merge.iOut = np.concatenate(iOut_list)
+    tr_merge.n_spec = np.sum([list_tr[str(tr_i)].n_spec for tr_i in merge_tr_idx])
     
-    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx])#.value
+    tr_merge.alpha_frac = np.concatenate([list_tr[str(tr_i)].alpha_frac for tr_i in merge_tr_idx])
+    tr_merge.t_start = np.concatenate([list_tr[str(tr_i)].t_start for tr_i in merge_tr_idx])
+    tr_merge.dt = np.concatenate([list_tr[str(tr_i)].dt for tr_i in merge_tr_idx])
+    tr_merge.t = tr_merge.t_start*u.d
+    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx]) #.value
     tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
 
     if light is False:
@@ -1289,7 +1687,18 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     tr_merge.spec_trans = np.ma.concatenate([list_tr[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
     tr_merge.final = np.ma.concatenate([list_tr[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
     tr_merge.N = np.ma.concatenate([list_tr[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
-    tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
+
+    try:
+        tr_merge.uncorr = np.ma.concatenate([list_tr[str(tr_i)].uncorr for tr_i in merge_tr_idx], axis=0)
+        tr_merge.N0 = (~np.isnan(tr_merge.uncorr)).sum(axis=-1)
+        tr_merge.N_frac = np.nanmean(tr_merge.N / tr_merge.N0, axis=0).data  # 4088
+        tr_merge.N_frac[np.isnan(tr_merge.N_frac)] = 0
+    except KeyError:
+        print('Did not find Uncorr key.')
+        print('Not computing N0 and N_frac.')
+
+        # tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
+
     tr_merge.reconstructed = np.ma.concatenate([list_tr[str(tr_i)].reconstructed for tr_i in merge_tr_idx], axis=0)
     tr_merge.ratio = np.ma.concatenate([list_tr[str(tr_i)].ratio for tr_i in merge_tr_idx], axis=0)
     if params is None:
@@ -1308,64 +1717,12 @@ def merge_velocity(tr_merge, list_tr, merge_tr_idx):
     tr_merge.mid_vr = np.concatenate([list_tr[str(tr_i)].mid_vr* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
     tr_merge.berv = np.concatenate([list_tr[str(tr_i)].berv for tr_i in merge_tr_idx])
-    tr_merge.vrp = np.concatenate([list_tr[str(tr_i)].vrp* \
-                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.vr = np.concatenate([list_tr[str(tr_i)].vr* \
-                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.vrp = np.concatenate([list_tr[str(tr_i)].vrp for tr_i in merge_tr_idx])
+    tr_merge.vr = np.concatenate([list_tr[str(tr_i)].vr for tr_i in merge_tr_idx])
     tr_merge.RV_const = np.concatenate([list_tr[str(tr_i)].RV_const* \
                                        np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    
-# def merge_tr_old(trb1,trb2,tr_merge, params=None):
-#     tr_merge.icorr = np.concatenate((trb1.icorr, trb1.n_spec + trb2.icorr))
-#     tr_merge.phase = np.concatenate((trb1.phase, trb2.phase)).value
-# #     tr_merge.phase = np.concatenate((trb1.phase, trb2.phase), axis=0).value
-    
-#     tr_merge.noise = np.ma.concatenate((trb1.noise, trb2.noise), axis=0)
-#     tr_merge.fl_norm = np.ma.concatenate((trb1.fl_norm, trb2.fl_norm), axis=0)
-#     tr_merge.fl_Sref = np.ma.concatenate((trb1.fl_Sref, trb2.fl_Sref), axis=0)
-#     tr_merge.fl_masked = np.ma.concatenate((trb1.fl_masked, trb2.fl_masked), axis=0)
-#     tr_merge.fl_norm_mo = np.ma.concatenate((trb1.fl_norm_mo, trb2.fl_norm_mo), axis=0)
-    
-#     if trb1.mast_out.ndim == 2:
-#         tr_merge.mast_out = np.ma.mean(np.ma.array([np.ma.masked_invalid(trb1.mast_out),
-#                                                 np.ma.masked_invalid(trb2.mast_out)]), axis=0)
-#     elif trb1.mast_out.ndim == 3:
-#         tr_merge.mast_out = np.ma.concatenate((trb1.mast_out, trb2.mast_out), axis=0)
+    tr_merge.Kp = list_tr[str(merge_tr_idx[0])].Kp
 
-#     tr_merge.spec_trans = np.ma.concatenate((trb1.spec_trans, trb2.spec_trans), axis=0)
-#     tr_merge.full_ts = np.ma.concatenate((trb1.full_ts, trb2.full_ts), axis=0)
-# #     tr_merge.chose = np.ma.concatenate((trb1.chose, trb2.chose), axis=0)
-#     tr_merge.final = np.ma.concatenate((trb1.final, trb2.final), axis=0)
-#     tr_merge.final_std = np.ma.concatenate((trb1.final_std, trb2.final_std), axis=0)
-#     tr_merge.rebuilt = np.ma.concatenate((trb1.rebuilt, trb2.rebuilt), axis=0)
-# #     tr_merge.pca = tr.pca  # np.concatenate((trb1.pca, trb2.pca), axis=0)
-#     tr_merge.N = np.ma.concatenate((trb1.N, trb2.N), axis=0)
-#     tr_merge.N_frac = np.min(np.array([trb1.N_frac,trb2.N_frac]),axis=0)
-#     tr_merge.reconstructed = np.ma.concatenate((trb1.reconstructed, trb2.reconstructed), axis=0)
-#     tr_merge.ratio = np.ma.concatenate((trb1.ratio, trb2.ratio), axis=0)
-# #     tr_merge.recon_all = np.ma.concatenate((trb1.recon_all, trb2.recon_all), axis=0)
-#     if params is None:
-#         tr_merge.params = trb1.params
-        
-        
-# def merge_velocity_old(trb1,trb2,tr_merge):
-#     tr_merge.mid_vrp = np.concatenate((trb1.mid_vrp*np.ones_like(trb1.vrp.value),
-#                                        trb2.mid_vrp*np.ones_like(trb2.vrp.value)))
-#     tr_merge.RV_sys = np.concatenate((trb1.RV_sys*np.ones_like(trb1.vrp.value),
-#                                       trb2.RV_sys*np.ones_like(trb2.vrp.value)))
-#     tr_merge.mid_berv = np.concatenate((trb1.mid_berv*np.ones_like(trb1.vrp.value),
-#                                         trb2.mid_berv*np.ones_like(trb2.vrp.value)))
-#     tr_merge.mid_vr = np.concatenate((trb1.mid_vr*np.ones_like(trb1.vrp.value),
-#                                       trb2.mid_vr*np.ones_like(trb2.vrp.value)))
-#     tr_merge.berv = np.concatenate((trb1.berv*np.ones_like(trb1.vrp.value),
-#                                     trb2.berv*np.ones_like(trb2.vrp.value)))
-#     tr_merge.vrp = np.concatenate((trb1.vrp*np.ones_like(trb1.vrp.value),
-#                                    trb2.vrp*np.ones_like(trb2.vrp.value)))
-#     tr_merge.vr = np.concatenate((trb1.vr*np.ones_like(trb1.vrp.value),
-#                                   trb2.vr*np.ones_like(trb2.vrp.value)))
-#     tr_merge.RV_const = np.concatenate((trb1.RV_const*np.ones_like(trb1.vrp.value),
-#                                         trb2.RV_const*np.ones_like(trb2.vrp.value)))
-#     # t12.phase = np.concatenate((t1.phase,t2.phase)).value
 
 def split_transits(obs_obj, transit_tag, mid_idx, 
                    params0=[0.85, 0.97, 51, 41, 3, 1, 2.0, 1.0, 3.0, 1.0],
@@ -1441,14 +1798,19 @@ def split_transits(obs_obj, transit_tag, mid_idx,
 
 
 
-def save_single_sequences(path, filename, tr,
+def save_single_sequences(filename, tr, path='',
                           save_all=False, filename_end='', bad_indexs=None):
+
+    filename = Path(filename)
+    path = Path(path)
+    out_filename = Path(f'{filename.name}_data_trs_{filename_end}.npz')
+    out_filename = path / out_filename
 
     if bad_indexs is None:
         bad_indexs = []
-    print(path + filename + '_data_trs_' + filename_end + '.npz')
+    print(out_filename)
     if save_all is False:
-        np.savez(path+filename+'_data_trs_'+filename_end,
+        np.savez(out_filename,
              components_ = tr.pca.components_,
              explained_variance_ = tr.pca.explained_variance_,
              explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
@@ -1467,6 +1829,7 @@ def save_single_sequences(path, filename, tr,
              noise = tr.noise,
              N = tr.N,
              t_start = tr.t_start,
+             dt=tr.dt.value,
              flux = tr.flux,
              uncorr = tr.uncorr,
              blaze = tr.blaze,
@@ -1490,7 +1853,7 @@ def save_single_sequences(path, filename, tr,
              mask_spec_trans = tr.spec_trans.mask,
              mask_final = tr.final.mask,
              # alpha_frac = tr.alpha_frac,
-                                  filenames=tr.filenames,
+             filenames=tr.filenames,
              icorr = tr.icorr,
              bad_indexs = bad_indexs,
              clip_ts = tr.clip_ts,
@@ -1508,7 +1871,7 @@ def save_single_sequences(path, filename, tr,
                  # iOut = tr.iOut,
              )
     else:
-        np.savez(path+filename+'_data_trs_'+filename_end,
+        np.savez(out_filename,
              components_ = tr.pca.components_,
              explained_variance_ = tr.pca.explained_variance_,
              explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
@@ -1527,6 +1890,7 @@ def save_single_sequences(path, filename, tr,
              noise = tr.noise,
              N = tr.N,
              t_start = tr.t_start,
+             dt=tr.dt.value,
              flux = tr.flux,
              uncorr = tr.uncorr,
              blaze = tr.blaze,
@@ -1612,11 +1976,19 @@ def save_single_sequences(path, filename, tr,
 #     return data_trs
 
 
-def load_single_sequences(path, filename, name, planet,
-                          load_all=False, filename_end='', plot=True):
+def load_single_sequences(filename, name, path='',
+                          load_all=False, filename_end='', plot=True, **kwargs):
     #     data_trs[filename_end] = {}
 
-    data_tr = np.load(path + filename + '_data_trs_' + filename_end + '.npz')
+    filename = Path(filename)
+    path = Path(path)
+
+    try:
+        data_tr = np.load(path / filename)
+    except FileNotFoundError:
+        input_filename = Path(f'{filename.name}_data_trs_{filename_end}.npz')
+        input_filename = path / input_filename
+        data_tr = np.load(input_filename)
 
     pca = PCA(data_tr['n_components_'])
     pca.components_ = data_tr['components_']
@@ -1625,7 +1997,7 @@ def load_single_sequences(path, filename, name, planet,
     pca.singular_values_ = data_tr['singular_values_']
     pca.mean_ = data_tr['mean_']
     pca.n_components_ = data_tr['n_components_']
-    pca.n_features_ = data_tr['n_features_']
+    # pca.n_features_ = data_tr['n_features_']
     pca.n_samples_ = data_tr['n_samples_']
     pca.noise_variance_ = data_tr['noise_variance_']
     pca.n_features_in_ = data_tr['n_features_in_']
@@ -1637,7 +2009,8 @@ def load_single_sequences(path, filename, name, planet,
         #                             tellu=self.tellu[transit_tag],
         #                             uncorr=self.uncorr[transit_tag],
         name=name,
-        planet=planet,
+        **kwargs
+        # planet=planet,
         #                             path=self.path,
         #         filenames=np.array(self.filenames)[transit_tag],
         #                             filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
@@ -1658,6 +2031,11 @@ def load_single_sequences(path, filename, name, planet,
 
     tr.t_start = data_tr['t_start']
     tr.t = data_tr['t_start'] * u.d
+    try:
+        tr.dt = data_tr['dt']*u.s
+    except KeyError:
+        print('Did not have dt, using the delta_time instead.')
+        tr.dt = (np.diff(tr.t_start)*u.d).to(u.s)-28*u.s
     tr.bad = data_tr['bad_indexs']
     tr.flux = np.ma.array(data_tr['flux'],
                      mask=data_tr['mask_flux'])
@@ -1669,13 +2047,20 @@ def load_single_sequences(path, filename, name, planet,
     tr.ratio_recon = True
     tr.reconstructed = np.ma.array(data_tr['reconstructed'],
                                    mask=data_tr['mask_reconstructed'])
-    tr.uncorr = np.ma.array(data_tr['uncorr'],
+    try:
+        tr.uncorr = np.ma.array(data_tr['uncorr'],
                                    mask=data_tr['mask_uncorr'])
-    tr.N0 = (~np.isnan(tr.uncorr)).sum(axis=-1)
-    tr.N_frac = np.nanmean(tr.N / tr.N0, axis=0).data  # 4088
-    tr.N_frac[np.isnan(tr.N_frac)] = 0
-    tr.blaze = np.ma.array(data_tr['blaze'],
+        tr.N0 = (~np.isnan(tr.uncorr)).sum(axis=-1)
+        tr.N_frac = np.nanmean(tr.N / tr.N0, axis=0).data  # 4088
+        tr.N_frac[np.isnan(tr.N_frac)] = 0
+    except KeyError:
+        print('Did not find Uncorr key.')
+        print('Not computing N0 and N_frac.')
+    try:
+        tr.blaze = np.ma.array(data_tr['blaze'],
                                mask=data_tr['mask_blaze'])
+    except KeyError:
+        print('Did not find Blaze key.')
     tr.mast_out = np.ma.array(data_tr['mast_out'],
                               mask=data_tr['mask_mast_out'])
     tr.final = np.ma.array(data_tr['final'],
@@ -1685,8 +2070,10 @@ def load_single_sequences(path, filename, name, planet,
     tr.tellu = np.ma.array(data_tr['tellu'],
                                 mask=data_tr['mask_tellu'])
     # tr.alpha_frac = data_tr['alpha_frac']
-
-    tr.filenames = data_tr['filenames']
+    try:
+        tr.filenames = data_tr['filenames']
+    except KeyError:
+        print('Did not find Filenames key.')
 
     tr.clip_ts = data_tr['clip_ts']
     tr.scaling = data_tr['scaling']
@@ -1723,11 +2110,11 @@ def load_single_sequences(path, filename, name, planet,
                                     mask=data_tr['mask_recon_time'])
 
     # ---- Transit model
-    gen_transit_model(tr, planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
+    gen_transit_model(tr, tr.planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
 
     # --- Radial velocities
 
-    gen_rv_sequence(tr, planet, plot=False)
+    gen_rv_sequence(tr, tr.planet, plot=False)
 
     tr.norv_sequence(RV=data_tr['RV_sys'])
 
@@ -1810,21 +2197,28 @@ def load_single_data_dict(path, filename, load_all=False, filename_end='', data_
     return data_trs
     
 
-def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=False):
+def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=False):
+
+    filename = Path(filename)
+    path = Path(path)
 
     if bad_indexs is None:
         bad_indexs = []
-    
-    np.savez(path+filename+'_data_info', 
+
+    out_filename = Path(f'{filename.name}_data_info.npz')
+    print(path / out_filename)
+    np.savez(path / out_filename,
              trall_alpha_frac = list_tr[str(do_tr[-1])].alpha_frac,
              trall_icorr = list_tr[str(do_tr[-1])].icorr,
              trall_N = list_tr[str(do_tr[-1])].N  ,
              bad_indexs = bad_indexs
              )
-    print(path+filename+'_data_info'+'.npz')
+
     for i_tr, tr_key in enumerate(list(list_tr.keys())[:np.nonzero(np.array(do_tr) < 10)[0].size]):
+        out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
+        print(path / out_filename)
         if save_all is False:
-            np.savez(path+filename+'_data_trs_'+str(i_tr),
+            np.savez(path / out_filename,
                  components_ = list_tr[tr_key].pca.components_,
                  explained_variance_ = list_tr[tr_key].pca.explained_variance_,
                  explained_variance_ratio_ = list_tr[tr_key].pca.explained_variance_ratio_,
@@ -1842,7 +2236,7 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  sep = list_tr[tr_key].sep,
                  noise = list_tr[tr_key].noise,
                  N = list_tr[tr_key].N,
-                 t_start = list_tr[tr_key].t_start.value,
+                 t_start = list_tr[tr_key].t_start, #.value,
                  flux = list_tr[tr_key].final/list_tr[tr_key].noise,
                  s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
                  mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask, 
@@ -1859,13 +2253,14 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  # final=list_tr[tr_key].final,
                  # mask_spec_trans=list_tr[tr_key].spec_trans.mask,
                  # mask_final=list_tr[tr_key].final.mask,
-                 # alpha_frac=list_tr[tr_key].alpha_frac,
-                 # icorr=list_tr[tr_key].icorr,
+                 alpha_frac=list_tr[tr_key].alpha_frac,
+                 icorr=list_tr[tr_key].icorr,
+                 bad_indexs=bad_indexs
                  # clip_ts=list_tr[tr_key].clip_ts,
                  # scaling=list_tr[tr_key].scaling,
                  )
         else:
-            np.savez(path+filename+'_data_trs_'+str(i_tr),
+            np.savez(path / out_filename,
                  components_ = list_tr[tr_key].pca.components_,
                  explained_variance_ = list_tr[tr_key].pca.explained_variance_,
                  explained_variance_ratio_ = list_tr[tr_key].pca.explained_variance_ratio_,
@@ -1883,7 +2278,7 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  sep = list_tr[tr_key].sep,
                  noise = list_tr[tr_key].noise,
                  N = list_tr[tr_key].N,
-                 t_start = list_tr[tr_key].t_start.value,
+                 t_start = list_tr[tr_key].t_start, #.value,
                  flux = list_tr[tr_key].final/list_tr[tr_key].noise,
                  s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
                  mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask, 
@@ -1921,19 +2316,24 @@ def save_sequences(path, filename, list_tr, do_tr, bad_indexs=None, save_all=Fal
                  mask_fl_masked = list_tr[tr_key].fl_masked.mask,
                  mask_recon_time = list_tr[tr_key].recon_time.mask,
                  )
-           
-        print(path+filename+'_data_trs_'+str(i_tr)+'.npz')
-        
-        
-def load_sequences(path, filename, do_tr, load_all=False):
-    
-    data_info_file = np.load(path+filename+'_data_info.npz')
-    data_info = {}
 
-    data_info['trall_alpha_frac'] = data_info_file['trall_alpha_frac']
-    data_info['trall_icorr'] = data_info_file['trall_icorr']
-    data_info['trall_N'] = data_info_file['trall_N']
-    data_info['bad_indexs'] = data_info_file['bad_indexs']
+        
+def load_sequences(filename, do_tr, path='', load_all=False):
+
+    filename = Path(filename)
+    path = Path(path)
+
+    if len(do_tr) > 1 :
+        out_filename = Path(f'{filename.name}_data_info.npz')
+        log.info(f'Reading: {path / out_filename}')
+        data_info_file = np.load(path / out_filename)
+        data_info = {}
+
+        data_info['trall_alpha_frac'] = data_info_file['trall_alpha_frac']
+        data_info['trall_icorr'] = data_info_file['trall_icorr']
+        data_info['trall_N'] = data_info_file['trall_N']
+        data_info['bad_indexs'] = data_info_file['bad_indexs']
+
 
     data_trs = {}
     #     flux = []
@@ -1941,7 +2341,27 @@ def load_sequences(path, filename, do_tr, load_all=False):
     for i_tr, tr_key in enumerate(do_tr[:np.nonzero(np.array(do_tr) < 10)[0].size]):
         data_trs[str(i_tr)] = {}
 
-        data_tr = np.load(path+filename+'_data_trs_'+str(i_tr)+'.npz')
+        out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
+        log.info(f'Reading: {path / out_filename}')
+        data_tr = np.load(path / out_filename)
+
+        if len(do_tr) <= 1:
+            data_info = {}
+            try:
+                data_info['trall_alpha_frac'] = data_tr['alpha_frac']
+                data_info['trall_icorr'] = data_tr['icorr']
+                data_info['trall_N'] = data_tr['N']
+                data_info['bad_indexs'] = data_tr['bad_indexs']
+            except KeyError:
+                out_filename = Path(f'{filename.name}_data_info.npz')
+                log.info(f'Reading: {path / out_filename}')
+                data_info_file = np.load(path / out_filename)
+                data_info = {}
+
+                data_info['trall_alpha_frac'] = data_info_file['trall_alpha_frac']
+                data_info['trall_icorr'] = data_info_file['trall_icorr']
+                data_info['trall_N'] = data_info_file['trall_N']
+                data_info['bad_indexs'] = data_info_file['bad_indexs']
 
         pca=PCA(data_tr['n_components_'])
         pca.components_ = data_tr['components_']
@@ -2009,15 +2429,17 @@ def load_sequences(path, filename, do_tr, load_all=False):
 def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
                      coeffs, ld_model, kind_trans, RV_sys, polynome=None, 
                      ratio_recon=False, cont=False, cbp=True, noise_npc=None, **kwargs_build_ts):
-    
-    tr = obs.select_transit(transit_tag)
+    if transit_tag is not None:
+        tr = obs.select_transit(transit_tag)
+    else:
+        tr = obs
     tr.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
     tr.norv_sequence(RV=RV_sys)
 
     if polynome is not None:
     #                 print("P(O-2) = ", polynome[tag-1])
         if polynome:
-            poly_time = tr.t_start.value  # tr.AM
+            poly_time = tr.t_start  # .value  # tr.AM
         else:
             poly_time = None
     else:
@@ -2049,10 +2471,16 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
 
 def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
 
-    tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
+    if transit_tags is not None:
+        tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
+    else:
+        tr_merge = deepcopy(obs)
 
     if light is False:
         tr_merge.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
+    # else:
+    #     tr_merge.dt =
+
 
     merge_tr(tr_merge, list_tr, merge_tr_idx, light=light)
     merge_velocity(tr_merge, list_tr, merge_tr_idx)
@@ -2088,7 +2516,7 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
 
             merge_tr_idx = [int(tag_i) for tag_i in name_tag]
 
-            list_tr[name_tag]  = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags,
+            list_tr[name_tag] = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags,
                                                coeffs, ld_model, kind_trans)
 
     return list_tr
@@ -2249,7 +2677,7 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
 
 
 # for tr in [t1,t2,t3]:
-def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
+def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False, fig_output_file=None):
     if not (hasattr(tr, 'pclean') | hasattr(tr, 'sky')):
         sky = []
         tellu = []
@@ -2258,11 +2686,12 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
         for file in tr.filenames:
             blocks = file.split('_')
             filename = '_'.join(blocks[0:2]) + '_tellu_pclean_' + blocks[-1]
+            filename = Path(filename)
 
             print(filename)
 
-            sky_model = fits.getdata(tr.path + filename, ext=4)
-            tell_model = fits.getdata(tr.path + filename, ext=3)
+            sky_model = fits.getdata(tr.path / filename, ext=4)
+            tell_model = fits.getdata(tr.path / filename, ext=3)
 
             sky.append(np.ma.masked_invalid(sky_model))
             tellu.append(np.ma.masked_invalid(tell_model))
@@ -2320,7 +2749,7 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
         _ = plot_all_orders_correl(corrRV0, np.abs(ccf_tellu_clean), tr,
                                       icorr=None, logl=False, sharey=True,
                                       vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
-                                      vline=None, hline=2, kind='snr', return_snr=True)
+                                      vline=None, hline=2, kind='snr', return_snr=True, output_file=fig_output_file)
 
         # --- Sky masking ---
 
@@ -2338,12 +2767,16 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False):
         _ = plot_all_orders_correl(corrRV0, np.abs(ccf_sky_clean), tr,
                                       icorr=None, logl=False, sharey=True,
                                       vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
-                                      vline=None, hline=2, kind='snr', return_snr=True)
+                                      vline=None, hline=2, kind='snr', return_snr=True, output_file=fig_output_file)
 
     if not hasattr(tr,'original_mask'):
         tr.original_mask = tr.spec_trans.mask.copy()
-    tr.final_cm = cmasked_flux_sky
+
+    tr.OG_final_mask = tr.final.mask.copy()
+    tr.OG_spec_trans_mask = tr.spec_trans.mask.copy()
+    tr.final = cmasked_flux_sky
     tr.custom_mask = cmasked_flux_sky.mask
+    tr.spec_trans.mask = cmasked_flux_sky.mask
 
     del sky_mask, ccf_sky_clean, ccf_sky_tr, ccf_tellu_tr, tellu_mask, cmasked_flux_tr, ccf_tellu_clean, cmasked_flux_sky
     del flux_mask, new_mask, sky_t, skynorm, spec_trans_tr, sky_tr, tile_sky_tr

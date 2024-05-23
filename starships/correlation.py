@@ -4,14 +4,14 @@ import astropy.units as u
 import matplotlib.pyplot as plt
 
 from starships import homemade as hm
-# import starships.analysis as a
+# import .analysis as a
 # from spirou_exo.extract import quick_norm
-from starships.spectrum import quick_inject_clean
+from .spectrum import quick_inject_clean
 # from spirou_exo.transpec import remove_dem_pca_all
-from starships.orbite import rv_theo_nu, rv_theo_t
+from .orbite import rv_theo_nu, rv_theo_t
 
-from starships.mask_tools import interp1d_masked
-from starships.transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, \
+from .mask_tools import interp1d_masked
+from .transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, \
                                 remove_dem_pca_all, build_trans_spectrum4
 
 
@@ -158,7 +158,11 @@ def CCF_1D(wave, flux, corrRV, mod_x, mod_y):
 
 def sum_logl(loglbl, icorr, orders, N, alpha=None, axis=0, del_idx=None,
              nolog=True, verbose=False, N_ord=None, scaling=None, calc_snr=False):
-
+    """Sum the log likelihood over the orders and the spectra.
+    This may be done differently depending on the log likelihood prescription
+    (e.g. Brogi 2019, 2 possible versions of Gibson 2020).
+    When `nolog`=True, the Bro.
+    """
 
     if del_idx is not None:
         correlation = loglbl.copy()
@@ -238,6 +242,13 @@ def calc_chi2(flux, sig, model, axis=-1):
 
     return np.ma.sum((flux-model)**2/sig**2, axis=axis)
 
+
+def calc_logl_chi2_scaled(flux, yerr, model, log_f, axis=-1):
+
+    sigma_2 = yerr**2 * np.exp(2 * log_f)
+    out = -0.5 * np.ma.sum((flux - model)**2 / sigma_2 + np.log(sigma_2), axis=axis)
+    return out
+
     
 def calc_logl_OG_cst(flux, axis=-1, sig=None):
     if sig is None:
@@ -258,7 +269,7 @@ def calc_logl_OG_ord(flux_norm, model, sig_ord, cst, s2f, axis=-1):
     return R - cst - (s2f + s2g)/2  
 
 
-def calc_logl_BL_ord(flux, model, N, s2f=None, axis=-1, nolog=False):
+def calc_logl_BL_ord(flux, model, N, alpha=1., s2f=None, axis=-1, nolog=False):
     R = np.ma.sum(flux * model, axis=axis) 
     if s2f is None:
 #         s2f = np.ma.var(flux, axis=axis)
@@ -267,9 +278,10 @@ def calc_logl_BL_ord(flux, model, N, s2f=None, axis=-1, nolog=False):
     s2g = np.ma.sum(model**2, axis=axis)
     
     if nolog is True:
-        return (s2f - 2 * R + s2g)
+        return (s2f - 2 * alpha * R + alpha**2 * s2g)
     else:
-        return - N / 2 * np.log( 1/N * (s2f - 2 * R + s2g) )
+        return - N / 2 * np.log( 1/N * (s2f - 2 * alpha * R + alpha**2 * s2g) )
+
     
 def calc_corr_ord(flux, model, axis=-1, N=1):
     return np.ma.sum(flux * model, axis=axis) / N
@@ -309,6 +321,33 @@ def calc_logl_G_corr_ord(flux, model, N, s2f=None, axis=-1, nolog=True):
         return (s2f - 2 * R + s2g), R
     else:
         return - N / 2 * np.log( 1/N * (s2f - 2 * R + s2g) ), R
+    
+def calc_logl_G_plain_ord(flux, model, uncert, N=None, s2f=None, alpha=1., beta=1., axis=-1):
+    """Compute log likelihood for Gibson2020 without the optimization of the noise.
+    s2f (= sum(flux**2 / uncert**2)) can be pre-computed and passed to the function to save time.
+    """
+    
+    # Compute N if not given
+    if N is None:
+        N = np.sum(~flux.mask, axis=axis)
+
+    # Divide by the uncertainty
+    flux = flux / uncert
+    model = model / uncert
+
+    # Compute eache term of the chi2
+    R = np.ma.sum(flux * model, axis=axis) 
+    if s2f is None:
+        s2f = np.ma.sum(flux**2, axis=axis)
+    s2g = np.ma.sum(model**2, axis=axis)
+    
+    chi2 = (s2f - 2 * alpha * R + alpha**2 * s2g) / beta**2
+    uncert_sum = np.ma.sum(np.log(uncert), axis=axis)
+    cst = -N / 2 * np.log(2. * np.pi) - N * np.log(beta) - uncert_sum
+    logl = cst - chi2 / 2
+    
+    return logl
+    
 
 
 
@@ -323,15 +362,28 @@ def nolog2log(nolog_L, N, sum_N=True):  #, sumit=False, axis=0
         return - N / 2 * np.log( 1/N * nolog_L)
 
 
-def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flux, s2f, 
-                             vrp_orb=None, vr_orb=None, #resol=64000, inj_alpha='ones',
+def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flux=None, s2f=None,
+                             vrp_orb=None, vr_orb=None,
                              nolog=True,  alpha=None, kind_trans="emission"):
-        
-    model_seq = gen_model_sequence_noinj([RV, vrp_orb-vr_orb, data_tr['RV_const']], 
-                                         data_tr['wave'], data_tr['sep'], 
-                                         data_tr['pca'], int(data_tr['params'][5]), data_tr['noise'], 
-                                         planet, wave_mod[20:-20], model[20:-20], 
-                                        kind_trans=kind_trans, alpha=alpha,# resol=resol
+
+    if flux is None:
+        flux = data_tr['flux']
+
+    if s2f is None:
+        s2f = data_tr['s2f']
+
+    # Simulated velocities = (specified rv) + (planet's rv) - (star's rv) + (systemic rv)
+    velocities = RV + vrp_orb - vr_orb + data_tr['RV_const']
+
+    model_seq = gen_model_sequence_noinj(velocities, 
+                                         # data_tr['wave'], data_tr['sep'],
+                                         # data_tr['pca'], int(data_tr['params'][5]), #data_tr['noise'],
+                                         data_tr=data_tr,
+                                         planet=planet,
+                                         model_wave=wave_mod[20:-20],
+                                         model_spec=model[20:-20],
+                                         kind_trans=kind_trans,
+                                         alpha=alpha,# resol=resol
                                          )
     
 #     model_seq = gen_model_sequence_retrieval([RV, vrp_orb-vr_orb, data_tr['RV_const']], data_tr, 
@@ -356,18 +408,45 @@ def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flu
     return logl_BL
     
     
-def gen_model_sequence_noinj(velocities, data_wave, data_sep, data_pca, data_npc, data_noise, 
-                             planet, model_wave, model_spec, #resol=64000,norm=True,debug=False,
-                            alpha=None,  **kwargs):
+def gen_model_sequence_noinj(velocities, data_wave=None, data_sep=None, data_pca=None, data_npc=None, #data_noise,
+                             planet=None, model_wave=None, model_spec=None, #resol=64000,norm=True,debug=False,
+                            alpha=None, data_tr=None, data_recon=None,  **kwargs):
+    """
+    alpha: np.ndarray of shape (n_spec,)
+        Fraction of planetary signal. Depends on `kind_trans`:
+        - If 'transmission': fraction of the stellar disk hidden by the planet
+        - If 'emission': fraction of the planetary disk not hidden by the star
+    """
+
+    if data_wave is None:
+        data_wave = data_tr['wave']
+
+    if data_sep is None:
+        data_sep = data_tr['sep']
+
+    if data_pca is None:
+        data_pca = data_tr['pca']
+    if data_npc is None:
+        data_npc = int(data_tr['params'][5])
+    if data_recon is None:
+        # -- Uncomment the other 2 lines if you want the full reconstructed data to inject the model in
+        data_recon = np.ones_like(data_wave)
+        # data_recon = data_tr['reconstructed']
+        # data_recon = data_recon/np.ma.median(data_recon,axis=-1)[:,:,None]/data_tr['ratio']/data_tr['mast_out']
+
+    for arg in (planet, model_wave, model_spec):
+        if arg is None:
+            raise ValueError('`planet`, `model_wave` and `model_spec` need to be specified.')
+
     # --- inject model in an empty sequence of ones
-    flux_inj, _ = quick_inject_clean(data_wave, np.ones_like(data_wave), 
+    flux_inj, _ = quick_inject_clean(data_wave, data_recon,
                                                   model_wave, model_spec, 
-                                                 np.sum(velocities), data_sep, planet.R_star, planet.A_star, 
+                                                 velocities, data_sep, planet.R_star, planet.A_star, 
                                                                   RV=0.0, dv_star=0., 
                                                  R0 = planet.R_pl, alpha=alpha, **kwargs)
    
     # -- Remove the same number of pcas that were used to inject
-    model_seq = build_trans_spectrum_mod_fast(data_wave, flux_inj, data_pca, data_noise, n_pca=data_npc)
+    model_seq = build_trans_spectrum_mod_fast(flux_inj, data_pca, n_pca=data_npc)
 
     return model_seq
 
@@ -468,7 +547,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                      kind_trans, final=None, spec_trans=None, noise=None, ratio=None,
                                  pca=None, alpha=None, inj_alpha='ones',
                                  get_GG=True, vrp_kind='t', nolog=True, 
-                                 change_noise=False, force_npc=None, **kwargs):
+                                 change_noise=False, force_npc=None, filename=None, **kwargs):
     
     if models.ndim < 2:
         models = models[None,:]
@@ -487,11 +566,13 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
 #         logl_BL = np.ma.zeros((tr.n_spec, tr.nord, Kp_array.size, corrRV.size, len(n_pcas), modelTD0.shape[0]))
     correl = np.ma.zeros((n_spec, nord, Kp_array.size, corrRV.size, len(n_pcas), models.shape[0]))
     logl_BL_sig = np.ma.zeros((n_spec, nord, Kp_array.size, corrRV.size, len(n_pcas), models.shape[0]))
-    
+
+    print('Starting with {} PCs'.format(params0[5]))
+    params = params0.copy()
     for n, n_pc in enumerate(n_pcas):
 #         print('n',n)
-        
-        params = params0.copy()
+        print('Computing with'.format(n_pc))
+
         if (int(params[5]) != n_pc) or (change_noise is True):
             print(' Previous N_pc = {}, changing to {}  '.format(int(params[5]), n_pc))
             params[5] = n_pc
@@ -523,9 +604,11 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
 #             pca = tr.pca
             if kind_obj == 'seq':
                 data_obj.params = params
+                # params0 = params
                 data_obj.N = N
             elif kind_obj == 'dict':
                 data_obj['params'] = params
+                # params0 = params
                 data_obj['N'] = N
             
         if get_GG is True:
@@ -560,9 +643,10 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
 #                     print('v',v)
                     hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
                                              n_pc, i+1,len(Kp_array),Kpi, f+1, models.shape[0], v+1,corrRV.size))
-
-                    model_seq = gen_model_sequence_noinj([vrad, vrp_orb-vr_orb, RV_const], 
-                                         wave, sep, pca, int(params[5]), noise, 
+                    
+                    velocities = vrad + vrp_orb - vr_orb + RV_const
+                    model_seq = gen_model_sequence_noinj(velocities, 
+                                         wave, sep, pca, int(params[5]),
                                          planet, wave_mod[20:-20], specMod[20:-20], 
                                          kind_trans=kind_trans, alpha=alpha, #resol=resol,
                                                          **kwargs)
@@ -593,6 +677,10 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
     out.append(logl_BL_sig)
 #     if get_bl is True:
 #         out.append(logl_BL)
+
+    if filename is not None:
+        save_logl_seq(filename, correl, logl_BL_sig,
+                      wave_mod[20:-20], specMod[20:-20], n_pcas, Kp_array, corrRV, kind_trans)
     
     return out
     
@@ -647,7 +735,8 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
                                  nolog=True, pca=None, norm=True, alpha=None, inj_alpha='ones',
                                  get_GG=True, RVconst = 0.0, new_mask=None,
                                  vrp_kind='t',  master_out=None, iOut=None, ratio=None,
-                                 reconstructed=None, change_noise=False, force_npc=None, **kwargs):
+                                 reconstructed=None, change_noise=False, force_npc=None,
+                                 filename=None, **kwargs):
     
     if modelTD0.ndim < 2:
         modelTD0 = modelTD0[None,:]
@@ -769,6 +858,9 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
     out.append(logl_BL_sig)
 #     if get_bl is True:
 #         out.append(logl_BL)
+    if filename is not None:
+        save_logl_seq(filename, correl, logl_BL_sig,
+                      wave_mod[20:-20], specMod[20:-20], n_pcas, Kp_array, corrRV, kind_trans)
     
     return out
 
@@ -944,3 +1036,16 @@ def calc_logl_split_transits(trb1, trb2, Kp_array, corrRV0, n_pcas, Wave0, Model
         return merge, merge_sig
 
 
+def save_logl_seq(filename, corr, logl, wave_mod, model, n_pcas, Kp_array, corrRV0, kind_trans):
+    np.savez(filename, corr=corr, logl=logl, wave_mod=wave_mod, model=model,
+             n_pcas=n_pcas, Kp_array=Kp_array, corrRV0=corrRV0, kind_trans=kind_trans)
+    try:
+        print('Saved correl at :', filename.with_suffix(".npz"))
+    except AttributeError:
+        print('Saved correl at :', filename + ".npz")
+
+
+def load_logl_seq(filename):
+    print('Loading correl from :', filename + '.npz')
+    data = np.load(filename + '.npz')
+    return data['corr'], data['logl'], data['Kp_array'], data['n_pcas'], data['corrRV0'], data

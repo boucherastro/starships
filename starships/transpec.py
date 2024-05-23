@@ -1,17 +1,17 @@
 from starships import extract as ext
 from starships import analysis as a
 from starships import homemade as hm
-from starships.extract import quick_norm, running_filter
-from starships.mask_tools import interp1d_masked
+from .extract import quick_norm, running_filter
+from .mask_tools import interp1d_masked
 
 import numpy as np
-import scipy.constants as cst
+# import scipy.constants as cst
 from astropy import units as u
-from astropy import constants as const
+# from astropy import constants as const
 from astropy.stats import sigma_clip
 import matplotlib.pyplot as plt
 from astropy.convolution import convolve, Gaussian1DKernel
-from scipy.interpolate import interp1d
+# from scipy.interpolate import interp1d
 
 from numpy.polynomial.polynomial import polyval
 
@@ -27,7 +27,7 @@ def mask_deep_tellu(flux, tellu=None, path=None, tellu_list='list_tellu_tr',
     
     if new_mask_tellu is None:
         if tellu is None:
-            _, wave_tell, tellu, _ = ext.read_all_sp(path, tellu_list, wv_default="MASTER_WAVE.fits")
+            _, wave_tell, tellu, _ = ext.read_all_sp_spirou_apero(path, tellu_list, wv_default="MASTER_WAVE.fits")
         tellu = np.ma.array(tellu, mask = ~np.isfinite(tellu))
 
         # Find the strong tellurics with a pad around in the order
@@ -50,14 +50,14 @@ def mask_deep_tellu(flux, tellu=None, path=None, tellu_list='list_tellu_tr',
     return flux_masked
 
 
-def unberv(wave, flux_masked, berv, RV_sys, vr, clip=False):  #, norm=False
+def unberv(wave, flux_masked, berv, vr):  #, norm=False
     
     n_spec, nord, _ = flux_masked.shape
     
     if isinstance(berv, u.Quantity):
         berv = berv.to(u.km/u.s).value
-    if isinstance(RV_sys, u.Quantity):
-        RV_sys = RV_sys.to(u.km/u.s).value
+    # if isinstance(RV_sys, u.Quantity):
+    #     RV_sys = RV_sys.to(u.km/u.s).value
     if isinstance(vr, u.Quantity):
         vr = vr.to(u.km/u.s).value
 
@@ -68,7 +68,7 @@ def unberv(wave, flux_masked, berv, RV_sys, vr, clip=False):  #, norm=False
     flux_Sref = np.ones_like(flux_masked) * np.nan
     
     
-    shifts = hm.calc_shift(-(berv+RV_sys+vr), kind='rel')
+    shifts = hm.calc_shift(-(berv+vr), kind='rel')
     print('')
     for n in range(n_spec):
         for iOrd in range(nord):
@@ -460,6 +460,8 @@ def clean_bad_pixels(wave, uncorr0, noise_lim=4, plot=False, t1=None, iOrd=34, t
 
 
 # from spirou_exo import plotting_fcts as pf
+
+# added condition to skip completely masked orders in the noise floor fits (happens sometimes with nirps)
 def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34, cmap=None, **kwargs):
 #     if plot is True:
 #         pf.plot_order(tr,iOrd,tr.uncorr, **kwargs)
@@ -486,15 +488,19 @@ def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34,
     
     good_noise = np.where((noise_level <= 8), noise_level, np.nan)
     noise = np.ma.masked_invalid(np.nanmean(good_noise, axis=0))
-    
-    
+
+#   when an entire order is masked, just return the noise fit as the noise itself, since noise is all nan anyway
     noise_floor = []
     for i in range(nord):
         poly_ord = 7
-        fit = ext.poly_out(noise[i], poly_ord, ind_fit=~noise[i].mask)
-        while (fit <=0).any():
-            poly_ord -= 1
+        if ~noise[i].mask.any():
             fit = ext.poly_out(noise[i], poly_ord, ind_fit=~noise[i].mask)
+            while (fit <=0).any():
+                poly_ord -= 1
+                fit = ext.poly_out(noise[i], poly_ord, ind_fit=~noise[i].mask)
+        else:
+            # if the entire order is masked
+            fit = noise[i]
 
         noise_floor.append(fit)
     noise_floor=np.ma.masked_invalid(noise_floor)
@@ -567,10 +573,10 @@ def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34,
 #                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
 #                           spec_trans=None, full_ts=None, unberv_it=True, wave_mo=None, template=None):
 def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
-                          lim_mask=0.5, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True, new_mask_tellu=None,
-                          mask_var=True, last_mask=True, iOut_temp=None, plot=False,  #kind_mo_lp='filter',
+                          lim_mask=0.5, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True,
+                          mask_var=True, last_mask=True, iOut_temp=None, plot=False,
                           mo_box=51, mo_gauss_box=5, n_pca=1, n_comps=10, clip_ratio=None, clip_ts=None,
-                          poly_time=None, kind_mo="median", cont=False, cbp=False,  ##blaze=None,
+                          poly_time=None, kind_mo="median", cont=False, cbp=False,
                           tresh=3., tresh_lim=1., last_tresh=3, last_tresh_lim=1, noise=None, somme=False, norm=True,
                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
                           spec_trans=None, clean_ts=None, unberv_it=True):
@@ -598,9 +604,9 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         hm.print_static('Shifting everything in the stellar ref. frame and normalizing by the median \n')
         if unberv_it is True:
             print('Spectra ', end="")
-            flux_Sref = unberv(wave, flux_norm, berv, RV_sys, vr, clip=False)
+            flux_Sref = unberv(wave, flux_norm, berv, vr)
             print('Telluriques ', end="")
-            tellu_Sref = unberv(wave, tellu, berv, RV_sys, vr, clip=False)
+            tellu_Sref = unberv(wave, tellu, berv, vr)
         else:
             flux_Sref = flux_norm
             tellu_Sref = tellu
@@ -776,7 +782,7 @@ def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, #iOut=None,
     return final_ts#, final_ts_std
 
 
-def build_trans_spectrum_mod_fast(wave, flux, pca, noise, 
+def build_trans_spectrum_mod_fast(flux, pca,
                                   plot=False, n_pca=2, n_comps=10, somme=False ):
 
     if n_pca > 0:

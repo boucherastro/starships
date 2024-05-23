@@ -1,38 +1,25 @@
 import numpy as np
-# from astropy.table import Table
-from starships import homemade as hm
-# from spirou_exo.spectrum import find_R, quick_inject
-from starships.analysis import bands, gauss
-# from spirou_exo import transpec as ts
-from starships import correlation as corr
-from starships.orbite import rv_theo_nu, rv_theo_t
-from starships.mask_tools import interp1d_masked
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+from . import homemade as hm
+from .analysis import bands, gauss
+from . import correlation as corr
+from .orbite import rv_theo_nu, rv_theo_t
+from .mask_tools import interp1d_masked
 
 import scipy as sp
-import scipy.constants as cst
 from scipy.optimize import curve_fit
 
 from astropy import units as u
-from astropy import constants as const
-from astropy.stats import sigma_clip
-
-
 import matplotlib.pyplot as plt
-# from itertools import islice
-
-# from astropy.convolution import convolve, Gaussian1DKernel
-
-
 
 from matplotlib.ticker import PercentFormatter
+
 
 def get_corr_in_out_trail(index, corrRV, ccf, tr, \
                           wind=0, speed_limit=4, limit_out=10, 
                           both_side=True, vrp=None, verbose=False):
     
     if vrp is None:
-        vrp = tr.vrp.value
+        vrp = tr.vrp
     
     in_ccf = []
     out_ccf = []
@@ -236,6 +223,7 @@ def get_t_test_values(index, corrRV, ccf, vrp, \
         
     return sigma, p_value
 
+
 def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None, wind=0, RV_array=None,
               kp0=0, kp1=2, RV_limit=20, logl=False, plot=False, masked=False, RV=0, prf=False, Kp_array=None,
               speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False):
@@ -255,7 +243,7 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
         
     if prf is True:
 #         vrp_orb0 = rv_theo_nu(tr.Kp.value, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t_start*u.d, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         vr_orb0 = -vrp_orb0*(tr.planet.M_pl/tr.planet.M_star).decompose().value
     
     if Kp_array is None:
@@ -272,7 +260,7 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
 #         if i == id_kp:
 #             print(Kp_array[i])
 #         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
+        vrp_orb = rv_theo_t(Kpi, tr.t_start*u.d, tr.planet.mid_tr, tr.planet.period, plnt=True).value
         vr_orb = -vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose().value
         if prf is True:
             vrp_orb -= vrp_orb0

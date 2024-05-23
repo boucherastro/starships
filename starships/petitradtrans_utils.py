@@ -1,6 +1,10 @@
 import numpy as np
-from petitRADTRANS import Radtrans
-from petitRADTRANS import nat_cst as nc
+try:
+    from petitRADTRANS import Radtrans
+    from petitRADTRANS import nat_cst as nc
+    from petitRADTRANS.poor_mans_nonequ_chem import interpol_abundances
+except ModuleNotFoundError:
+    print('petitRADTRANS is not installed on this system')
 
 import matplotlib.pyplot as plt
 from matplotlib import cm
@@ -13,8 +17,8 @@ import astropy.constants as const
 
 from molmass import Formula
 
-from starships.analysis import resamp_model
-from starships.spectrum import RotKerTransitCloudy
+from .analysis import resamp_model
+from .spectrum import RotKerTransitCloudy
 
 from astropy.table import Table
 
@@ -24,6 +28,11 @@ from itertools import product
 from pathlib import Path
 
 from astropy.modeling.physical_models import BlackBody as BB
+
+import logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+logging.basicConfig()
 
 
 def calc_single_mass(mol):
@@ -73,7 +82,7 @@ def gen_atm(species_list, pressures, mode='lbl', wl_range=[0.95, 2.55],
 
 
 def gen_atm_all(species_list, pressures=None, limP=[-12, 4], n_pts=150, indiv=False, **kwargs):
-    print(species_list)
+    log.info(species_list)
     if pressures is None:
         pressures = np.logspace(*limP, n_pts)
 
@@ -84,23 +93,42 @@ def gen_atm_all(species_list, pressures=None, limP=[-12, 4], n_pts=150, indiv=Fa
 
     atmos_full = gen_atm(species_list, pressures, **kwargs)
 
-    print('Generating atmosphere with pressures from {} to {}'.format(pressures.max(), pressures.min()))
+    log.info('Generating atmosphere with pressures from {} to {}'.format(pressures.max(), pressures.min()))
     if indiv is True:
         atmos_i_list = []
         for specie in species_list:
             mol = specie.split('_')[0]
-            print('Generating pure {} atmosphere'.format(mol))
+            log.info('Generating pure {} atmosphere'.format(mol))
             atm_i = gen_atm([specie], pressures, **kwargs)
             atmos_i_list.append(atm_i)
 
         return atmos_full, pressures, atmos_i_list
     else:
-        print("You are not getting the individual contributions of the species")
+        log.info("You are not getting the individual contributions of the species")
         return atmos_full, pressures
 
 
 def select_mol_list(list_mols, list_values=None, kind_res='low',
                     change_line_list=None, add_line_list=None):
+    """ Select the linelists corresponding to the molecules in list_mols
+    and return a dictionary linelist name as keys and a dummy value as the VMR of the molecule.
+    Parameters
+    ----------
+    list_mols: list
+        List of molecules to include in the linelist
+    list_values: list
+        List of VMRs for the molecules in list_mols
+    kind_res: str
+        Resolution of the linelists to use. Possible values are 'low' and 'high'.
+    change_line_list: list
+        List of tuples with the molecule name and the linelist to use.
+    add_line_list: list
+        List of tuples with the molecule name and the linelist to use.
+    Returns
+    -------
+    species_list: OrderedDict
+        Dictionary with the linelist name as keys and a dummy value as the VMR of the molecule.    
+    """
     species_list = OrderedDict({})
 
     species_linelists = dict()
@@ -121,7 +149,25 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         'H-': 'H-',
         'H': 'H',
         'e-': 'e-',
+        'Al': 'Al',
+        'B': 'B',
+        'Be': 'Be',
+        'Ca': 'Ca',
+        'CaII': 'Ca+',
+        'Cr': 'Cr',
+        'Fe': 'Fe',
+        'FeII': 'Fe+',
+        'Li': 'Li',
+        'Mg': 'Mg',
+        'MgII': 'Mg+',
+        'N': 'N',
+        'Si': 'Si',
+        'Ti': 'Ti',
+        'V': 'V',
+        'VII': 'V+',
+        'Y': 'Y',      
     })
+
     species_linelists['low'] = OrderedDict({
         'H2O': 'H2O_HITEMP',
         'CO': 'CO_all_iso_HITEMP',
@@ -131,32 +177,66 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         'CH4': 'CH4',
         'HCN': 'HCN',
         'NH3': 'NH3',
-        'TiO': 'TiO_all_Exomol',
-        'VO': 'VO',
+        'TiO': 'TiO_all_Plez',
+        'VO': 'VO_Plez',
         'OH': 'OH',
         'Na': 'Na_allard',
         'K': 'K_allard',
         'H-': 'H-',
         'H': 'H',
         'e-': 'e-',
-
+        'Al': 'Al',
+        'AlII': 'Al+',
+        'Ca': 'Ca',
+        'CaII': 'Ca+',
+        'Cr': 'Cr',
+        'Fe': 'Fe',
+        'FeII': 'Fe+',
+        'Li': 'Li',
+        'Mg': 'Mg',
+        'MgII': 'Mg+',
+        'N': 'N',
+        'Si': 'Si',
+        'Ti': 'Ti',
+        'V': 'V',
+        'VII': 'V+',
+        'Y': 'Y',
     })
+        # 'Al+': 'Al+',
+        # 'Ca': 'Ca',
+        # 'Ca+': 'Ca+',
+        # 'Fe': 'Fe',
+        # 'Fe+': 'Fe+',
+        # 'Li': 'Li',
+        # 'Mg': 'Mg',
+        # 'Mg+': 'Mg+',
+        # 'O': 'O',
+        # 'Si': 'Si',
+        # 'Si+': 'Si+',
+        # 'Ti': 'Ti',
+        # 'Ti+': 'Ti+',
+        # 'V': 'V',
+        # 'V+': 'V+',
 
+    # If someone wants to change the default line_list:
     if add_line_list is not None:
-        print('Adding')
         for added_mol in add_line_list:
-            print(added_mol[0], ' as ', added_mol[1])
+            log.info(f'Adding {added_mol[0]} as {added_mol[1]}')
             species_linelists[kind_res][added_mol[0]] = added_mol[1]
 
     if change_line_list is not None:
         for changed_mol in change_line_list:
             species_linelists[kind_res][changed_mol[0]] = changed_mol[1]
 
+    if list_values is None:
+        list_values = [1e-99] * len(list_mols)
+
     for i_mol, mol in enumerate(list_mols):
-        if list_values is None:
-            species_list[species_linelists[kind_res][mol]] = [1e-99]
-        else:
+        try:
             species_list[species_linelists[kind_res][mol]] = list_values[i_mol]
+        except KeyError:
+            log.info(f'Adding {mol} to species_list')
+            species_list[mol] = list_values[i_mol]
 
     return species_list
 
@@ -265,11 +345,11 @@ def update_dissociation_abundance_profile(profile, specie_name, pressures, tempe
         try:
             profile['H'] += (A0 - profile_updt) * scale
         except KeyError:
-            print("You must add H- to your species")
-    if (specie_name.split('_')[0] == 'H2O'):
-        #         profile['OH_SCARLET'] += (A0 - profile_updt)*scale
-        #     if specie_name == 'H2O_HITEMP':
-        profile['OH'] += (A0 - profile_updt) * scale
+            log.debug("H- not found. You may need to add H- to your species")
+    # if (specie_name.split('_')[0] == 'H2O'):
+    #     #         profile['OH_SCARLET'] += (A0 - profile_updt)*scale
+    #     #     if specie_name == 'H2O_HITEMP':
+    #     profile['OH'] += (A0 - profile_updt) * scale
 
 
 def calc_MMW3(abundances):
@@ -286,6 +366,8 @@ def calc_MMW3(abundances):
 
 def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
                    vmrh2he=[0.85, 0.15], dissociation=False, scale=1.0, plot=False):  # , MMW=2.33):
+
+    log.debug(f'In gen_abundances: species_list = {species_list}')
     abundances = {}
     profile = {}
 
@@ -335,13 +417,15 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
         profile[specie_name] = vmr * np.ones_like(pressures)
 
     if ('H-' in species_list) and ('H' not in species_list):
-        print('adding H')
+        if verbose:
+            print('adding H')
         profile['H'] = 1e-99 * np.ones_like(pressures)
         species_list.append('H')
         species.append('H')
         VMRs.append(1e-99)
     if ('H-' in species_list) and ('e-' not in species_list):
-        print('adding e-')
+        if verbose:
+            print('adding e-')
         profile['e-'] = 1e-6 * np.ones_like(pressures)
         species_list.append('e-')
         species.append('e-')
@@ -415,7 +499,7 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
     #         plt.ylim(2,-6)
     #         plt.xlim(-12,1)
 
-    return abundances, MMW
+    return abundances, MMW, profile
 
 
 # def gen_abundances(species_list, VMRs, temperature, custom_VMRs=None, verbose=True,
@@ -593,18 +677,23 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
     else:
         R_pl = rp.cgs.value
 
+    if R_pl.ndim >0:
+        R_pl = R_pl[0]
+
     gravity = (const.G * planet.M_pl / R_pl ** 2).cgs.value
     if rstar is None:
         R_star = planet.R_star.cgs.value
     else:
         R_star = rstar.cgs.value
-    print('R_pl = {} // R_star = {} // grav = {}'.format(R_pl * u.cm.to(u.R_jup),
+    if verbose:
+        print('R_pl = {} // R_star = {} // grav = {}'.format(R_pl * u.cm.to(u.R_jup),
                                                          R_star * u.cm.to(u.R_sun),
                                                          gravity * u.cm ** 2 / u.s))
 
     # --- Testing all combinations of all the given parameters
     combinations = list(product(*species.values()))
-    print('There will be {} files'.format(len(combinations)))
+    if verbose:
+        print('There will be {} files'.format(len(combinations)))
 
     wave = None
     spectra_list = []
@@ -634,8 +723,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
             kwargs['kappa_zero'] = kappa_zero
         if kappa_factor is not None:
             kwargs['kappa_factor'] = kappa_factor #* (5.31e-31 * u.m ** 2 / u.u).cgs.value
-
-        print('Calculating full {} spectrum {}/{}'.format(kind_trans, j + 1, len(combinations)))
+        if verbose:
+            print('Calculating full {} spectrum {}/{}'.format(kind_trans, j + 1, len(combinations)))
         # species.values = combi
 
         for i, mol_i in enumerate(species.keys()):
@@ -647,6 +736,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
                                                           gravity, P0, cloud, R_pl, R_star,
                                                           vmrh2he=vmrh2he, kind_trans=kind_trans,
                                                           dissociation=dissociation, fct_star=fct_star,
+                                                          plot_abundance=plot_abundance,
+                                                          contribution=contribution,
                                                           **kwargs)
         if kind_trans == 'transmission':
             atmos_full_spectrum = atmos_full_spectrum * 1e6  # to put in ppm
@@ -692,13 +783,19 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
         if plot is True:
             plt.figure()
             plt.plot(wave, atmos_full_spectrum)
-        print(wave[[0, -1]], atmos_full_spectrum[[0, -1]])
+        if verbose:
+            print(wave[[0, -1]], atmos_full_spectrum[[0, -1]])
         if np.isnan(atmos_full_spectrum).all():
             print('ITS ALL NANs... Something is wrong.')
         if contribution is True:
             wlen_mu = nc.c / atmos_full.freq / 1e-4
             X, Y = np.meshgrid(wlen_mu, pressures)
-            plt.contourf(X, Y, atmos_full.contr_tr, 30, cmap=plt.cm.bone_r)
+            if kind_trans == 'transmission':
+                plt.contourf(X, Y, atmos_full.contr_tr, 30, cmap=plt.cm.bone_r)
+                plt.title('Transmission contribution function')
+            elif kind_trans == 'emission':
+                plt.contourf(X, Y, atmos_full.contr_em, 30, cmap=plt.cm.bone_r)
+                plt.title('Emission contribution function')
 
             plt.yscale('log')
             plt.xscale('log')
@@ -707,7 +804,7 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
 
             plt.xlabel('Wavelength (microns)')
             plt.ylabel('P (bar)')
-            plt.title('Transmission contribution function')
+
             plt.show()
             plt.clf()
 
@@ -717,7 +814,9 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
             file_name += '_cloud{:.2f}'.format(cloud * u.bar.to(u.Pa))
 
         if rp is not None:
-            file_name += '_Rp{:.2f}'.format(R_pl * u.cm.to(u.R_jup))
+            if verbose:
+                print((R_pl * u.cm).to(u.R_jup).value)
+            file_name += '_Rp{:.2f}'.format((R_pl * u.cm).to(u.R_jup).value)
         if path is not None:
             print('Saving...')
             np.save(path + 'PRT_' + file_name + '_' + kind_trans + filetag, atmos_full_spectrum)
@@ -730,7 +829,8 @@ def calc_multi_full_spectrum(planet, species, atmos_full=None, pressures=None, T
         else:
             # wave = nc.c / atmos_full.freq / 1e-4
             spectra_list.append(atmos_full_spectrum)
-            print('{}/{} Done!'.format(j + 1, len(combinations)))
+            if verbose:
+                print('{}/{} Done!'.format(j + 1, len(combinations)))
     if path is None:
         return atmos_full, wave, spectra_list
 
@@ -879,21 +979,13 @@ def gen_cases_file(planet, temps, cloudTop, haze, P0, MMW, R_pl, species, cases_
 #                        'CH4_main_iso':[-6, -10]})
 
 
-def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None,
-                  left_val=1., right_val=1.,
+def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None, rot_ker=None,
                   **kwargs):
-    if rot_params is not None:
+    
+    if rot_ker is None and rot_params is not None:
         rot_ker = RotKerTransitCloudy(rot_params[0], rot_params[1], rot_params[2],
                                       np.array(rot_params[3]) / u.day, Raf,
-                                      left_val=left_val, right_val=right_val,
                                       step_smooth=250., v_mid=0., **kwargs)
-    #     if rot_params is not None:
-    #         R_pl, M_pl, T_pl, freq, right_cl = rot_params
-    #         rot_ker = RotKerTransitCloudy(R_pl, M_pl, T_pl, np.array(freq) / u.day, Raf,
-    #                                                   left_val=1., right_val=right_cl,
-    #                                                step_smooth=250., v_mid=0., **kwargs)
-    else:
-        rot_ker = None
 
     resampled = np.ma.masked_invalid(resamp_model(modelWave0[:-1], modelTD0[:-1], Rbf,
                                                   Raf=Raf, rot_ker=rot_ker))
@@ -901,32 +993,89 @@ def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None,
     return modelWave0[:-1][15:-15], resampled[15:-15]
 
 
+def get_Fe_from_metallicity(VMR, Fe_to_H):
+    """Return VMR of Fe given Fe/H."""
+    
+    total_H = [VMR[key] for key in ['H2', 'H-', 'H'] if key in VMR]
+    total_H = np.sum(total_H, axis=0)
+    
+    # log10 VMR_Fe / VMR_H = -4.33  (solar)
+    out = (Fe_to_H - 4.33) + np.log10(total_H)
+    
+    return 10 ** out
+
+
 def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures,
-                          gravity, P0, cloud, R_pl, R_star,
-                          kappa_factor=None, gamma_scat=None, vmrh2he=None,
-                          kind_trans='transmission', dissociation=False, fct_star=None, **kwargs):
+                          gravity, P0, cloud, R_pl, R_star, C_to_O=None, Fe_to_H=None,
+                          kappa_factor=None, gamma_scat=None, vmrh2he=None, plot_abundance=False,
+                          kind_trans='transmission', dissociation=False, fct_star=None,
+                          contribution=False, specie_2_lnlst=None, **kwargs):
     if vmrh2he is None:
         vmrh2he = [0.85, 0.15]
     if kappa_factor is not None:
         kappa_zero = kappa_factor * (5.31e-31 * u.m ** 2 / u.u).cgs.value
     else:
         kappa_zero = None
-
-    abundances, MMW = gen_abundances([*species.keys()], [*species.values()],
+    
+    if specie_2_lnlst is None:
+        specie_2_lnlst = dict()
+        
+    if C_to_O is None and Fe_to_H is None:
+        chemical_equilibrium = False
+    else:
+        chemical_equilibrium = True
+        # Use solar abundances if one of the ratios is not provided
+        if C_to_O is None:
+            C_to_O = 0.55
+        if Fe_to_H is None:
+            Fe_to_H = 0.0   
+    log.debug(f'Chemical equilibrium = {chemical_equilibrium}')
+    
+    # Compute the abundances (and add species that need to be included if not fitted)
+    abundances, MMW, VMR = gen_abundances([*species.keys()], [*species.values()],
                                      pressures, temperatures,
                                      verbose=False, vmrh2he=vmrh2he,
-                                     dissociation=dissociation, plot=False)
+                                     dissociation=dissociation, plot=plot_abundance)
+    
+    if chemical_equilibrium:        
+        # Same shape as T and P
+        C_to_O = C_to_O * np.ones_like(temperatures)
+        Fe_to_H = Fe_to_H * np.ones_like(temperatures)
+        # Get abundances (=mass fraction) from PRT poorman equilibrium chemistry
+        mass_frac_eq = interpol_abundances(C_to_O, Fe_to_H, temperatures, pressures)
+        
+        # Update abundances with the new species
+        for mol in mass_frac_eq:
+            try:
+                key = specie_2_lnlst[mol]
+            except KeyError:
+                key = mol
+                
+            if key in abundances:
+                abundances[key] = mass_frac_eq[mol]
+                log.debug(f'Updating {key} abundance with equilibrium value {mol} = {mass_frac_eq[mol]}')
+                
+        MMW = mass_frac_eq['MMW']
+        
+        # Compute VMR of Fe from Fe/H if chemical equilibrium is used
+        if 'Fe' in abundances:
+            abundances['Fe'] = get_Fe_from_metallicity(VMR, Fe_to_H)
+            # Convert VMR to mass fraction
+            abundances['Fe'] = abundances['Fe'] * calc_single_mass('Fe') / MMW
 
     if kind_trans == 'transmission':
         atmos_object.calc_transm(temperatures, abundances, gravity, MMW,
                                  R_pl=R_pl, P0_bar=P0, Pcloud=cloud,
-                                 gamma_scat=gamma_scat, kappa_zero=kappa_zero, **kwargs)
+                                 gamma_scat=gamma_scat, kappa_zero=kappa_zero,
+                                 contribution=contribution,
+                                 **kwargs)
         out = atmos_object.transm_rad ** 2 / R_star ** 2
     elif kind_trans == "emission":
         #         bb_mod = bb(planet.Teff)
         atmos_object.calc_flux(temperatures, abundances, gravity, MMW,
                                Pcloud=cloud,
                                gamma_scat=gamma_scat, kappa_zero=kappa_zero,
+                               contribution=contribution,
                                **kwargs)
         wave = nc.c / atmos_object.freq / 1e-4
         if fct_star is None:
@@ -1057,8 +1206,10 @@ def gaussian_prior(cube, mu, sigma):
 
 def a_b_range(x, a, b):
     if x < a:
+        print('x < a : ', x, ' < ', a)
         return -np.inf
     elif x > b:
+        print('x > b : ', x, ' > ', b)
         return -np.inf
     else:
         return 0.

@@ -17,6 +17,12 @@ from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 from astropy.coordinates import Angle
 # from .utils import homemade as hm
 
+# Add a way to turn off plots when functions are called from other scripts
+plot_on = False
+
+# Example on how to turn off plots
+# import orbite
+# orbite.plot_on = False
 
 def t2trueanom(P, t, t0=0, e=0):
     # --- Going from time (t, input) to true anomaly (nu, output) ---
@@ -145,7 +151,10 @@ def Kp_theo(K_star, M_star, M_pl):
 
 
 def position(nu, e=0, i=cst.pi / 2, w=0, omega=0, ap=None, Rstar=None,
-             P=None, Mp=const.M_earth, Mstar=const.M_sun, plot=False):
+             P=None, Mp=const.M_earth, Mstar=const.M_sun, plot=None):
+
+    if plot is None:
+        plot = plot_on
 
     if isinstance(nu, u.Quantity):
         nu = nu.to(u.rad)
@@ -197,6 +206,8 @@ def position(nu, e=0, i=cst.pi / 2, w=0, omega=0, ap=None, Rstar=None,
 
 def transit(Rs, Rp, sep, z=None, nu=None, r=None, vr=None, i_tperi=None, w=None):
 
+    plot = plot_on
+
     if z is None:  # No distinction between transit and eclipse
         z = np.zeros_like(np.array(sep)) - 1
 
@@ -212,7 +223,7 @@ def transit(Rs, Rp, sep, z=None, nu=None, r=None, vr=None, i_tperi=None, w=None)
             (z < 0)
         )[0]
 
-    if nu is not None:
+    if nu is not None and plot:
         if nu.size == sep.size:
             nu = np.squeeze(nu)
 
@@ -222,9 +233,9 @@ def transit(Rs, Rp, sep, z=None, nu=None, r=None, vr=None, i_tperi=None, w=None)
                 ax1.plot(nu[out], r[out], 'r')
                 ax1.plot(nu[limb], r[limb], 'gx')
                 ax1.plot(nu[transit], r[transit], 'b+')
+
                 if (i_tperi < nu.size) :
                     if (i_tperi is not None):
-
                         ax1.plot(nu[i_tperi], r[i_tperi], '*')
                     if w is not None:
                         to_observer = nu[i_tperi] - w.to(u.rad).value - cst.pi / 2.
@@ -410,7 +421,7 @@ def orbit_time(R_pl, R_star, periode, ap, b, *opt, e=0, i=cst.pi / 2, w=0, omega
 # ------ Airmass calculation --------
 
 
-def airmass(name, radec, observatoire, time, plot=False):
+def airmass(name, radec, observatoire, time, plot=None):
     """
     Compute the airmass
     time : can be a single value or an array of Time('time') value
@@ -418,6 +429,9 @@ def airmass(name, radec, observatoire, time, plot=False):
         delta_time = np.linspace(-5, 29, 100)*u.hour
         obstime = date0+delta_time
     """
+    if plot is None:
+        plot = plot_on
+    
     try:
         obj_name = SkyCoord.from_name(name)
     except:

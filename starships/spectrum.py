@@ -8,27 +8,35 @@ Created on Tue Aug 16 15:47:17 2016
 from __future__ import division
 import numpy as np
 
-from starships import homemade as hm
-from starships.extract import get_var_res, get_res
+from . import homemade as hm
+from .extract import get_var_res, get_res
 from astroquery.vizier import Vizier
 from astropy import units as u
 from astropy import constants as const
 from astropy.table import Table, Column, QTable
+from astropy.convolution import Gaussian1DKernel
 # import astropy.io.ascii as ascii_ap
 from astropy.io import fits
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.colors import ListedColormap
 import scipy.constants as cst
 from scipy.interpolate import interp1d
 from scipy.io.idl import readsav
+import logging
 
 import os.path
 # from .config import *
 # from importlib import reload
 
-from starships.mask_tools import interp1d_masked
+from .mask_tools import interp1d_masked
 # import spirou_exo.analysis as a
 
 # from scipy.interpolate import interp1d
+
+# Set logger to see the debug messages
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 # from hapi import transmittanceSpectrum
 masterDir = '/home/boucher/spirou/'
@@ -379,16 +387,21 @@ def loadTellTrans(date_id):
 
     transTot = np.prod(transMol, axis=0)
     return wave, transMol, transTot
+      
 
-#------------------------------
-# --- Resampling function ---
-# - Change the sampling of a spectrum from an initial resolution of Rbf
-# - to a final resolution of Raf
+
+#############################################
+# --- Code related to convolution kernels ---
+#############################################
+
+# --- Utility functions for convolution and kernels ---
 
 def resampling(wl, flux, Raf, Rbf=None, lb_range=None, ptsPerElem=1, sample=None, rot_ker=None):#, plot=False):
     """
-    Spectrum resampling, assuming a R that is constant
-    Rbf is the sampling resolution, not the actual resolution.
+    Spectrum resampling, assuming a R that is constant.
+    Change the sampling of a spectrum from an initial sampling resolution of Rbf
+    to a final sampling resolution of Raf.
+    *** Rbf is the sampling resolution, not the actual resolution. ***
     If Rbf is not given, we take the highest value in the array
     """
     # - On définit le range de longueur d'onde
@@ -430,17 +443,19 @@ def resampling(wl, flux, Raf, Rbf=None, lb_range=None, ptsPerElem=1, sample=None
                 profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=fwhm)
 
             else:
-#                 print('Resampling with rotation')
-                # R_af is implicitly included in the rot_ker object
-                try:
-                    profil = rot_ker.resample(R_sampling, n_os=1000, pad=7)
-                except KernelIndexError:
-                    # - On on va vouloir un vecteur de taille ~7xfwhm
-                    taille = hm.myround(fwhm * 7, base=2) + 1
-                    # - On génère notre gaussienne avec le nb de point (pxl) qu'on vient de calculer
-                    profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=fwhm)
-#             print(flux)
-#             print(profil)
+                if isinstance(rot_ker, np.ndarray):
+                    profil = rot_ker
+                else:
+    #                 print('Resampling with rotation')
+                    # R_af is implicitly included in the rot_ker object
+                    try:
+                        profil = rot_ker.resample(R_sampling, n_os=500, pad=7)
+                    except KernelIndexError:
+                        # - On on va vouloir un vecteur de taille ~7xfwhm
+                        taille = hm.myround(fwhm * 7, base=2) + 1
+                        # - On génère notre gaussienne avec le nb de point (pxl) qu'on vient de calculer
+                        profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=fwhm)
+            
             # - On convolue notre ancien spectre avec le nouveau profil
             new_flux = np.convolve(flux, profil, mode='same')
             # - Notre nouveau spectre a la bonne résolution, mais pas le bon échantillonnage
@@ -461,7 +476,328 @@ def resampling(wl, flux, Raf, Rbf=None, lb_range=None, ptsPerElem=1, sample=None
     return new_lb, new_flux
 
 
+def find_R(wl, ptsPerElem=1):
+    """
+    Compute the "sampling resolution" power of the given spectrum (for a given sampling)
+    It will take the highest value it can find, if R is not constant (if constant delta_wl)
+    """
+    # if ptsPerElem is not None:
+    #     R = np.round((1 / ptsPerElem) / ((np.max(wl) / np.min(wl))**(1 / wl.size) - 1))
+    # else:
+    d_wl = np.diff(wl)
+    R_all = np.round(wl[1:] / d_wl / ptsPerElem)
+
+    # print('R is {}'.format(R))
+
+    return R_all.max(), R_all.min(), np.append(R_all, R_all[-1]-1)
+
+
+def sample_new_R(wl, flux, R, lb_range, ptsPerElem=1, sample=None):
+    # - On génère une "fonction" à partir de notre spectre pour interpoler
+    
+    if ~isinstance(flux, np.ma.core.MaskedArray):
+        flux = np.ma.array(flux, mask=~np.isfinite(flux))
+    
+    fct = interp1d_masked(wl, flux, kind='cubic', fill_value='extrapolate')
+    
+    if sample is None:
+        # - On calcule le nombre de point nécessaire pour avoir le bon échantillonnage
+        # - Chaque élément = 1 pixel (point) spectral = 20 pixels physiques
+        new_npt = np.floor(np.log(lb_range[1] / lb_range[0]) / np.log(1 / (ptsPerElem * R) + 1))
+
+        # - On génère un nouveau vecteur de longueur d'onde avec le bon nb de point
+        new_lb = np.exp(np.arange(new_npt) / (new_npt - 1) * np.log(lb_range[1] / lb_range[0])) * lb_range[0]  # lb0*(1/(2*Raf)+1)**(np.arange(new_npt))
+        # - On calcul de nouveau spectre avec notre interpolation
+        # new_flux = fct(new_lb)
+    else:
+        # If thr user wants to use its own sampling grid, but for a spectrum at the desired R
+        new_lb = sample
+    
+#     print(new_lb[0], new_lb[-1])
+#     plt.figure()
+#     plt.plot(wl, flux)
+#     plt.plot(new_lb, fct(new_lb), 'r')
+# #     plt.plot(new_lb, new_flux2, 'g')
+
+#     hm.stop()
+        
+    return new_lb, fct(new_lb)
+
+
+def isRcst(wl):
+    """
+    Determines if R is constant troughout the whole array
+    """
+    return np.abs(np.diff([find_R(wl)[0], find_R(wl)[1]])) > 10
+
+
+def gaussConv(x,fwhm):
+    #convolution with a Gaussian kernel with fwhm specified for each pixel
+    #fwhm is an array with as many elements as x
+    sig=fwhm/2.35
+    sig2=sig**2
+    deltaMAX=np.ceil(3*fwhm.max()).astype(int)
+
+    xx=np.copy(x)
+    delta=1
+    while delta<=deltaMAX:
+        xx[deltaMAX:x.size-deltaMAX]+=np.exp((-0.5*delta**2)/sig2[deltaMAX:x.size-deltaMAX])*\
+            (x[deltaMAX+delta:x.size-deltaMAX+delta]+x[deltaMAX-delta:x.size-deltaMAX-delta])
+        delta+=1
+
+    xx*=1./(2*np.pi)**(0.5)/sig
+    xx[:deltaMAX]=np.nan
+    xx[-deltaMAX:]=np.nan
+
+    return xx
+
+
+def convert_default_units(list_of_args, default_units):
+    """Converts the arguments to default units. If the argument is not an astropy quantity,
+    it is left unchanged, so assume it is already in the default units.
+    list_of_args: list of astropy quantities or arrays
+    default_units: list of strings
+    """
+    values = tuple()
+    for quant, unit in zip(list_of_args, default_units):
+        try:
+            quant = quant.to(unit).value
+        except AttributeError:
+            pass
+        values += (quant,)
+    return values
+
+
+# --- Utility classes for convolution kernels ---
+
+class KernelIndexError(IndexError):
+    pass
+
+# --- Base classes for kernels ---
+
+class BaseKer:
+
+    def __init__(self, resolution):
+        '''Base class for rotation kernels with multiple regions.
+        resolution: scalar (float or int)
+            spectral resolution of the instrument
+        '''
+        # Get resolution element in m/s
+        res_elem = const.c / resolution
+        res_elem = res_elem.to('m/s').value
+
+        # Save attributes
+        self.res_elem = res_elem
+
+
+    def degrade_ker(self, rot_ker=None, v_grid=None, norm=True, fwhm=None, **kwargs):
+        ''' 
+        General method to degrade a kernel
+        Parameters
+        ----------
+        rot_ker: array-like
+            kernel to degrade. If None, the method get_ker is called to get the kernel
+            specific to the class (won't work with the BaseKer class, but it will with subclasses).
+        v_grid: array-like
+            velocity grid of the kernel. If None, the method get_ker is called to get the velocity grid,
+            like rot_ker. It won't work with the BaseKer class, but it will with subclasses.
+        norm: bool
+            Wheter to normalize the kernel or not. Default is True.
+        fwhm: float
+            FWHM of the gaussian kernel to convolve with the kernel. If None, the FWHM is set to the
+            resolution element of the kernel object.
+        kwargs:
+          Passed to `get_ker` method.
+        '''
+        if fwhm is None:
+            fwhm = self.res_elem
+
+        if rot_ker is None: 
+            results = self.get_ker(norm=norm, **kwargs)
+            v_grid, rot_ker = results[:2]
+            
+        gauss_ker = hm.gauss(v_grid, 0.0, FWHM=fwhm)
+        gauss_ker /= gauss_ker.sum()
+        
+        out_ker = np.convolve(rot_ker, gauss_ker, mode='same')
+        
+        if norm:
+            out_ker /= out_ker.sum()
+        return v_grid, out_ker
+    
+    def resample(self, res_sampling, rot_ker=None, v_grid=None, norm=True, fwhm=None, **kwargs):
+        ''' Resample a kernel to a given sampling resolution. It also downgrades the kernel
+        to a specified fwhm or to the default resolution element of the kernel object.
+        Parameters
+        ----------
+        res_sampling: float
+            resolution of the sampling needed
+        rot_ker: array-like
+            kernel to degrade. If None, the method get_ker is called to get the kernel
+            specific to the class (won't work with the BaseKer class, but it will with subclasses).
+        v_grid: array-like
+            velocity grid of the kernel. If None, the method get_ker is called to get the velocity grid,
+            like rot_ker. It won't work with the BaseKer class, but it will with subclasses.
+        norm: bool
+            Wheter to normalize the kernel or not. Default is True.
+        fwhm: float
+            FWHM of the gaussian kernel to convolve with the kernel. If None, the FWHM is set to the
+            resolution element of the kernel object.
+        kwargs are passed to degrade_ker method
+        '''
+        dv_new = const.c / res_sampling
+        dv_new = dv_new.to('m/s').value
+        v_grid, kernel = self.degrade_ker(rot_ker=rot_ker, v_grid=v_grid, norm=norm, fwhm=fwhm, **kwargs)
+        dv_old = np.diff(v_grid).mean()
+        ker_spl = interp1d(v_grid, kernel, kind='linear')
+        v_grid = np.arange(v_grid.min(), v_grid.max(), dv_new)
+        out_ker = ker_spl(v_grid)
+        out_ker *= dv_new / dv_old
+        return out_ker
+    
+    def show(self, norm=True, **kwargs):
+        """ Plot the kernel and the degraded kernel
+        Parameters
+        ----------
+        norm: bool
+            Wheter to normalize the kernel or not. Default is True.
+        kwargs are passed to get_ker method.
+        """
+        res_elem = self.res_elem
+        v_grid, kernel = self.get_ker(norm=norm, **kwargs)
+        gauss_ker = hm.gauss(v_grid, 0.0, FWHM=res_elem)
+        # if norm:
+        #     gauss_ker /= gauss_ker.sum()
+        _, ker_degraded = self.degrade_ker(norm=norm, **kwargs)
+        fig = plt.figure()
+        plt.plot(v_grid/1e3, gauss_ker, "--", color="gray",
+                 label='Instrumental resolution element')
+        plt.axvline(res_elem/2e3, linestyle='--', color='gray')
+        plt.axvline(-res_elem/2e3, linestyle='--', color='gray')
+        plt.plot(v_grid/1e3, kernel,
+                 label='Rotation kernel')
+        plt.plot(v_grid/1e3, ker_degraded,
+                 label='Instrumental * rotation')
+        plt.legend()
+        plt.xlabel('dv [km/s]')
+        plt.ylabel('Kernel')
+        
+        axtwin = plt.gca().twinx()
+        axtwin.plot(v_grid/1e3, gauss_ker, "--", color="gray",
+                    label='Instrumental resolution element')
+
+        return fig
+
+
+class BaseKerMulti:
+    """
+    Base class for rotation kernels with multiple regions.
+
+    Parameters
+    ----------
+    resolution: scalar (float or int)
+        spectral resolution of the instrument
+    """
+
+    def __init__(self, resolution):
+        """Base class for rotation kernels with multiple regions.
+        resolution: scalar (float or int)
+            spectral resolution of the instrument
+        """
+
+        # Get resolution element in m/s
+        res_elem = const.c / resolution
+        res_elem = res_elem.to('m/s').value
+
+        # Save attributes
+        self.res_elem = res_elem
+
+    def degrade_ker(self, rot_ker_list=None, v_grid=None, norm=True, fwhm=None, **kwargs):
+        """
+        General method to degrade a kernel
+        Parameters
+        ----------
+        rot_ker_list: list of array-like
+            List of kernel to degrade. If None, the method get_ker is called to get the kernel
+            specific to the class.
+        v_grid: array-like
+            velocity grid of the kernel. If None, the method get_ker is called to get the velocity grid,
+            like rot_ker.
+        norm: bool
+            Wheter to normalize the kernel or not. Default is True.
+        fwhm: float
+            FWHM of the gaussian kernel to convolve with the kernel. If None, the FWHM is set to the
+            resolution element of the kernel object.
+        kwargs:
+          Passed to `get_ker` method if `rot_ker_list` is None.
+        """
+        # Get default values if not specified
+        if fwhm is None:
+            fwhm = self.res_elem
+
+        if rot_ker_list is None: 
+            v_grid, rot_ker_list = self.get_ker(norm=norm, **kwargs)
+        gauss_ker = hm.gauss(v_grid, 0.0, FWHM=fwhm)
+
+        out_ker_list = [np.convolve(rot_ker, gauss_ker, mode='same') for rot_ker in rot_ker_list]
+
+        # Make sure the sum over all kernels is 1 (conservation of flux)
+        if norm:
+            all_sum = np.sum(out_ker_list)
+            out_ker_list = [ker / all_sum for ker in out_ker_list]
+
+        return v_grid, out_ker_list
+    
+    def resample(self, res_sampling, rot_ker_list=None, v_grid=None, norm=True, fwhm=None, **kwargs):
+        """ Resample a kernel to a given sampling resolution. It also downgrades the kernel
+        to a specified fwhm or to the default resolution element of the kernel object.
+        Parameters
+        ----------
+        res_sampling: float
+            resolution of the sampling needed
+        rot_ker_list: list of array-like
+            List of kernels to degrade. If None, the method get_ker is called to get the kernel
+            specific to the class.
+        v_grid: array-like
+            velocity grid of the kernel. If None, the method get_ker is called to get the velocity grid,
+            like rot_ker.
+        norm: bool
+            Wheter to normalize the kernel or not. Default is True.
+        fwhm: float
+            FWHM of the gaussian kernel to convolve with the kernel. If None, the FWHM is set to the
+            resolution element of the kernel object.
+        kwargs are passed to degrade_ker method
+        """
+        # Find the dv equivalent to the sampling resolution
+        dv_new = const.c / res_sampling
+        dv_new = dv_new.to('m/s').value
+
+        # Get default values if not specified
+        if fwhm is None:
+            fwhm = self.res_elem
+
+        if rot_ker_list is None: 
+            v_grid, rot_ker_list = self.degrade_ker(rot_ker_list=rot_ker_list, v_grid=v_grid, norm=norm, fwhm=fwhm, **kwargs)
+
+        # Interpolate the kernel to the new sampling
+        out_ker_list = []
+        for rot_ker in rot_ker_list:
+            ker_spl = interp1d(v_grid, rot_ker, kind='linear')
+            v_grid_new = np.arange(v_grid.min(), v_grid.max(), dv_new)
+            out_ker_list.append(ker_spl(v_grid_new))
+            
+        # Make sure the sum over all kernels is 1 (conservation of flux)
+        if norm == True:
+            all_sum = np.sum(out_ker_list)
+            out_ker_list = [ker / all_sum for ker in out_ker_list]
+            
+        return out_ker_list
+
+
+# --- Specific classes and functions for kernels ---
+
 def _get_rot_ker_tr_v(v_grid, omega, r_p, z_h):
+    
         x_v = v_grid / omega
         out = np.zeros_like(x_v)
         idx = np.abs(x_v) < r_p
@@ -472,6 +808,8 @@ def _get_rot_ker_tr_v(v_grid, omega, r_p, z_h):
         arg1 = (r_p + z_h)**2 - (x_v)**2
         out[idx] = np.sqrt(arg1[idx]) / z_h
         return out
+
+
 def rot_ker_transit_v(pl_rad, pl_mass, t_eq, omega, resolution, mu=None, n_os=1, pad=5, iplot=False):
     '''Rotational kernel for transit at dv constant (constant resolution)
     pl_rad: scalar astropy quantity, planet radius
@@ -525,6 +863,69 @@ def rot_ker_transit_v(pl_rad, pl_mass, t_eq, omega, resolution, mu=None, n_os=1,
         plt.xlabel('dv [km/s]')
         plt.ylabel('Kernel')
     return kernel
+
+
+def box_smoothed_step(v_grid, left_val, right_val, box_width, v_mid=0):
+    # box width in units of dv 
+    dv_grid = v_grid[1] - v_grid[0]
+    box_width = box_width / dv_grid
+    # Gaussian smoothing kernel
+    g_ker = Gaussian1DKernel(box_width).array
+    # Apply step funnction
+    y_val = np.zeros(v_grid.shape)
+    y_val[v_grid < v_mid] = left_val
+    y_val[v_grid >= v_mid] = right_val
+    # Pad with connstants at the boundaries
+    pad_size = np.ceil(len(g_ker) / 2).astype(int) - 1
+    pad_left = np.repeat(y_val[0], pad_size)
+    pad_right = np.repeat(y_val[-1], pad_size)
+    y_val = np.concatenate([pad_left, y_val, pad_right])
+    # Smooth the step function
+    y_smooth = np.convolve(y_val, g_ker, mode='valid')
+    # Normalize so that if the function was equal
+    # to 1 everywhere
+    y_ones = np.convolve(np.ones_like(y_val), g_ker, mode='valid')
+    norm = y_ones.sum()
+    y_smooth = y_smooth / norm * len(y_smooth)
+    return y_smooth
+
+
+def lorentz(x, x0=0, gamma=1., amp=1.):
+    return amp * gamma**2 / ( (x-x0)**2 + gamma**2 )
+
+
+def v_de_phi(phi, gamma1, gamma2, amp1, amp2):
+    
+    output = np.ones_like(phi) * np.nan
+    
+    # --- Entre -pi/2 et pi/2 ---
+    
+    region = np.where((phi > -np.pi/2) & (phi <= np.pi/2))
+    
+    lorentz1 = lorentz(phi[region], x0=np.pi/2, gamma=gamma1, amp=amp1)
+    lorentz2 = lorentz(phi[region], x0=-np.pi/2, gamma=gamma2, amp=amp2)
+    
+    output[region] = lorentz1+lorentz2
+    
+    # --- Entre -pi et -pi/2 ---
+    
+    region = np.where((phi >= -np.pi) & (phi <= -np.pi/2))
+    
+    lorentz1 = lorentz(phi[region], x0=-3*np.pi/2, gamma=gamma1, amp=amp1)
+    lorentz2 = lorentz(phi[region], x0=-np.pi/2, gamma=gamma2, amp=amp2)
+    
+    output[region] = lorentz1+lorentz2
+    
+    # --- Entre pi/2 et pi ---
+    
+    region = np.where((phi > np.pi/2) & (phi <= np.pi))
+    
+    lorentz1 = lorentz(phi[region], x0=np.pi/2, gamma=gamma1, amp=amp1)
+    lorentz2 = lorentz(phi[region], x0=3*np.pi/2, gamma=gamma2, amp=amp2)
+    
+    output[region] = lorentz1+lorentz2
+
+    return output
 
 
 class RotKerTransit:
@@ -633,90 +1034,52 @@ class RotKerTransit:
         plt.legend()
         plt.xlabel('dv [km/s]')
         plt.ylabel('Kernel')
-        
-        
-from astropy.convolution import Gaussian1DKernel
-def box_smoothed_step(v_grid, left_val, right_val, box_width, v_mid=0):
-    # box width in units of dv 
-    dv_grid = v_grid[1] - v_grid[0]
-    box_width = box_width / dv_grid
-    # Gaussian smoothing kernel
-    g_ker = Gaussian1DKernel(box_width).array
-    # Apply step funnction
-    y_val = np.zeros(v_grid.shape)
-    y_val[v_grid < v_mid] = left_val
-    y_val[v_grid >= v_mid] = right_val
-    # Pad with connstants at the boundaries
-    pad_size = np.ceil(len(g_ker) / 2).astype(int) - 1
-    pad_left = np.repeat(y_val[0], pad_size)
-    pad_right = np.repeat(y_val[-1], pad_size)
-    y_val = np.concatenate([pad_left, y_val, pad_right])
-    # Smooth the step function
-    y_smooth = np.convolve(y_val, g_ker, mode='valid')
-    # Normalize so that if the function was equal
-    # to 1 everywhere
-    y_ones = np.convolve(np.ones_like(y_val), g_ker, mode='valid')
-    norm = y_ones.sum()
-    y_smooth = y_smooth / norm * len(y_smooth)
-    return y_smooth
+  
 
+class RotKerTransitCloudy(BaseKer):
+    """
+    Rotational kernel for transit at dv constant (constant resolution)
 
-def lorentz(x, x0=0, gamma=1., amp=1.):
-    return amp * gamma**2 / ( (x-x0)**2 + gamma**2 )
+    Parameters
+    ----------
+    pl_rad: scalar astropy quantity, planet radius
+    pl_mass: scalar astropy quantity, planet mass
+    t_eq: scalar astropy quantity, planet equilibrium temperature
+    omega: array-like astropy quantity, 1 or 2 elements
+        Rotation frequency. If 2 elements, different for
+        each hemisphere. The first element will be for
+        the negative speed (blue-shifted), and the
+        second for positive speed (red-shifted)
+    resolution: scalar (float or int)
+        spectral resolution
+    left_val: float
+        Transmission value at the bluer part of the kernel.
+        Between 0 and 1. Default is 1 (no clouds)
+    right_val: float
+        Transmission value at the redest part of the kernel.
+        Between 0 and 1. Default is 1 (no clouds)
+    step_smooth: float
+        fwhm of the gaussian kernel to smooth the clouds
+        transmission step function. Default is 1.
+    v_mid: float
+        velocity where the step occurs in the clouds
+        transmission step function. Default is 0.
+    mu: scalar astropy quantity, mean molecular mass
+    """
 
-def v_de_phi(phi, gamma1, gamma2, amp1, amp2):
-    
-    output = np.ones_like(phi) * np.nan
-    
-    # --- Entre -pi/2 et pi/2 ---
-    
-    region = np.where((phi > -np.pi/2) & (phi <= np.pi/2))
-    
-    lorentz1 = lorentz(phi[region], x0=np.pi/2, gamma=gamma1, amp=amp1)
-    lorentz2 = lorentz(phi[region], x0=-np.pi/2, gamma=gamma2, amp=amp2)
-    
-    output[region] = lorentz1+lorentz2
-    
-    # --- Entre -pi et -pi/2 ---
-    
-    region = np.where((phi >= -np.pi) & (phi <= -np.pi/2))
-    
-    lorentz1 = lorentz(phi[region], x0=-3*np.pi/2, gamma=gamma1, amp=amp1)
-    lorentz2 = lorentz(phi[region], x0=-np.pi/2, gamma=gamma2, amp=amp2)
-    
-    output[region] = lorentz1+lorentz2
-    
-    # --- Entre pi/2 et pi ---
-    
-    region = np.where((phi > np.pi/2) & (phi <= np.pi))
-    
-    lorentz1 = lorentz(phi[region], x0=np.pi/2, gamma=gamma1, amp=amp1)
-    lorentz2 = lorentz(phi[region], x0=3*np.pi/2, gamma=gamma2, amp=amp2)
-    
-    output[region] = lorentz1+lorentz2
-
-    return output
-
-
-
-
-class KernelIndexError(IndexError):
-    pass
-
-
-class RotKerTransitCloudy:
     def __init__(self, pl_rad, pl_mass, t_eq, omega, resolution,
                  left_val=1, right_val=1, step_smooth=1, v_mid=0, mu=None, 
                  gauss=False, x0=0., fwhm=4000.,  
                  gamma1=2/np.pi, gamma2=2/np.pi, amp1=5, amp2=5, vphi=False):
-        '''Rotational kernel for transit at dv constant (constant resolution)
+        """
+        Rotational kernel for transit at dv constant (constant resolution)
         pl_rad: scalar astropy quantity, planet radius
         pl_mass: scalar astropy quantity, planet mass
         t_eq: scalar astropy quantity, planet equilibrium temperature
         omega: array-like astropy quantity, 1 or 2 elements
             Rotation frequency. If 2 elements, different for
             each hemisphere. The first element will be for
-            the negative speed (blue-shifted), and the 
+            the negative speed (blue-shifted), and the
             second for positive speed (red-shifted)
         resolution: scalar (float or int)
             spectral resolution
@@ -733,17 +1096,18 @@ class RotKerTransitCloudy:
             velocity where the step occurs in the clouds
             transmission step function. Default is 0.
         mu: scalar astropy quantity, mean molecular mass
-        '''
+        
+        """
+        super().__init__(resolution)
+
         if mu is None:
             mu = 2.3 * u.u
         g_surf = const.G * pl_mass / pl_rad**2
         scale_height = const.k_B * t_eq / (mu * g_surf)
         z_h = 5 * scale_height.to('m').value
         r_p = pl_rad.to('m').value
-        res_elem = const.c / resolution
-        res_elem = res_elem.to('m/s').value
         omega = omega.to('1/s').value
-        self.res_elem = res_elem
+
         self.omega = omega
         self.z_h = z_h
         self.r_p = r_p
@@ -762,7 +1126,7 @@ class RotKerTransitCloudy:
         self.amp1 = amp1
         self.amp2 = amp2
         
-    def get_ker(self, n_os=None, pad=7, v_grid=None):
+    def get_ker(self, n_os=None, pad=7, v_grid=None, norm=False):
         '''
         n_os: scalar, oversampling (to sample the kernel)
         pad: scalar
@@ -798,18 +1162,27 @@ class RotKerTransitCloudy:
             kernel[~idx_minus] = _get_rot_ker_tr_v(*args)
         else:
             kernel = _get_rot_ker_tr_v(v_grid, omega, r_p, z_h)
-        # normalize
-        kernel /= kernel.sum()
+
         # Get cloud transmission function
         idx_valid = (kernel > 0)
+        norm_factor = kernel[idx_valid].sum()  # normalization factor
         if idx_valid.sum() <= 1:
-            raise KernelIndexError("Kernel size too small for grid.")
+            idx_valid = np.searchsorted(v_grid, 0)
+            kernel[idx_valid] = 1
+            # raise KernelIndexError("Kernel size too small for grid.")
         clouds = np.ones_like(kernel) * np.nan
-        clouds[idx_valid] = box_smoothed_step(v_grid[idx_valid], *clouds_args)
+        clouds[idx_valid] = box_smoothed_step(v_grid[idx_valid], *clouds_args)        
         kernel[idx_valid] = kernel[idx_valid] * clouds[idx_valid]
+        kernel /= norm_factor
+        
+        # normalize to unity
+        if norm:
+            kernel /= kernel.sum()
+
         return v_grid, kernel, clouds
     
-    def get_ker_vphi(self, n_os=1000, pad=7):
+    # TODO: Should be the get_ker method in a separate class
+    def get_ker_vphi(self, n_os=1000, pad=7, norm=False):
         '''
         n_os: scalar, oversampling (to sample the kernel)
         pad: scalar
@@ -851,7 +1224,8 @@ class RotKerTransitCloudy:
 #         v_grid = 0.5*(bins[1:] + bins[:-1])        
         kernel = np.array(kernel)
 #         ker_sum = kernel.sum()
-        kernel = kernel/(kernel.sum())
+        if norm:
+            kernel = kernel/(kernel.sum())
 
 
 #         v_max = np.max(np.abs([self.amp1, self.amp2])) + pad*res_elem*(u.m/u.s).to(u.km/u.s)#.value
@@ -865,6 +1239,7 @@ class RotKerTransitCloudy:
 
         return v_grid, kernel
 
+    # TODO: Should be the get_ker method in a separate class
     def get_ker_gauss(self, n_os=None, pad=7):
         
         res_elem = self.res_elem
@@ -895,81 +1270,8 @@ class RotKerTransitCloudy:
         if idx_valid.sum() <= 1:
             raise KernelIndexError("Kernel size too small for grid.")
 
-        return v_grid, kernel
-
+        return v_grid, kernel        
     
-#     def v_de_phi_kernel(gamma1, gamma2, amp1, amp2, plot=False, n_os=1000, pad=7, R=64000):
-
-#         res_elem = const.c / R
-#         phi = np.linspace(-np.pi, np.pi, 10000)
-
-#         v_tot = v_de_phi(phi, gamma1, gamma2, amp1, amp2)
-
-#         delta_v = res_elem / (n_os/10)
-
-#         v_max = np.max(np.abs([amp1, amp2])) + pad*res_elem.to(u.km/u.s).value
-#     #     print(v_max)
-
-#         v_grid = np.arange(-v_max, v_max, delta_v.to(u.km/u.s).value)
-#         v_grid -= np.mean(v_grid)
-#     #     print(v_grid[[0,-1]])
-#         diff = np.diff(v_grid)
-#     #     print(delta_v, diff[0])
-#         edges = list(v_grid[:-1]-0.5*diff)
-#         edges.append(v_grid[-1]-0.5*diff[-1])
-#         edges.append(v_grid[-1]+0.5*diff[-1])
-#         edges = np.array(edges)
-
-#         kernel, bins = np.histogram(v_tot, bins=edges,)# range=[-v_max, v_max])  #bins=int(n_os/2)
-#     #     v_grid = 0.5*(bins[1:] + bins[:-1])
-
-#         kernel=np.array(kernel)
-#         ker_sum = kernel.sum()
-#         kernel = kernel/ker_sum
-
-#         if plot is True:
-#             plt.figure()
-#             plt.plot(phi, v_tot)
-#         if plot is True:
-#                 plt.figure()
-#                 plt.plot(v_grid, kernel)
-
-#         return v_grid, kernel
-        
-    
-    def degrade_ker(self, **kwargs): #rot_ker=None, v_grid=None,
-        '''kwargs are passed to get_ker method'''
-        fwhm = self.res_elem
-#         if rot_ker is None:
-        if self.vphi is True:
-            v_grid, rot_ker = self.get_ker_vphi(**kwargs)
-        elif self.gauss is True:
-            v_grid, rot_ker = self.get_ker_gauss(**kwargs)
-        else:
-            v_grid, rot_ker, _ = self.get_ker(**kwargs)
-                
-        norm = rot_ker.sum()
-        gauss_ker = hm.gauss(v_grid, 0.0, FWHM=fwhm)
-        out_ker = np.convolve(rot_ker, gauss_ker, mode='same')
-        out_ker /= out_ker.sum()
-        out_ker *= norm
-        return v_grid, out_ker
-    
-    def resample(self, res_sampling, **kwargs):
-        '''
-        res_sampling: resolution of the sampling needed
-        kwargs are passed to degrade_ker method
-        '''
-        dv_new = const.c / res_sampling
-        dv_new = dv_new.to('m/s').value
-        v_grid, kernel = self.degrade_ker(**kwargs)
-        norm = kernel.sum()
-        ker_spl = interp1d(v_grid, kernel, kind='linear')
-        v_grid = np.arange(v_grid.min(), v_grid.max(), dv_new)
-        out_ker = ker_spl(v_grid)
-        out_ker /= out_ker.sum()
-        out_ker *= norm
-        return out_ker
     
     def show(self, **kwargs):
         res_elem = self.res_elem
@@ -1002,206 +1304,406 @@ class RotKerTransitCloudy:
         twin_ax.set_ylim(-0.05, 1.05)
 
 
-# def resampling(wl, flux, Raf, Rbf=None, lb_range=None, ptsPerElem=1, sample=None):
-#     """
-#     Spectrum resampling, assuming a R that is constant
-#     If Rbf is not given, we take the highest value in the array
-#     """
-
-#     # - On définit le range de longueur d'onde
-#     lb0 = np.min(wl)
-#     lb1 = np.max(wl)
-
-#     if lb_range is None:
-#         lb_range = [lb0, lb1]
-
-#     # - Si la résolution d'avant n'est pas donnée, on la calcule
-#     if Rbf is None:
-#         Rmax, Rmin, R_all = find_R(wl)
-#         if isRcst(wl):  # value 10 is arbitrary
-#             Rbf = R_all
-#             # -- We check if R is constant over the range, and if not we resample
-#     #         wl, flux = sample_new_R(wl, flux, Rbf, lb_range, sample=wl)
-#             # npt = wl.size
-#             # Rbf = np.round((1 / ptsPerElem) / ((lb1 / lb0)**(1 / npt) - 1))
-#             # print('R was {}'.format(Rbf))
-#         else:
-#             Rbf = Rmax
-#             # d_wl = np.diff(wl)
-#             # Rbf = np.round(np.max(wl[1:] / d_wl))
-# #             print('R was {}'.format(Rbf))
-
-#     # - Si on veut réduire la résolution :
-#     # - On définit la largeur de la gaussienne qu'on veut
-#     larg_gauss = Rbf / Raf  # ptsPerElem
-#     if isinstance(Raf, int) or isinstance(Raf, np.float64):
-#         if Raf < Rbf :
-#             # - On on va vouloir un vecteur de taille ~7xlarg_gauss
-#             taille = hm.myround(larg_gauss * 7, base=2) + 1
-#             # - On génère notre gaussienne avec le nb de point (pxl) qu'on vient de calculer
-#             profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=larg_gauss)
-            
-            
-# #             ### convolve avec 
-# #             np.convolve(profil,kernel, mode='same')
-
-            
-#             # - On convolue notre ancien spectre avec le nouveau profil
-#             new_flux = np.convolve(flux, profil, mode='same')
-#             # - Notre nouveau spectre a la bonne résolution, mais pas le bon échantillonnage
-#             # - On va donc ajuster l'échantillonage :
-#             new_lb, new_flux = sample_new_R(wl, new_flux, Raf, lb_range,
-#                                             ptsPerElem=ptsPerElem, sample=sample)
-#         elif Raf > Rbf:
-#             new_lb, new_flux = sample_new_R(wl, flux, Raf, lb_range,
-#                                             ptsPerElem=ptsPerElem, sample=sample)
-#     elif (Raf.any() < Rbf).any():
-#         new_flux = gaussConv(flux, larg_gauss)
-#         # - Notre nouveau spectre a la bonne résolution, mais pas le bon échantillonnage
-#         # - On va donc ajuster l'échantillonage :
-#         new_lb, new_flux = sample_new_R(wl, new_flux, Raf, lb_range,
-#                                         ptsPerElem=ptsPerElem, sample=sample)
-
-#     return new_lb, new_flux
-
-# --- older ---
-# def resampling(wl, flux, Raf, Rbf=None, lb_range=None, ptsPerElem=1, sample=None):
-#     """
-#     Spectrum resampling, assuming a R that is constant
-#     If Rbf is not given, we take the highest value in the array
-#     """
-
-#     # - On définit le range de longueur d'onde
-#     lb0 = np.min(wl)
-#     lb1 = np.max(wl)
-
-#     if lb_range is None:
-#         lb_range = [lb0, lb1]
-
-#     # - Si la résolution d'avant n'est pas donnée, on la calcule
-#     if Rbf is None:
-#         Rmax, Rmin, R_all = find_R(wl)
-#         if isRcst(wl):  # value 10 is arbitrary
-#             Rbf = R_all
-#             # -- We check if R is constant over the range, and if not we resample
-#     #         wl, flux = sample_new_R(wl, flux, Rbf, lb_range, sample=wl)
-#             # npt = wl.size
-#             # Rbf = np.round((1 / ptsPerElem) / ((lb1 / lb0)**(1 / npt) - 1))
-#             # print('R was {}'.format(Rbf))
-#         else:
-#             Rbf = Rmax
-#             # d_wl = np.diff(wl)
-#             # Rbf = np.round(np.max(wl[1:] / d_wl))
-# #             print('R was {}'.format(Rbf))
-
-#         # - Si on veut réduire la résolution :
-#     if (Raf.any() < Rbf).any():
-#         # - On définit la largeur de la gaussienne qu'on veut
-#         larg_gauss = Rbf / Raf  # ptsPerElem
-#         if isinstance(Raf, int) or isinstance(Raf, np.float64):
-#             # - On on va vouloir un vecteur de taille ~7xlarg_gauss
-#             taille = hm.myround(larg_gauss * 7, base=2) + 1
-#             # - On génère notre gaussienne avec le nb de point (pxl) qu'on vient de calculer
-#             profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=larg_gauss)
-#             # - On convolue notre ancien spectre avec le nouveau profil
-#             new_flux = np.convolve(flux, profil, mode='same')
-#         else:
-#             new_flux = gaussConv(flux, larg_gauss)
-            
-
-#         # - Notre nouveau spectre a la bonne résolution, mais pas le bon échantillonnage
-#         # - On va donc ajuster l'échantillonage :
-#         new_lb, new_flux = sample_new_R(wl, new_flux, Raf, lb_range,
-#                                         ptsPerElem=ptsPerElem, sample=sample)
-
-#     # - si on veut oversampler :
-#     else:
-#         new_lb, new_flux = sample_new_R(wl, flux, Raf, lb_range,
-#                                         ptsPerElem=ptsPerElem, sample=sample)
-
-#         # fct = interp1d(wl, flux, fill_value='extrapolate')
-#         # new_npt = np.floor(np.log(lb_range[1] / lb_range[0]) / np.log(1 / (ptsPerElem * Raf) + 1))
-#         # new_lb = np.exp(np.arange(new_npt) / (new_npt - 1) * np.log(lb_range[1] / lb_range[0])) * lb_range[0]  # lb0*(1/(2*Raf)+1)**(np.arange(new_npt))
-
-#         # new_flux = fct(new_lb)
-
-#     return new_lb, new_flux
-
-
-def find_R(wl, ptsPerElem=1):
-    """
-    Compute the "sampling resolution" power of the given spectrum (for a given sampling)
-    It will take the highest value it can find, if R is not constant (if constant delta_wl)
-    """
-    # if ptsPerElem is not None:
-    #     R = np.round((1 / ptsPerElem) / ((np.max(wl) / np.min(wl))**(1 / wl.size) - 1))
-    # else:
-    d_wl = np.diff(wl)
-    R_all = np.round(wl[1:] / d_wl / ptsPerElem)
-
-    # print('R is {}'.format(R))
-
-    return R_all.max(), R_all.min(), np.append(R_all, R_all[-1]-1)
-
-
-def sample_new_R(wl, flux, R, lb_range, ptsPerElem=1, sample=None):
-    # - On génère une "fonction" à partir de notre spectre pour interpoler
+def citrus_to_ker(y_coord, citrus_phases, phase, radius=1.):
     
-    if ~isinstance(flux, np.ma.core.MaskedArray):
-        flux = np.ma.array(flux, mask=~np.isfinite(flux))
+    # Put the phase back between valid phases
+    citrus_phases = np.mod(citrus_phases, 1)
     
-    fct = interp1d_masked(wl, flux, kind='cubic', fill_value='extrapolate')
-    
-    if sample is None:
-        # - On calcule le nombre de point nécessaire pour avoir le bon échantillonnage
-        # - Chaque élément = 1 pixel (point) spectral = 20 pixels physiques
-        new_npt = np.floor(np.log(lb_range[1] / lb_range[0]) / np.log(1 / (ptsPerElem * R) + 1))
+    # Not valid range if oout of the projected sphere
+    valid_range = np.abs(y_coord) <= radius
 
-        # - On génère un nouveau vecteur de longueur d'onde avec le bon nb de point
-        new_lb = np.exp(np.arange(new_npt) / (new_npt - 1) * np.log(lb_range[1] / lb_range[0])) * lb_range[0]  # lb0*(1/(2*Raf)+1)**(np.arange(new_npt))
-        # - On calcul de nouveau spectre avec notre interpolation
-        # new_flux = fct(new_lb)
-    else:
-        # If thr user wants to use its own sampling grid, but for a spectrum at the desired R
-        new_lb = sample
+    disk_bounds = np.zeros_like(y_coord)
+    disk_bounds[valid_range] = np.sqrt(radius**2 - y_coord[valid_range]**2)
+    zeros = np.zeros_like(disk_bounds)
     
-#     print(new_lb[0], new_lb[-1])
-#     plt.figure()
-#     plt.plot(wl, flux)
-#     plt.plot(new_lb, fct(new_lb), 'r')
-# #     plt.plot(new_lb, new_flux2, 'g')
-
-#     hm.stop()
+    total_phases = (citrus_phases + phase) % 1
+    
+    western = (y_coord < 0.) & valid_range
+    eastern = (y_coord >= 0.) & valid_range
+    
+    # First, get the values of the projected longitudes for each citrus boundaries
+    proj_longitutes = []
+    for phase_i in citrus_phases:
         
-    return new_lb, fct(new_lb)
+        # Initiate with zeros
+        p_long_i = np.full_like(y_coord, np.nan)
+#         p_long_i = np.where(valid_range, np.nan, 0.)
+        
+        # Find what is the phase and longitude seen by the observer
+        total_phase = (phase_i + phase) % 1
+        longitude_pos = total_phase * 2. * np.pi
+        # If the projected longitude is visible, then compute the boundary
+        if (abs(total_phase) <= 0.25) or 0.75 <= abs(total_phase) < 1.:
+            
+            # Special case at 0
+            if total_phase != 0.:
+                proj_y = y_coord / np.sin(longitude_pos)
+                sqrt_arg = radius**2 - proj_y**2
+                # Valid srqt arg and same y with same sign as sin(longitude_pos)                
+                cond = (sqrt_arg >= 0) & (proj_y > 0)
+                p_long_i[cond] = np.sqrt(sqrt_arg[cond])
+                # Put zeros where sqrt is not valid
+                cond = (sqrt_arg < 0) & (proj_y > 0)
+                p_long_i[cond] = 0.
+            else:
+                p_long_i[eastern] = disk_bounds[eastern]
+                p_long_i[western] = 0.
+                
+        proj_longitutes.append(p_long_i)
+    
+
+    # Then compute the vertical lengths
+    v_lengths = []
+    
+    # idx = 0
+    log.debug(f'total phases: {total_phases}')
+    n_bounds = len(total_phases)
+    for idx in range(n_bounds):
+        reg_1 = f'{idx + 1}'
+        reg_2 = f'{(idx - 1) % n_bounds  + 1}'
+        if (0 < total_phases[idx] <= 0.25):
+            log.debug(f'Bound {reg_1}-{reg_2} is eastern')
+            if np.isfinite(proj_longitutes[idx - 1]).any():
+                if np.isfinite(proj_longitutes[idx - 1][western]).any():
+                    log.debug(f'Bound {reg_2}-{reg_1} is western')
+                    bnd12 = np.nanmax([proj_longitutes[idx], zeros], axis=0)
+                    bnd12[western] = np.nanmax([proj_longitutes[idx - 1], zeros], axis=0)[western]
+                    bnd21 = zeros
+
+                else:
+                    log.debug(f'Bound {reg_2}-{reg_1} is eastern')
+                    bnd12 = np.nanmax([proj_longitutes[idx], zeros], axis=0)
+                    bnd21 = np.nanmax([proj_longitutes[idx - 1], zeros], axis=0)
+                
+                v_len_0 = bnd12 - bnd21
+
+                # if v_len_0.any() < 0:
+                #     v_len_0 = disk_bounds - v_len_0
+
+            else:
+                log.debug(f'Bound {reg_2}-{reg_1} is not visible.')
+                bnd12 = np.nanmin([proj_longitutes[idx], disk_bounds], axis=0)
+                bnd21 = 0.
+                v_len_0 = bnd12 - bnd21
+            
+        elif (0.75 <= total_phases[idx] < 1.):
+            log.debug(f'Bound {reg_1}-{reg_2} is western')
+            if np.isfinite(proj_longitutes[idx - 1]).any():
+                if (0. < total_phases[idx - 1] <= 0.25):
+                    log.debug(f'Bound {reg_2}-{reg_1} is eastern')
+                    bnd12 = np.nanmax([proj_longitutes[idx], zeros], axis=0)
+                    bnd12[eastern] = np.nanmax([proj_longitutes[idx - 1], zeros], axis=0)[eastern]
+                    bnd21 = disk_bounds
+                elif total_phases[idx - 1] == 0.:
+                    log.debug(f'Bound {reg_2}-{reg_1} is centered')
+                    bnd12 = np.nanmax([proj_longitutes[idx], zeros], axis=0)
+                    bnd21 = zeros
+                    log.debug(f'{((bnd12 - bnd21) < 0).any()}')
+                else:
+                    log.debug(f'Bound {reg_2}-{reg_1} is western')
+                    bnd12 = np.nanmax([proj_longitutes[idx], zeros], axis=0)
+                    bnd21 = np.nanmax([proj_longitutes[idx - 1], zeros], axis=0)
+
+            else:
+                log.debug(f'Bound {reg_2}-{reg_1} is not visible.')
+                bnd12 = np.nanmin([proj_longitutes[idx], disk_bounds], axis=0)
+                bnd21 = disk_bounds
+            v_len_0 = bnd21 - bnd12
+
+        elif total_phases[idx] == 0.:
+            log.debug(f'Bound {reg_1}-{reg_2} is centered')
+            # Special case at 0
+            if np.isfinite(proj_longitutes[idx - 1]).any():
+                if np.isfinite(proj_longitutes[idx - 1][eastern]).any():
+                    log.debug(f'Bound {reg_2}-{reg_1} is eastern')
+                    bnd12 = np.nanmax([proj_longitutes[idx], zeros], axis=0)
+                    bnd12[eastern] = np.nanmax([proj_longitutes[idx - 1], zeros], axis=0)[eastern]
+                    bnd21 = disk_bounds
+                else:
+                    log.debug(f'Bound {reg_2}-{reg_1} is western')
+                    bnd12 = zeros
+                    bnd21 = np.nanmax([proj_longitutes[idx - 1], zeros], axis=0)
+
+            else:
+                log.debug(f'Bound {reg_2}-{reg_1} is not visible.')
+                bnd12 = np.nanmin([proj_longitutes[idx], disk_bounds], axis=0)
+                bnd21 = 0.
+            v_len_0 = bnd21 - bnd12
+
+        elif (0.75 < total_phases[idx - 1] < 1.):
+            log.debug(f'Bound {reg_1}-{reg_2} is hidden.')
+            log.debug(f'Bound {reg_2}-{reg_1} is western')
+            bnd12 = disk_bounds
+            bnd21 = np.nanmin([proj_longitutes[idx - 1], disk_bounds], axis=0)
+            v_len_0 = bnd21 - bnd12
+
+        elif 0. < total_phases[idx - 1] < 0.25:
+            log.debug(f'Bound {reg_1}-{reg_2} is hidden.')
+            log.debug(f'Bound {reg_2}-{reg_1} is eastern')
+            bnd21 = 0.
+            bnd12 = np.nanmin([proj_longitutes[idx - 1], disk_bounds], axis=0)
+            v_len_0 = bnd21 - bnd12
+
+        elif total_phases[idx - 1] == 0.:  # Special case at 0
+            log.debug(f'Bound {reg_1}-{reg_2} is hidden.')
+            log.debug(f'Bound {reg_2}-{reg_1} is centered')
+            bnd12 = np.nanmax([proj_longitutes[idx - 1], zeros], axis=0)
+            bnd21 = zeros
+            v_len_0 = bnd12 - bnd21
+
+        elif (0.25 <= total_phases[idx - 1] <= 0.75) and total_phases[idx] < total_phases[idx - 1]:
+            log.debug(f'Both bounds are hidden.')
+            log.debug(f'But bounds {reg_1}-{reg_2} < {reg_2}-{reg_1} '
+                      f'so we are seeing region {reg_1}')
+            v_len_0 = disk_bounds
+        
+        else:
+            log.debug(f'Both bounds are hidden.')
+            log.debug(f'But bounds {reg_1}-{reg_2} > {reg_2}-{reg_1} '
+                      f'so we are not seeing region {reg_1}')
+            v_len_0 = zeros.copy()
+
+        if (v_len_0 < 0).any():
+            log.debug(f'Negative length detected. Correcting.')
+            v_len_0 = disk_bounds - np.abs(v_len_0)
+
+        v_lengths.append(v_len_0)
+
+    return v_lengths
 
 
-def isRcst(wl):
+def plot_sphere(phase_limits, colors=None, viewing_phase=0.):
+    
+    phase_limits = (np.array(phase_limits) % 1)
+    
+    # Define the sphere's surface
+    theta = np.linspace(0, 2.*np.pi, 100)  # longitude
+    phi = np.linspace(0, np.pi, 100)  # latitude
+    theta, phi = np.meshgrid(theta, phi)
+    x = np.sin(phi) * np.cos(theta)
+    y = np.sin(phi) * np.sin(theta)
+    z = np.cos(phi)
+
+    # Define a list of colors for the different regions
+    color_map = np.zeros(theta.shape, dtype=float)
+    for idx, end in enumerate(phase_limits):
+        start = phase_limits[idx - 1]
+        start = start * 2 * np.pi
+        end = end * 2 * np.pi
+        if (start < end):
+            cond = (theta >= start) & (theta < end)
+        else:
+            cond = (theta >= start) | (theta < end)
+        color_map[cond] = idx / (len(phase_limits) - 1)
+    
+    if colors is None:
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    cmap = ListedColormap(colors[:len(phase_limits)])
+
+    # Create a 3D plot
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(x, y, z, rstride=1, cstride=1, facecolors=cmap(color_map), shade=False)
+    ax.set_xlim([-1, 1])
+    ax.set_ylim([-1, 1])
+    ax.set_zlim([-1, 1])
+    ax.set_aspect('equal')
+
+    # Remove axes
+    ax.axis('off')
+
+    # Set the viewing angle to longitude 180
+    ax.view_init(azim=viewing_phase * 360, elev=0)
+    
+    # Add legend
+    for idx, end in enumerate(phase_limits):
+        start = phase_limits[idx - 1]
+        color = colors[idx]
+        ax.plot([0], [0], 's', color=color, label=f'{start:0.2}° to {end}°')
+
+    ax.legend(loc='upper right')
+
+    return fig, ax
+
+
+class CitrusRotationKernel(BaseKerMulti):
     """
-    Determines if R is constant troughout the whole array
+    Class to compute the rotation kernel for a planet with a solid rotation
+    and a given spectral resolution.
+
+    Parameters
+    ----------
+    citrus_phases: list of floats
+        phases of the citrus boundaries
+    pl_rad: scalar astropy quantity, planet radius in m
+    omega: scalar astropy quantity, angular frequency (2 pi / period) in rad/s
+    resolution: scalar (float or int)
+        spectral resolution of the instrument
+
+    Attributes 
+    ----------
+    res_elem: scalar float
+        resolution element in m/s   
+    omega: scalar float
+        rotation rate in rad/s
+
     """
-    return np.abs(np.diff([find_R(wl)[0], find_R(wl)[1]])) > 10
 
 
-def gaussConv(x,fwhm):
-    #convolution with a Gaussian kernel with fwhm specified for each pixel
-    #fwhm is an array with as many elements as x
-    sig=fwhm/2.35
-    sig2=sig**2
-    deltaMAX=np.ceil(3*fwhm.max()).astype(int)
+    def __init__(self, citrus_phases, pl_rad, omega, resolution):
+        '''Rotational kernel for regions separated by constant longitudes (citrus slices)
+        at dv constant (constant resolution). Solid rotation is assumed.
 
-    xx=np.copy(x)
-    delta=1
-    while delta<=deltaMAX:
-        xx[deltaMAX:x.size-deltaMAX]+=np.exp((-0.5*delta**2)/sig2[deltaMAX:x.size-deltaMAX])*\
-            (x[deltaMAX+delta:x.size-deltaMAX+delta]+x[deltaMAX-delta:x.size-deltaMAX-delta])
-        delta+=1
+        citrus_phases: list of floats
+            phases of the citrus boundaries
+        pl_rad: scalar astropy quantity, planet radius
+        omega: scalar astropy quantity, rotation rate
+        resolution: scalar (float or int)
+            spectral resolution of the instrument
+       
+        '''
+        # Initiate the base class (resolution is set there)
+        super().__init__(resolution)
 
-    xx*=1./(2*np.pi)**(0.5)/sig
-    xx[:deltaMAX]=np.nan
-    xx[-deltaMAX:]=np.nan
+        # Convert to default units
+        pl_rad, omega = convert_default_units([pl_rad, omega], ['m', '1/s'])
 
-    return xx
+        # Save attributes
+        self.omega = omega
+        self.r_p = pl_rad
+        self.citrus_phases = citrus_phases
+        self.n_kernel = len(citrus_phases)
+
+    def get_ker(self, phase, n_os=None, pad=7, norm=True):
+        """
+        Get the kernel for a given phase
+
+        Parameters
+        ----------
+        phase: scalar float
+            phase of the observed object. Between 0 and 1.
+        n_os: scalar, oversampling (to sample the kernel)
+        pad: scalar
+            pad around the kernel in units of resolution
+            elements. Values of the pad are set to zero.
+        norm: bool
+            Wheter to normalize the kernel or not. Default is True.
+            The kernel will be normalized so that the sum over all
+            citrus regions is 1 (so a kernel for a single region
+            will be not necessarily be normalized to 1).
+
+        Returns
+        -------
+        v_grid: array-like
+            velocity grid of the kernel
+        citrus_ker: list of array-like
+            list of kernels for each citrus region
+        """
+
+        # Get some values from the attributes
+        res_elem = self.res_elem
+        omega = self.omega
+        r_p = self.r_p
+        citrus_phases = self.citrus_phases
+
+        # Get the kernel half length
+        ker_h_len = r_p * omega
+
+        ###############################################
+        # Define the velocity grid to sample the kernel
+        ###############################################
+
+        # Get the maximum velocity range
+        v_max = ker_h_len + pad * res_elem
+
+        # Find adequate sampling if oversampling is not given
+        if n_os is None:
+            delta_v = np.abs(r_p * omega / 10)
+            log.info(f'No oversampling given. Using delta_v = {delta_v:.2f} m/s')
+        else:
+            delta_v = res_elem / n_os
+
+        # Define the velocity grid
+        v_grid = np.arange(-v_max, v_max, delta_v)
+        # Centered on zero
+        v_grid -= np.mean(v_grid)
+
+        ###############################################
+        # Define the kernel
+        ###############################################
+        # Convert velocity to horizontal coordinate
+        x_v = v_grid / omega
+        citrus_ker = citrus_to_ker(x_v, citrus_phases, phase, radius=r_p)
+
+        # Make sure the sum over all kernels is 1 (conservation of flux)
+        # Also, make sure it is not zeros everywhere (that would mean that
+        # the grid sampling was larger than the rotation kernel)
+        # In this case, set the value closest to zero to 1 (delta function)
+        if norm:
+            all_sum = np.sum(citrus_ker)
+            if all_sum == 0:
+                log.warning('The kernel is zero everywhere. '
+                            'The grid sampling is probably too large. Using delta function.')
+                idx = np.argmin(np.abs(x_v))
+                for ker in citrus_ker:
+                    ker[idx] = 1.
+                all_sum = np.sum(citrus_ker)
+            citrus_ker = [ker / all_sum for ker in citrus_ker]
+
+        return v_grid, citrus_ker
+    
+    def show(self, norm=True, **kwargs):
+        """ Plot the kernel and the degraded kernel
+        Parameters
+        ----------
+        norm: bool
+            Wheter to normalize the kernel or not. Default is True.
+        kwargs are passed to get_ker method.
+        """
+        res_elem = self.res_elem
+        v_grid, ker_list = self.get_ker(norm=norm, **kwargs)
+        gauss_ker = hm.gauss(v_grid, 0.0, FWHM=res_elem)
+        if norm:
+            gauss_ker /= gauss_ker.sum()
+        v_grid_degraded, ker_list_degraded = self.degrade_ker(norm=norm, **kwargs)
+        
+        fig = plt.figure()
+        ax_native = plt.gca()
+        ax_degraded = ax_native.twinx()
+
+        ax_degraded.plot(v_grid/1e3, gauss_ker, ":", color="gray",
+                 label='Instrumental resolution element')
+        ax_native.axvline(res_elem/2e3, linestyle=':', color='gray')
+        ax_native.axvline(-res_elem/2e3, linestyle=':', color='gray')
+        for idx, ker in enumerate(ker_list):
+            ax_native.plot(v_grid/1e3, ker,
+                    label=f'Rotation kernel {idx + 1}')
+            color = ax_native.lines[-1].get_color()
+            ax_degraded.plot(v_grid_degraded/1e3, ker_list_degraded[idx],
+                              '--', color=color,
+                     label=f'Instrumental * rotation kernel {idx + 1}')
+
+        # Make one combined legend for both axes
+        lines_native, labels_native = ax_native.get_legend_handles_labels()
+        lines_degraded, labels_degraded = ax_degraded.get_legend_handles_labels()
+        ax_native.legend(lines_native + lines_degraded, labels_native + labels_degraded,
+                         loc='upper right')
+
+        # Add labels
+        plt.xlabel('dv [km/s]')
+        ax_native.set_ylabel('Kernel')
+        ax_degraded.set_ylabel('Kernel * Instrumental')
+        
+        # Plot the sphere
+        phase_limits = self.citrus_phases
+        fig_sphere, _ = plot_sphere(phase_limits, viewing_phase=-kwargs['phase'])
+
+        return fig, fig_sphere
+
+
+#####################################################
+# --- Other section (not sure yet how to call it) ---
+#####################################################
 
 
 def gen_mod(wave, flux, samp_wave, RV=None, Rbf=None):
@@ -1680,6 +2182,12 @@ def binning_model(wave0, model0, wv_borders):
 def quick_inject_clean(wave, flux, P_x, P_y, dv_pl, sep, R_star, A_star,
                   R0=None, RV=0, dv_star=0,
                        alpha=None,  kind_trans='transmission'):
+    """
+    alpha: 
+        Fraction of planetary signal. Depends on `kind_trans`:
+        - If 'transmission': fraction of the stellar disk hidden by the planet
+        - If 'emission': fraction of the planetary disk not hidden by the star
+    """
 
     _, nord, _ = flux.shape
 #     wv = np.mean(wave, axis=0)
