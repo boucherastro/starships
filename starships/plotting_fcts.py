@@ -668,9 +668,35 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
 #     if return_snr is True:
 #         return interp_grid, snr_list
 
+
+
 def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
-                            vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr',
+                            vrp=None, RV_sys=None, limit_shift=60., vmin=None,vmax=None, vline=None, hline=None, kind='snr',
                             return_snr=False):
+    """ Plot all orders correlation.
+
+    Args:
+        corrRV (array-like): The RV values for correlation.
+        ccf (array-like): The cross-correlation function.
+        tr (object): The transit object.
+        output_file (str, optional): The output file path. Defaults to None.
+        icorr (int, optional): The index of the correlation. Defaults to None.
+        logl (bool, optional): Whether to plot the logarithm of the correlation. Defaults to False.
+        tresh (float, optional): The threshold for pixel fraction. Defaults to 0.4.
+        sharey (bool, optional): Whether to share the y-axis among subplots. Defaults to True.
+        vrp (array-like, optional): The radial velocity values. Defaults to None.
+        RV_sys (float, optional): The system radial velocity. Defaults to None.
+        limit_shift (float, optional): The limit for shifting. Defaults to 60.
+        vmin (float, optional): The minimum value for the color scale. Defaults to None.
+        vmax (float, optional): The maximum value for the color scale. Defaults to None.
+        vline (float, optional): The vertical line position. Defaults to None.
+        hline (float, optional): The horizontal line position. Defaults to None.
+        kind (str, optional): The type of plot ('snr' or 'courbe'). Defaults to 'snr'.
+        return_snr (bool, optional): Whether to return the SNR list. Defaults to False.
+
+    Returns:
+        list: The SNR list if return_snr is True.
+    """
     if icorr is None:
         icorr = tr.icorr
 
@@ -720,7 +746,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
                                 color=fg_color)
 
             shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*n_cols+j], corrRV, \
-                                                            vrp[icorr], RV_sys=RV_sys)
+                                                            vrp[icorr], RV_sys=RV_sys, limit_shift=limit_shift)
             snr_list.append(snr)
             if kind == 'courbe':
                 ax_single[i,j].plot(interp_grid, courbe)
