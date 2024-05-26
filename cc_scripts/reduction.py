@@ -41,10 +41,11 @@ def set_save_location(pl_name, reduction, instrument):
 
     # Where to save figures?
     path_fig = Path(str(out_dir) + f'/Figures/')
+    path_fig.mkdir(parents=True, exist_ok=True)
 
     return out_dir, path_fig
 
-def load_planet(pl_name, obs_dir, pl_kwargs, instrument):
+def load_planet(pl_name, obs_dir, instrument, **pl_kwargs):
 
     # All the observations must be listed in files.
     # We need the e2ds, the telluric corrected and the reconstructed spectra.
@@ -66,7 +67,6 @@ def load_planet(pl_name, obs_dir, pl_kwargs, instrument):
     new_mask = obs.count.mask | (obs.count < 400.)
     # obs.flux = np.ma.array(obs.flux, mask=new_mask)
     return p, obs
-
 
 def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans, iout_all, 
                         clip_ratio, clip_ts, unberv_it, obs, planet):
@@ -110,19 +110,17 @@ def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans,
 
     return list_tr
 
-
 def save_pl_sig(list_tr, out_dir, n_pc, mask_wings, visit_name, do_tr = [1]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
     out_filename = f'retrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_{visit_name}'
     pl_obs.save_sequences(out_filename, list_tr, do_tr, path=out_dir)
-
 
 def reduction_plots(list_tr, idx_ord, path_fig):
     visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
     pf.plot_airmass(visit_list, path_fig=str(path_fig))
 
     sequence_obj = list_tr['1']
-    pf.plot_steps(sequence_obj, idx_ord, path_fig = str(path_fig))
+    pf.plot_steps(sequence_obj, idx_ord, path=path_fig)
 
 '''                              TEST RUN FOR WASP 127-B TRANSIT 1                               '''
 if __name__ == "__main__" :

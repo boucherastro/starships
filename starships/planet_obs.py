@@ -754,6 +754,7 @@ class Observations():
         self.headers_image=headers_image
         self.headers_tellu=headers_tellu
         self.filenames=filenames
+        self.n_spec = len(self.filenames)
         
         self.uncorr=uncorr
         self.tellu=tellu
@@ -833,6 +834,7 @@ class Observations():
         self.blaze = np.ma.masked_invalid(blaze)
         self.filenames = filenames
         self.filenames_uncorr = filenames_uncorr
+        self.n_spec = len(self.filenames)
 
         self.tellu = np.ma.masked_invalid(tellu)
         if np.mean(count_uncorr) < 0:
@@ -895,7 +897,7 @@ class Observations():
                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
                             # filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
                             CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl,
-                            instrument=self.instrument_name)
+                            instrument=self.instrument_name, n_spec = len(self.filenames))
     
     # switched hard '49' value to self.nord
     # call instrument dictionary for problematic header keys

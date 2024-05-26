@@ -30,35 +30,54 @@ del_exposures: null # exposures to delete
 # --------------------------------------------------------------------------------------------------
 # MODEL INPUTS
 
+run_name: # for file naming?
+
+# mol_species: ['H2O_main_iso', 'CO_all_iso', 'CO2_main_iso',
+#              'CH4_Hargreaves_main_iso', 'HCN_main_iso', 'NH3_main_iso',
+#              'C2H2_main_iso', 'FeH_main_iso', 'TiO_all_iso', 'OH_SCARLET']  
+# mols: ['H2O','CO','CO2','CH4','HCN','NH3','C2H2','FeH','TiO','OH']
+
+# mol_species: ['H20_main_iso']
+# mols: ['H2O']
+
+# ---
 limP: [-10, 2]    # pressure log range, standard
 n_pts: 50         # pressure n_points, standard
-mode: 'high'
-
-line_opacities: ['H2O']
-continuum_opacities: []
+mode: 'high' #'lbl      # high resolution spectrum mode
+wl_range: [0.9, 1.98] 
+chemical_equilibrium: 'True'    # (bool) 
+dissociation: "False"             # (bool)
+kind_temp: 'iso'             # modif, iso, guillot
+line_opacities: ['H2O'] # species, same as mols, add optional dictionary later to give specific linelists to take instead of the automatic one grabbed from starships
+opacity_sampling: 1 # downsampling petitRADTRANS resolution, 1=no downsampling, could be 2 for retrievals
+continuum_opacities: [] # H- sometimes
 other_species: []
-opacity_sampling: 1
+# wind: # (bool?) not needed right away
+p_cloud: null # unused for now, False by default for now
 
-star_wv: null
-star_flux: null
+rot_ker: null # will get code to compare, might not use for default
 
-linelist_names: {'high': null, 'low': null}
-chemical_equilibrium: True
-dissociation: False
+# parametrization of clouds
+gamma_scat: null # no clouds
+scat_factor: null # no clouds
 
-fct_star_global: {'high': null, 'low': null}
-atmo_high: null
-atmo_low: null
-T_eq: 1200
-p_cloud: 0.1
-P0: 0.01
-
-gamma_scat: 0
-scat_factor: 0
 C/O: 0.54
-Fe/H: 0
+Fe/H: 0 # metallicity
 
-wind: null
+fct_star: null # .npz file input with stellar wavelength and flux, implement later
+P0: 0.001
+
+T_int: #500.
+T_eq: 1200 # only one needed for isothermal profiles
+#e-: # electron abundances
+#H-: #
+tp_alpha: null
+tp_delta: null
+tp_gamma: null
+ptrans: null
+kappa_IR: null #10^-3
+
+# organize vars depending on kind_temp
 
 # --------------------------------------------------------------------------------------------------
 # CCF INPUTS, more to add after
