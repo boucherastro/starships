@@ -30,17 +30,29 @@ from itertools import product
 # - Setting plot parameters - #
 plt.rc('figure', figsize=(9, 6))
 
-couleurs = hm.get_colors('magma', 50)[5:-2]
 
-# from cycler import cycler
-# plt.rcParams['axes.prop_cycle'] = cycler(color=hm.get_colors('magma', 50))
-# ex : list_of_color = [(i,0,0) for i in np.arange(10)/10]
+def gen_ccf(config_dict, planet, obs, wave_mod, mod_spec, corrRV0):
+    
+    Kp_array = np.array([obs.Kp.value]) 
+    ccf_map, logl_map = corr.calc_logl_injred(
+                obs,'seq', planet, Kp_array, corrRV0, [config_dict['n_pc']], wave_mod, mod_spec,  config_dict['kind_trans'])
+    
+    return ccf_map, logl_map
 
-n_RV_inj=151
-corrRV0 = np.linspace(-150, 150, n_RV_inj)
-# Kp_array = np.array([obs.Kp.value]) 
+# def plot_ccf(config_dict, ccf_map, logl_map, corrRV0):
+#     cf_obj, logl_obj = cc.plot_ccflogl(all_visits, 
+#                                     ccf_map,
+#                                     logl_map,
+#                                     corrRV0, Kp_array, [1],
+#                                     split_fig = [0,t1.n_spec,t1.n_spec+t2.n_spec],
+#                                     orders=idx_orders
+#                                    )
+#     return cf_obj, logl_obj
 
-kind_trans = 'emission'
+
+
+
+
 
 
 

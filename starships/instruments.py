@@ -23,8 +23,8 @@ nirps_apero['mjd'] = 'MJD-OBS'
 nirps_apero['bjd'] = 'BJD'
 nirps_apero['exptime'] = 'EXPTIME'
 nirps_apero['berv'] = 'BERV'
-nirps_apero['resol'] = 75200
-nirps_apero['high_res_wv_lim'] = [0.9, 1.8]
+nirps_apero['resol'] = 80000
+nirps_apero['high_res_wv_lim'] = [0.9, 1.98]
 # nirps, geneva/ESPRESSO DRS
 # implementing
 nirps_geneva = dict()

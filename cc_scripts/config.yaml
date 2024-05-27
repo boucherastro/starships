@@ -49,10 +49,9 @@ dissociation: False
 fct_star_global: {'high': null, 'low': null}
 atmo_high: null
 atmo_low: null
-T_eq: 1200
+T_eq: 1000
 p_cloud: 0.1
-P0: 0.01
-
+P0: 0.1
 gamma_scat: 0
 scat_factor: 0
 C/O: 0.54
@@ -70,27 +69,76 @@ RV_step: 1 # step size
 RV_lim: # used for ttest map
 Kp_step: # used for ttest map
 # --------------------------------------------------------------------------------------------------
-# OTHER PLANET KWARGS
-pl_kwargs:
-  M_star: null
-  R_star: null
-  M_pl: null
-  R_star: null
-  RV_sys: null
-  mid_tr: null
-  t_peri: null
-  transur: null
-  period: null
-  excent: null
-  incl: null
-  Teff: null
-  A_star: null
-  surf_grav: null
-  logg: null
-  gp: null
-  Tp: null
-  w: null
-  ap: null
-  H: null
-  sync_equat_rot_speed: null
-  trandur: null
+# OTHER PLANET PARAMETERS
+# units must be inputted in astropy format
+
+pl_params:
+  M_star: 
+    value: 0.950 
+    unit: M_sun
+
+  R_star: 
+    value: 1.333
+    unit: R_sun
+  
+  M_pl: 
+    value: 0.165
+    unit: M_jup
+  
+  R_pl: 
+    value: 1.311
+    unit: R_jup
+  
+  RV_sys: 
+    value: -8.86
+    unit: km/s
+  
+  mid_tr: 
+    value: 2459575.9239004
+    unit: d
+  
+  t_peri: 
+    value: 2459575.9239004
+    unit: d
+  
+  trandur: 
+    value: 0.18137185
+    unit: d
+  
+  period: 
+    value: 4.1780625
+    unit: d
+  
+  excent: 
+    value: 0.0
+    unit: null
+  
+  incl: 
+    value: 87.84
+    unit: deg
+  
+  Teff: 
+    value: 5842
+    unit: null
+  
+  # A_star: null
+  # surf_grav: null
+  # logg: null
+  # gp: null
+  
+  Tp: 
+    value: 1400 
+    unit: K
+  w: 
+    value: -90
+    unit: deg
+  ap: 
+    value: 0.04840
+    unit: au
+  
+  # H: null
+  # sync_equat_rot_speed: null
+  
+  trandur: 
+    value: 4.3529
+    unit: h

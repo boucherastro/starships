@@ -897,7 +897,7 @@ class Observations():
                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
                             # filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
                             CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl,
-                            instrument=self.instrument_name, n_spec = len(self.filenames))
+                            instrument=self.instrument_name) #, n_spec = len(self.filenames))
     
     # switched hard '49' value to self.nord
     # call instrument dictionary for problematic header keys

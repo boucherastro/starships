@@ -152,19 +152,21 @@ def create_internal_dict(config_dict, planet):
     n_pts = config_dict['n_pts']
     int_dict['pressures'] = np.logspace(*limP, n_pts)
 
+    # need to 
     int_dict['temperatures'] = config_dict['T_eq']* np.ones_like(int_dict['pressures'])
 
     int_dict['P0'] = config_dict['P0']
     int_dict['p_cloud'] = config_dict['p_cloud']
-    int_dict['R_pl'] = planet.R_pl[0].to(u.R_jup).value
-    int_dict['R_star'] = planet.R_star.to(u.R_sun).value
-    int_dict['gravity'] = (const.G * planet.M_pl / (int_dict['R_pl'] * const.R_jup) ** 2).cgs.value
+    int_dict['R_pl'] = planet.R_pl[0].to(u.R_jup).cgs.value
+    int_dict['R_star'] = planet.R_star.to(u.R_sun).cgs.value
+    int_dict['gravity'] = (const.G * planet.M_pl / (planet.R_pl) ** 2).cgs.value
 
     return int_dict
 
-def prepare_model_high_or_low(config_dict, int_dict, mode, planet, atmo_obj=None, fct_star=None,
+def prepare_model_high_or_low(config_dict, int_dict, planet, atmo_obj=None, fct_star=None,
                               species_dict=None, Raf=None, rot_ker=None):
 
+    mode = config_dict['mode']
     if Raf is None:
         Raf = load_instrum(config_dict['instrument'])['resol']
     
@@ -224,7 +226,8 @@ def prepare_model_high_or_low(config_dict, int_dict, mode, planet, atmo_obj=None
             else:
                 rot_kwargs = {'rot_params': None}
             
-            lbl_res = 1e6 / config_dict['opacity_sampling']
+            # lbl_res = 1e6 / config_dict['opacity_sampling']
+            lbl_res = 1000000
 
             # Downgrade the model
             wv_out, model_out = prt.prepare_model(wv_out, model_out, lbl_res, Raf=Raf,

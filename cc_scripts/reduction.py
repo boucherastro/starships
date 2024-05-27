@@ -68,7 +68,7 @@ def pl_param_units(config_dict):
 
     return pl_kwargs
 
-def load_planet(pl_name, obs_dir, instrument, config_dict):
+def load_planet(config_dict):
 
     # All the observations must be listed in files.
     # We need the e2ds, the telluric corrected and the reconstructed spectra.
@@ -79,9 +79,9 @@ def load_planet(pl_name, obs_dir, instrument, config_dict):
     # check if any planet attributes were manually specified
     if bool(config_dict['pl_params']): 
         pl_kwargs = pl_param_units(config_dict)
-        obs = Observations(name=pl_name, instrument=instrument, pl_kwargs=pl_kwargs)
+        obs = Observations(name=config_dict['pl_name'], instrument=config_dict['instrument'], pl_kwargs=pl_kwargs)
     else: 
-        obs = Observations(name=pl_name, instrument=instrument)
+        obs = Observations(name=config_dict['pl_name'], instrument=config_dict['instrument'])
 
     p = obs.planet
 
@@ -94,14 +94,13 @@ def load_planet(pl_name, obs_dir, instrument, config_dict):
     p.sync_equat_rot_speed = (2*np.pi*p.R_pl/p.period).to(u.km/u.s)
 
     # Get the data
-    obs.fetch_data(obs_dir, **list_filenames)
+    obs.fetch_data(config_dict['obs_dir'], **list_filenames)
 
     # new_mask = obs.count.mask | (obs.count < 400.)
     # obs.flux = np.ma.array(obs.flux, mask=new_mask)
     return p, obs
 
-def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans, iout_all, 
-                        clip_ratio, clip_ts, unberv_it, obs, planet):
+def build_trans_spec(config_dict, obs, planet):
 
     # Parameters for extraction
     # param_all: Reduction parameters
@@ -116,33 +115,36 @@ def build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans,
     #     ]
     # (So I basically only change tellu frac, the wings and nPC)
 
-    params_all=[[mask_tellu, mask_wings, 51, 41, 5, n_pc, 5.0, 5.0, 5.0, 5.0]]
+    params_all=[[config_dict['mask_tellu'], config_dict['mask_wings'], 51, 41, 5, config_dict['n_pc'], 5.0, 5.0, 5.0, 5.0]]
 
     RVsys = [planet.RV_sys.value[0]]
     transit_tags = [None]
 
     kwargs_gen_tr = {
-    'coeffs' : coeffs,
-    'ld_model' : ld_model,
+    'coeffs' : config_dict['coeffs'],
+    'ld_model' : config_dict['ld_model'],
     'do_tr' : [1],
-    'kind_trans' : kind_trans,
+    'kind_trans' : config_dict['kind_trans'],
     'polynome' : [False],
     'cbp': True # correct bad pixels
     }
 
     kwargs_build_ts = {
-    'clip_ratio' : clip_ratio,
-    'clip_ts' : clip_ts,
-    'unberv_it' : unberv_it,
+    'clip_ratio' : config_dict['clip_ratio'],
+    'clip_ts' : config_dict['clip_ts'],
+    'unberv_it' : config_dict['unberv_it'],
     }
 
     # Extract the planetary signal
-    list_tr = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, iout_all,
+    list_tr = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, config_dict['iout_all'],
                                         **kwargs_gen_tr, **kwargs_build_ts)
 
     return list_tr
 
-def save_pl_sig(list_tr, out_dir, n_pc, mask_wings, visit_name, do_tr = [1]):
+def save_pl_sig(config_dict, list_tr, out_dir, do_tr = [1]):
+    n_pc = config_dict['n_pc']
+    mask_wings = config_dict['mask_wings']
+    visit_name = config_dict['visit_name']
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
     out_filename = f'retrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_{visit_name}'
     pl_obs.save_sequences(out_filename, list_tr, do_tr, path=out_dir)
