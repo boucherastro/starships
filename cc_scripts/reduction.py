@@ -45,7 +45,30 @@ def set_save_location(pl_name, reduction, instrument):
 
     return out_dir, path_fig
 
-def load_planet(pl_name, obs_dir, instrument, **pl_kwargs):
+def convert_to_quantity(quantity_dict):
+    value = quantity_dict['value']
+    unit = quantity_dict['unit']
+
+    # Handle custom astrophysical units
+    if unit == 'R_sun': unit = const.R_sun
+    elif unit == 'M_sun': unit = const.M_sun
+    elif unit == 'R_jup': unit = const.R_jup
+    elif unit == 'M_jup': unit = const.M_jup
+    elif unit == None: unit = 1
+
+    else: unit = u.Unit(unit)
+
+    return value * unit
+
+def pl_param_units(config_dict):
+    pl_kwargs = {}
+
+    for key, value in config_dict['pl_params'].items():
+        pl_kwargs[key] = convert_to_quantity(value)
+
+    return pl_kwargs
+
+def load_planet(pl_name, obs_dir, instrument, config_dict):
 
     # All the observations must be listed in files.
     # We need the e2ds, the telluric corrected and the reconstructed spectra.
@@ -54,17 +77,26 @@ def load_planet(pl_name, obs_dir, instrument, **pl_kwargs):
                     'list_recon': 'list_tellu_recon'}
 
     # check if any planet attributes were manually specified
-    if bool(pl_kwargs): 
+    if bool(config_dict['pl_params']): 
+        pl_kwargs = pl_param_units(config_dict)
         obs = Observations(name=pl_name, instrument=instrument, pl_kwargs=pl_kwargs)
     else: 
         obs = Observations(name=pl_name, instrument=instrument)
 
     p = obs.planet
 
+    # set other planet parameters
+    p.A_star = np.pi*u.rad * p.R_star**2
+    surf_grav = (const.G * p.M_star / p.R_star**2).cgs
+    p.logg = np.log10(surf_grav.value)
+    p.gp = const.G * p.M_pl / p.R_pl**2
+    p.H = (const.k_B * p.Tp / (p.mu * p.gp)).decompose()
+    p.sync_equat_rot_speed = (2*np.pi*p.R_pl/p.period).to(u.km/u.s)
+
     # Get the data
     obs.fetch_data(obs_dir, **list_filenames)
 
-    new_mask = obs.count.mask | (obs.count < 400.)
+    # new_mask = obs.count.mask | (obs.count < 400.)
     # obs.flux = np.ma.array(obs.flux, mask=new_mask)
     return p, obs
 
