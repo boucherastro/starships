@@ -2,8 +2,6 @@ import os
 import numpy as np
 from pathlib import Path
 from sys import path
-# path.append('/home/adb/PycharmProjects/')
-# path.append('/home/adb/PycharmProjects/starships_analysis/')
 
 import matplotlib.pyplot as plt
 from importlib import reload
@@ -29,10 +27,11 @@ from starships.planet_obs import Observations,Planet
 
 from itertools import product
 
-def classic_ccf(config_dict, transit, wave_mod, mod_spec):
+def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, corrRV = []):
 
     # 1. standard CCF
-    corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
+    if len(corrRV) == 0:
+        corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
 
     # Do the correlation
     ccf = quick_correl(transit.wave, transit.final, corrRV, wave_mod, mod_spec, wave_ref=None, 
@@ -46,8 +45,13 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec):
     corr_obj.RV_shift = np.zeros_like(transit.alpha_frac)
 
     # Make the plots and save them
-    corr_obj.full_plot(transit, []) #, kind_max='grid')
+    corr_obj.full_plot(transit, [], save_fig = 'classic_ccf', path_fig = path_fig) 
 
+def quick_ccf(config_dict, transit, wave_mod, mod_spec):
+    lbl_corr, \
+    lbl_sig = correl.quick_calc_logl_injred_class(list_tr['1'], Kp_array, corrRV, n_pcas, 
+                                                        wave_mod, np.array(mod_spec), nolog=True, 
+                                                        inj_alpha='ones', RVconst=list_tr['1'].RV_const)
 
 
 

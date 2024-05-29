@@ -128,7 +128,7 @@ def prepare_abundances(config_dict, mode=None, ref_linelists=None):
     theta_dict = {}
     if config_dict['chemical_equilibrium']:
         for mol in config_dict['line_opacities']:
-            theta_dict[mol] = 10 ** (-5.0)
+            theta_dict[mol] = 10 ** (-99.0) # doing this will change the model depending on whether you use a standard linelist or input your own!
 
     # --- Prepare the abundances (with the correct linelist name for species)
     species = {lnlst: theta_dict[mol] for lnlst, mol
