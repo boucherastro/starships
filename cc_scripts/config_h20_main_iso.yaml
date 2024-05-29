@@ -34,7 +34,7 @@ limP: [-10, 2]    # pressure log range, standard
 n_pts: 50         # pressure n_points, standard
 mode: 'high'
 
-line_opacities: ['H2O']
+line_opacities: ['H2O_main_iso']
 continuum_opacities: []
 other_species: []
 opacity_sampling: 1

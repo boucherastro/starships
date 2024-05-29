@@ -212,6 +212,9 @@ def prepare_model_high_or_low(config_dict, int_dict, planet, atmo_obj=None, fct_
                     fct_star=fct_star)
     wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
 
+    # saving spectrum at native resolution
+    np.savez
+
     if mode == 'high':
         # --- Downgrading and broadening the model (if broadening is included)
         # if np.isfinite(model_out[100:-100]).all():

@@ -13,6 +13,9 @@ from scipy.interpolate import interp1d
 import astropy.units as u
 import astropy.constants as const
 
+from starships.correlation import quick_correl
+from starships.correlation_class import Correlations
+
 import warnings
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", RuntimeWarning)
@@ -25,29 +28,27 @@ from starships import correlation_class as cc
 from starships.planet_obs import Observations,Planet
 
 from itertools import product
-# cc=reload(cc)
 
-# - Setting plot parameters - #
-plt.rc('figure', figsize=(9, 6))
+def classic_ccf(config_dict, transit, wave_mod, mod_spec):
+
+    # 1. standard CCF
+    corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
+
+    # Do the correlation
+    ccf = quick_correl(transit.wave, transit.final, corrRV, wave_mod, mod_spec, wave_ref=None, 
+                        get_logl=False, kind='BL', mod2d=False, expand_mask=0, noise=None, somme=False)
+
+    # Create the object do make the plots and compute the different Kp
+
+    corr_obj = Correlations(ccf, kind='BL', rv_grid=corrRV, kp_array=transit.Kp)
+    corr_obj.calc_ccf(orders=None, N=transit.N_frac[None, :, None], alpha=np.ones_like(transit.alpha_frac), index=None, ccf0=None, rm_vert_mean=False,)
+    corr_obj.calc_correl_snr_2d(transit, plot=False)
+    corr_obj.RV_shift = np.zeros_like(transit.alpha_frac)
+
+    # Make the plots and save them
+    corr_obj.full_plot(transit, []) #, kind_max='grid')
 
 
-def gen_ccf(config_dict, planet, obs, wave_mod, mod_spec, corrRV0):
-    
-    Kp_array = np.array([obs.Kp.value]) 
-    ccf_map, logl_map = corr.calc_logl_injred(
-                obs,'seq', planet, Kp_array, corrRV0, [config_dict['n_pc']], wave_mod, mod_spec,  config_dict['kind_trans'])
-    
-    return ccf_map, logl_map
-
-# def plot_ccf(config_dict, ccf_map, logl_map, corrRV0):
-#     cf_obj, logl_obj = cc.plot_ccflogl(all_visits, 
-#                                     ccf_map,
-#                                     logl_map,
-#                                     corrRV0, Kp_array, [1],
-#                                     split_fig = [0,t1.n_spec,t1.n_spec+t2.n_spec],
-#                                     orders=idx_orders
-#                                    )
-#     return cf_obj, logl_obj
 
 
 
