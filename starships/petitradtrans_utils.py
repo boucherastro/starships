@@ -110,6 +110,25 @@ def gen_atm_all(species_list, pressures=None, limP=[-12, 4], n_pts=150, indiv=Fa
 
 def select_mol_list(list_mols, list_values=None, kind_res='low',
                     change_line_list=None, add_line_list=None):
+    """ Select the linelists corresponding to the molecules in list_mols
+    and return a dictionary linelist name as keys and a dummy value as the VMR of the molecule.
+    Parameters
+    ----------
+    list_mols: list
+        List of molecules to include in the linelist
+    list_values: list
+        List of VMRs for the molecules in list_mols
+    kind_res: str
+        Resolution of the linelists to use. Possible values are 'low' and 'high'.
+    change_line_list: list
+        List of tuples with the molecule name and the linelist to use.
+    add_line_list: list
+        List of tuples with the molecule name and the linelist to use.
+    Returns
+    -------
+    species_list: OrderedDict
+        Dictionary with the linelist name as keys and a dummy value as the VMR of the molecule.    
+    """
     species_list = OrderedDict({})
 
     species_linelists = dict()
@@ -199,6 +218,7 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         # 'V': 'V',
         # 'V+': 'V+',
 
+    # If someone wants to change the default line_list:
     if add_line_list is not None:
         for added_mol in add_line_list:
             log.info(f'Adding {added_mol[0]} as {added_mol[1]}')

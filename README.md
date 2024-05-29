@@ -15,7 +15,7 @@ git checkout develop
 The current versions is tested for python 3.9.
 Note that petitRADTRANS needs to be installed separately.
 
-If you are on compute canada servers, I've put the exact instruction in the installation guidelines at the end of this README.
+If you are on compute canada servers, I've put the exact instruction in the installation guidelines.
 
 ### General guidelines for installation:
 (after you cloned the `starships` repository)
