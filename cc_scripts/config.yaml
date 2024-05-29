@@ -34,7 +34,7 @@ limP: [-10, 2]    # pressure log range, standard
 n_pts: 50         # pressure n_points, standard
 mode: 'high'
 
-line_opacities: ['H2O']
+line_opacities: ['H2O_main_iso']
 continuum_opacities: []
 other_species: []
 opacity_sampling: 1
@@ -102,8 +102,8 @@ pl_params:
     unit: d
   
   trandur: 
-    value: 0.18137185
-    unit: d
+    value: 4.3529
+    unit: h
   
   period: 
     value: 4.1780625
@@ -138,7 +138,3 @@ pl_params:
   
   # H: null
   # sync_equat_rot_speed: null
-  
-  trandur: 
-    value: 4.3529
-    unit: h
