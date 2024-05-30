@@ -1,0 +1,32 @@
+limP: [-10, 2]    # pressure log range, standard
+n_pts: 50         # pressure n_points, standard
+mode: 'high'
+
+chemical_equilibrium: True
+dissociation: False
+line_opacities: ['H2O']
+line_lists: [] # to circumvent automatic line list generation
+line_abundances: [] # if chemical_equilibrium is False, must provide abundances
+continuum_opacities: []
+continuum_abundances: []
+other_species: []
+other_abundances: []
+opacity_sampling: 1
+
+star_wv: null
+star_flux: null
+
+linelist_names: {'high': null, 'low': null}
+
+fct_star_global: {'high': null, 'low': null}
+atmo_high: null
+atmo_low: null
+T_eq: 1000
+p_cloud: 0.1
+P0: 0.1
+gamma_scat: 0
+scat_factor: 0
+C/O: 0.54
+Fe/H: 0
+
+wind: null
