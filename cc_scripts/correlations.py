@@ -13,6 +13,7 @@ import astropy.constants as const
 
 from starships.correlation import quick_correl
 from starships.correlation_class import Correlations
+import starships.correlation as correl
 
 import warnings
 warnings.simplefilter("ignore", UserWarning)
@@ -48,8 +49,7 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, corrRV = [])
     corr_obj.full_plot(transit, [], save_fig = 'classic_ccf', path_fig = path_fig) 
 
 def quick_ccf(config_dict, transit, wave_mod, mod_spec):
-    lbl_corr, \
-    lbl_sig = correl.quick_calc_logl_injred_class(list_tr['1'], Kp_array, corrRV, n_pcas, 
+    lbl_corr, lbl_sig = correl.quick_calc_logl_injred_class(transit, Kp_array, corrRV, n_pcas, 
                                                         wave_mod, np.array(mod_spec), nolog=True, 
                                                         inj_alpha='ones', RVconst=list_tr['1'].RV_const)
 
