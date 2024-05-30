@@ -29,7 +29,22 @@ from starships.planet_obs import Observations,Planet
 from itertools import product
 
 def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, corrRV = []):
+    """
+    Perform classic cross-correlation function (CCF) analysis.
 
+    Parameters:
+    - config_dict (dict): A dictionary containing configuration parameters.
+    - transit (Transit): An object representing the transit data.
+    - wave_mod (array-like): The wavelength array of the model spectrum.
+    - mod_spec (array-like): The model spectrum.
+    - path_fig (str): The path to save the generated figures.
+    - corrRV (array-like, optional): The array of radial velocities for the CCF. 
+        If not provided, it will be generated based on the RV range and step defined in config_dict.
+
+    Returns:
+    None
+
+    """
     # 1. standard CCF
     if len(corrRV) == 0:
         corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])

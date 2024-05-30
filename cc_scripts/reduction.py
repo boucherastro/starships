@@ -46,6 +46,16 @@ def set_save_location(pl_name, reduction, instrument):
     return out_dir, path_fig
 
 def convert_to_quantity(quantity_dict):
+    """
+    Convert a quantity dictionary to a physical quantity.
+
+    Parameters:
+    quantity_dict (dict): A dictionary containing the value and unit of the quantity.
+
+    Returns:
+    Quantity: The converted physical quantity.
+
+    """
     value = quantity_dict['value']
     unit = quantity_dict['unit']
 
@@ -61,6 +71,16 @@ def convert_to_quantity(quantity_dict):
     return value * unit
 
 def pl_param_units(config_dict):
+    """
+    Convert the values in the 'pl_params' dictionary of the given 'config_dict' to appropriate units.
+
+    Args:
+        config_dict (dict): A dictionary containing configuration parameters.
+
+    Returns:
+        dict: A dictionary with the converted values.
+
+    """
     pl_kwargs = {}
 
     for key, value in config_dict['pl_params'].items():
@@ -68,8 +88,9 @@ def pl_param_units(config_dict):
 
     return pl_kwargs
 
-def load_planet(config_dict):
 
+def load_planet(config_dict):
+    
     # All the observations must be listed in files.
     # We need the e2ds, the telluric corrected and the reconstructed spectra.
     list_filenames = {'list_e2ds': 'list_e2ds',

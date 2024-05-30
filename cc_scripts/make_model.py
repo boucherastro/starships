@@ -129,7 +129,9 @@ def prepare_abundances(config_dict, mode=None, ref_linelists=None):
     if config_dict['chemical_equilibrium']:
         for mol in config_dict['line_opacities']:
             theta_dict[mol] = 10 ** (-99.0) # doing this will change the model depending on whether you use a standard linelist or input your own!
-
+    # else:
+    #     for mol in config_dict['line_opacities']:
+    #         theta_dict[mol] = 10 ** config_dict['abundances'][mol]
 
     # add option where if not chemical equilibrium, takes the inputted abundances from the YAML file
     # --- Prepare the abundances (with the correct linelist name for species)
@@ -243,10 +245,10 @@ def prepare_model_high_or_low(config_dict, int_dict, planet, atmo_obj=None, fct_
 
 def add_instrum_model(wv_out, model_out, config_dict, Raf = None, rot_ker=None):
    
-   if Raf is None:
+    if Raf is None:
         Raf = load_instrum(config_dict['instrument'])['resol']
         
-   # --- Downgrading and broadening the model (if broadening is included)
+    # --- Downgrading and broadening the model (if broadening is included)
     if np.isfinite(model_out[100:-100]).all():
         # Get wind broadening parameters
         if config_dict['wind'] is not None:
@@ -265,5 +267,5 @@ def add_instrum_model(wv_out, model_out, config_dict, Raf = None, rot_ker=None):
         # Downgrade the model
         wave_mod, mod_spec = prt.prepare_model(wv_out, model_out, lbl_res, Raf=Raf,
                                                 rot_ker=rot_ker, **rot_kwargs)
-    
+
     return wave_mod, mod_spec                                      
