@@ -121,7 +121,7 @@ def load_planet(config_dict):
     # obs.flux = np.ma.array(obs.flux, mask=new_mask)
     return p, obs
 
-def build_trans_spec(config_dict, obs, planet):
+def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
 
     # Parameters for extraction
     # param_all: Reduction parameters
@@ -136,7 +136,7 @@ def build_trans_spec(config_dict, obs, planet):
     #     ]
     # (So I basically only change tellu frac, the wings and nPC)
 
-    params_all=[[config_dict['mask_tellu'], config_dict['mask_wings'], 51, 41, 5, config_dict['n_pc'], 5.0, 5.0, 5.0, 5.0]]
+    params_all=[[mask_tellu, mask_wings, 51, 41, 5, n_pc, 5.0, 5.0, 5.0, 5.0]]
 
     RVsys = [planet.RV_sys.value[0]]
     transit_tags = [None]
@@ -162,20 +162,18 @@ def build_trans_spec(config_dict, obs, planet):
 
     return list_tr
 
-def save_pl_sig(config_dict, list_tr, out_dir, do_tr = [1]):
-    n_pc = config_dict['n_pc']
-    mask_wings = config_dict['mask_wings']
-    visit_name = config_dict['visit_name']
+def save_pl_sig(n_pc, mask_tellu, mask_wings, list_tr, out_dir, do_tr = [1]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
-    out_filename = f'retrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_{visit_name}'
-    pl_obs.save_sequences(out_filename, list_tr, do_tr, path=out_dir)
+    out_filename = f'retrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
+    pl_obs.save_sequences(out_filename, list_tr, do_tr, path=out_dir) # save to projects
+    # add where save_all = True to scratch
 
-def reduction_plots(list_tr, idx_ord, path_fig):
+def reduction_plots(list_tr, n_pc, mask_tellu, mask_wings, idx_ord, path_fig):
     visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
-    pf.plot_airmass(visit_list, path_fig=str(path_fig))
+    pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name=f'_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
 
     sequence_obj = list_tr['1']
-    pf.plot_steps(sequence_obj, idx_ord, path=path_fig)
+    pf.plot_steps(sequence_obj, idx_ord, path=path_fig, fig_name = f'_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
 
 '''                              TEST RUN FOR WASP 127-B TRANSIT 1                               '''
 if __name__ == "__main__" :

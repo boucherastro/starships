@@ -63,13 +63,27 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, corrRV = [])
     # Make the plots and save them
     corr_obj.full_plot(transit, [], save_fig = 'classic_ccf', path_fig = path_fig) 
 
-def quick_ccf(config_dict, transit, wave_mod, mod_spec):
-    lbl_corr, lbl_sig = correl.quick_calc_logl_injred_class(transit, Kp_array, corrRV, n_pcas, 
-                                                        wave_mod, np.array(mod_spec), nolog=True, 
-                                                        inj_alpha='ones', RVconst=list_tr['1'].RV_const)
+def inj_ccf(config_dict, transit, wave_mod, mod_spec, obs, planet, path_fig, corrRV = []):
+    if len(corrRV) == 0:
+        corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
+    
+    Kp_array = np.array([transit.Kp.value])
+    ccf_map, logl_map = correl.quick_calc_logl_injred_class(transit, Kp_array, corrRV, config_dict['n_pc'], 
+                                                    wave_mod, np.array(mod_spec), nolog=True, 
+                                                    inj_alpha='ones', RVconst=transit.RV_const)
 
+    # plot ccf figures
+    ccf_obj, logl_obj = cc.plot_ccflogl(obs, ccf_map, logl_map, corrRV,
+                                    Kp_array, config_dict['n_pc'], id_pc0=0, orders=np.arange(75))
+    
+    return ccf_obj, logl_obj
 
-
+def ttest_map(ccf_obj, config_dict, transit, obs):
+    # ttest map
+    ccf_obj.ttest_map(transit, kind='logl', vrp=np.zeros_like(obs.vrp), orders=np.arange(75), 
+                  kp0=0, RV_limit=config_dict['RV_lim'], kp_step=config_dict['Kp_step'], 
+                  rv_step=config_dict['RV_Step'], RV=None, speed_limit=3, icorr=obs.iIn, equal_var=False)
+    
 
 
 
