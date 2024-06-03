@@ -30,3 +30,9 @@ C/O: 0.54
 Fe/H: 0
 
 wind: null
+
+# if not specifying instrument, must specify wl_range and Raf
+instrument: 'NIRPS-APERO'
+kind_trans: 'transmission'
+wl_range: null
+Raf: null

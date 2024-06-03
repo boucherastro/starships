@@ -28,36 +28,7 @@ idx_ord: 40 #[15, 33, 41]    # for output plots
 del_exposures: null # exposures to delete
 
 # --------------------------------------------------------------------------------------------------
-# MODEL INPUTS
-
-limP: [-10, 2]    # pressure log range, standard
-n_pts: 50         # pressure n_points, standard
-mode: 'high'
-
-line_opacities: ['H2O']
-continuum_opacities: []
-other_species: []
-opacity_sampling: 1
-
-star_wv: null
-star_flux: null
-
-linelist_names: {'high': null, 'low': null}
-chemical_equilibrium: True
-dissociation: False
-
-fct_star_global: {'high': null, 'low': null}
-atmo_high: null
-atmo_low: null
-T_eq: 1000
-p_cloud: 0.1
-P0: 0.1
-gamma_scat: 0
-scat_factor: 0
-C/O: 0.54
-Fe/H: 0
-
-wind: null
+# MODEL INPUTS : see other YAML file
 
 # --------------------------------------------------------------------------------------------------
 # CCF INPUTS, more to add after

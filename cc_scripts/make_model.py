@@ -49,8 +49,7 @@ except ModuleNotFoundError:
     from petitRADTRANS.nat_cst import guillot_global, guillot_modif
 
 
-
-def init_model_retrieval(config_dict, mol_species=None, kind_res='high', lbl_opacity_sampling=None,
+def init_model_retrieval(config_model, mol_species=None, kind_res='high', lbl_opacity_sampling=None,
                          wl_range=None, continuum_species=None, pressures=None, **kwargs):
     """
     Initialize some objects needed for modelization: atmo, species, star_fct, pressures
@@ -65,35 +64,41 @@ def init_model_retrieval(config_dict, mol_species=None, kind_res='high', lbl_opa
     """
 
     if mol_species is None:
-        mol_species = config_dict['line_opacities']
+        mol_species = config_model['line_opacities']
 
     if lbl_opacity_sampling is None:
-        lbl_opacity_sampling = config_dict['opacity_sampling']
+        lbl_opacity_sampling = config_model['opacity_sampling']
 
     if continuum_species is None:
-        continuum_species = config_dict['continuum_opacities']
+        continuum_species = config_model['continuum_opacities']
 
     if pressures is None:
-        limP = config_dict['limP']
-        n_pts = config_dict['n_pts']
+        limP = config_model['limP']
+        n_pts = config_model['n_pts']
         pressures = np.logspace(*limP, n_pts)
 
     species = prt.select_mol_list(mol_species, kind_res=kind_res, **kwargs)
     species_2_lnlst = {mol: lnlst for mol, lnlst in zip(mol_species, species)}
 
+
+    Raf, wl_range = config_model['Raf'], config_model['wl_range']
+    # need to make this independent of instrument
     if kind_res == 'high':
         mode = 'lbl'
-        Raf = load_instrum(config_dict['instrument'])['resol']
+
+        # check if Raf specified, else take from instrument
+        if Raf is None:
+            Raf = load_instrum(config_model['instrument'])['resol']
         pix_per_elem = 2
         if wl_range is None:
-            wl_range = load_instrum(config_dict['instrument'])['high_res_wv_lim']
+            wl_range = load_instrum(config_model['instrument'])['high_res_wv_lim']
 
     elif kind_res == 'low':
         mode = 'c-k'
         Raf = 1000
         pix_per_elem = 1
         if wl_range is None:
-            wl_range = config_dict['intrument']['low_res_wv_lim']
+            wl_range = config_model['intrument']['low_res_wv_lim']
     else:
         raise ValueError(f'`kind_res` = {kind_res} not valid. Choose between high or low')
 
@@ -103,12 +108,12 @@ def init_model_retrieval(config_dict, mol_species=None, kind_res='high', lbl_opa
                                       continuum_opacities=continuum_species)
 
     # --- downgrading the star spectrum to the wanted resolution
-    if config_dict['kind_trans'] == 'emission' and config_dict['star_wv'] is not None:
+    if config_model['kind_trans'] == 'emission' and config_model['star_wv'] is not None:
         resamp_star = np.ma.masked_invalid(
-            resamp_model(config_dict['star_wv'][(config_dict['star_wv'] >= wl_range[0] - 0.1) & (config_dict['star_wv'] <= wl_range[1] + 0.1)],
-                         config_dict['star_flux'][(config_dict['star_wv'] >= wl_range[0] - 0.1) & (config_dict['star_wv'] <= wl_range[1] + 0.1)], 500000, Raf=Raf,
+            resamp_model(config_model['star_wv'][(config_model['star_wv'] >= wl_range[0] - 0.1) & (config_dict['star_wv'] <= wl_range[1] + 0.1)],
+                         config_model['star_flux'][(config_model['star_wv'] >= wl_range[0] - 0.1) & (config_dict['star_wv'] <= wl_range[1] + 0.1)], 500000, Raf=Raf,
                          pix_per_elem=pix_per_elem))
-        fct_star = interp1d(config_dict['star_wv'][(config_dict['star_wv'] >= wl_range[0] - 0.1) & (config_dict['star_wv'] <= wl_range[1] + 0.1)],
+        fct_star = interp1d(config_model['star_wv'][(config_model['star_wv'] >= wl_range[0] - 0.1) & (config_dict['star_wv'] <= wl_range[1] + 0.1)],
                                      resamp_star)
     else:
         fct_star = None
@@ -116,18 +121,18 @@ def init_model_retrieval(config_dict, mol_species=None, kind_res='high', lbl_opa
     return atmo, species_2_lnlst, fct_star
 
 
-def prepare_abundances(config_dict, mode=None, ref_linelists=None):
+def prepare_abundances(config_model, mode=None, ref_linelists=None):
     """Use the correct linelist name associated to the species."""
 
     if ref_linelists is None:
         if mode is None:
-            ref_linelists = config_dict['line_opacities'].copy()
+            ref_linelists = config_model['line_opacities'].copy()
         else:
-            ref_linelists = [config_dict['linelist_names'][mode][mol] for mol in config_dict['line_opacities']]
+            ref_linelists = [config_model['linelist_names'][mode][mol] for mol in config_model['line_opacities']]
 
     theta_dict = {}
-    if config_dict['chemical_equilibrium']:
-        for mol in config_dict['line_opacities']:
+    if config_model['chemical_equilibrium']:
+        for mol in config_model['line_opacities']:
             theta_dict[mol] = 10 ** (-99.0) # doing this will change the model depending on whether you use a standard linelist or input your own!
     # else:
     #     for mol in config_dict['line_opacities']:
@@ -136,14 +141,14 @@ def prepare_abundances(config_dict, mode=None, ref_linelists=None):
     # add option where if not chemical equilibrium, takes the inputted abundances from the YAML file
     # --- Prepare the abundances (with the correct linelist name for species)
     species = {lnlst: theta_dict[mol] for lnlst, mol
-               in zip(ref_linelists, config_dict['line_opacities'])}
+               in zip(ref_linelists, config_model['line_opacities'])}
     
     # --- Adding continuum opacities
-    for mol in config_dict['continuum_opacities']:
+    for mol in config_model['continuum_opacities']:
         species[mol] = theta_dict[mol]
         
     # --- Adding other species
-    for mol in config_dict['other_species']:
+    for mol in config_model['other_species']:
         species[mol] = theta_dict[mol]
 
     return species
@@ -167,22 +172,22 @@ def create_internal_dict(config_dict, planet):
 
     return int_dict
 
-def prepare_model_high_or_low(config_dict, int_dict, planet, atmo_obj=None, fct_star=None,
+def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct_star=None,
                               species_dict=None, Raf=None, rot_ker=None):
 
-    mode = config_dict['mode']
-    if Raf is None:
-        Raf = load_instrum(config_dict['instrument'])['resol']
+    mode = config_model['mode']
+    # if Raf is None:
+    #     Raf = load_instrum(config_model['instrument'])['resol']
     
     if atmo_obj is None:
         # Use atmo object in globals parameters if it exists
-        atmo_obj = config_dict['atmo_high'] if mode == 'high' else config_dict['atmo_low']
+        atmo_obj = config_model['atmo_high'] if mode == 'high' else config_model['atmo_low']
         # Initiate if not done yet
         if atmo_obj is None:
             log.info(f'Model not initialized for mode = {mode}. Starting initialization...')
-            output = init_model_retrieval(config_dict, kind_res=mode)
+            output = init_model_retrieval(config_model, kind_res=mode)
             log.info('Saving values in `linelist_names`.')
-            atmo_obj, lnlst_names, config_dict['fct_star_global'][mode] = output
+            atmo_obj, lnlst_names, config_model['fct_star_global'][mode] = output
             # Update the values of the global variables
             # Need to use globals() otherwise an error is raised.
             if mode == 'high':
@@ -191,28 +196,28 @@ def prepare_model_high_or_low(config_dict, int_dict, planet, atmo_obj=None, fct_
                 globals()['atmo_low'] = atmo_obj
                 
             # Update the line list names
-            if config_dict['linelist_names'][mode] is None:
-                config_dict['linelist_names'][mode] = lnlst_names
+            if config_model['linelist_names'][mode] is None:
+                config_model['linelist_names'][mode] = lnlst_names
             else:
                 # Keep the predefined values and complete with the new ones
-                config_dict['linelist_names'][mode] = {**lnlst_names, **config_dict['linelist_names'][mode]}
+                config_model['linelist_names'][mode] = {**lnlst_names, **config_model['linelist_names'][mode]}
 
     if fct_star is None:
-        fct_star = config_dict['fct_star_global'][mode]
+        fct_star = config_model['fct_star_global'][mode]
 
     # --- Prepare the abundances (with the correct name for species)
     # Note that if species is None (not specified), `linelist_names[mode]` will be used inside `prepare_abundances`.
-    species = prepare_abundances(config_dict, mode, species_dict)
+    species = prepare_abundances(config_model, mode, species_dict)
 
     # --- Generating the model
     args = [int_dict[key] for key in ['pressures', 'temperatures', 'gravity', 'P0', 'p_cloud', 'R_pl', 'R_star']]
-    kwargs = dict(gamma_scat=config_dict['gamma_scat'],
-                  kappa_factor=config_dict['scat_factor'],
-                  C_to_O=config_dict['C/O'],
-                    Fe_to_H=config_dict['Fe/H'],
-                    specie_2_lnlst=config_dict['linelist_names'][mode],
-                    kind_trans=config_dict['kind_trans'],
-                    dissociation=config_dict['dissociation'],
+    kwargs = dict(gamma_scat=config_model['gamma_scat'],
+                  kappa_factor=config_model['scat_factor'],
+                  C_to_O=config_model['C/O'],
+                    Fe_to_H=config_model['Fe/H'],
+                    specie_2_lnlst=config_model['linelist_names'][mode],
+                    kind_trans=config_model['kind_trans'],
+                    dissociation=config_model['dissociation'],
                     fct_star=fct_star)
     wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
     # saving wv_out, model_out for all species and each individual species
@@ -220,22 +225,24 @@ def prepare_model_high_or_low(config_dict, int_dict, planet, atmo_obj=None, fct_
     np.savez
 
     # move this function into the cross correlation step, so the model native resol -> instrument resol
-    if mode == 'high':
+    if config_model['instrument'] != None and mode == 'high':
         # --- Downgrading and broadening the model (if broadening is included)
         if np.isfinite(model_out[100:-100]).all():
             # Get wind broadening parameters
-            if config_dict['wind'] is not None:
-                rot_kwargs = {'rot_params': [config_dict['R_pl'] * const.R_jup,
-                                             config_dict['M_pl'],
-                                             config_dict['T_eq'] * u.K,
-                                             [config_dict['wind']]],
+            if config_model['wind'] is not None:
+                rot_kwargs = {'rot_params': [config_model['R_pl'] * const.R_jup,
+                                             config_model['M_pl'],
+                                             config_model['T_eq'] * u.K,
+                                             [config_model['wind']]],
                                 'gauss': True, 'x0': 0,
-                                'fwhm': config_dict['wind'] * 1e3, }
+                                'fwhm': config_model['wind'] * 1e3, }
             else:
                 rot_kwargs = {'rot_params': None}
             
-            # lbl_res = 1e6 / config_dict['opacity_sampling']
-            lbl_res = 1000000
+            lbl_res = 1e6 / config_model['opacity_sampling']
+
+            if Raf is None:
+                Raf = load_instrum(config_model['instrument'])['resol']
 
             # Downgrade the model
             wv_out, model_out = prt.prepare_model(wv_out, model_out, lbl_res, Raf=Raf,
@@ -261,11 +268,13 @@ def add_instrum_model(wv_out, model_out, config_dict, Raf = None, rot_ker=None):
         else:
             rot_kwargs = {'rot_params': None}
         
-        lbl_res = 1 / config_dict['opacity_sampling']
-        # lbl_res = 1000000
+        lbl_res = 1e6 / config_dict['opacity_sampling']
 
         # Downgrade the model
         wave_mod, mod_spec = prt.prepare_model(wv_out, model_out, lbl_res, Raf=Raf,
                                                 rot_ker=rot_ker, **rot_kwargs)
+        
+        if Raf is None:
+                Raf = load_instrum(config_dict['instrument'])['resol']
 
     return wave_mod, mod_spec                                      
