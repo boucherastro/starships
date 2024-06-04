@@ -2,6 +2,7 @@ from sys import path
 
 import os
 import sys
+import matplotlib.pyplot as plt
 
 from pathlib  import Path
 import numpy as np
@@ -110,10 +111,10 @@ def init_model_retrieval(config_model, mol_species=None, kind_res='high', lbl_op
     # --- downgrading the star spectrum to the wanted resolution
     if config_model['kind_trans'] == 'emission' and config_model['star_wv'] is not None:
         resamp_star = np.ma.masked_invalid(
-            resamp_model(config_model['star_wv'][(config_model['star_wv'] >= wl_range[0] - 0.1) & (config_dict['star_wv'] <= wl_range[1] + 0.1)],
-                         config_model['star_flux'][(config_model['star_wv'] >= wl_range[0] - 0.1) & (config_dict['star_wv'] <= wl_range[1] + 0.1)], 500000, Raf=Raf,
+            resamp_model(config_model['star_wv'][(config_model['star_wv'] >= wl_range[0] - 0.1) & (config_model['star_wv'] <= wl_range[1] + 0.1)],
+                         config_model['star_flux'][(config_model['star_wv'] >= wl_range[0] - 0.1) & (config_model['star_wv'] <= wl_range[1] + 0.1)], 500000, Raf=Raf,
                          pix_per_elem=pix_per_elem))
-        fct_star = interp1d(config_model['star_wv'][(config_model['star_wv'] >= wl_range[0] - 0.1) & (config_dict['star_wv'] <= wl_range[1] + 0.1)],
+        fct_star = interp1d(config_model['star_wv'][(config_model['star_wv'] >= wl_range[0] - 0.1) & (config_model['star_wv'] <= wl_range[1] + 0.1)],
                                      resamp_star)
     else:
         fct_star = None
@@ -173,7 +174,7 @@ def create_internal_dict(config_dict, planet):
     return int_dict
 
 def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct_star=None,
-                              species_dict=None, Raf=None, rot_ker=None):
+                              species_dict=None, Raf=None, rot_ker=None, path_fig = None, out_dir = None):
 
     mode = config_model['mode']
     # if Raf is None:
@@ -221,8 +222,12 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
                     fct_star=fct_star)
     wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
     # saving wv_out, model_out for all species and each individual species
-    # saving spectrum at native resolution
-    np.savez
+    # Generate the filename
+    species_keys = '_'.join(species.keys())
+    filename = str(out_dir) + f'/model_native_{species_keys}.npz'
+
+    # Save wv_out and model_out into the npz file
+    np.savez(filename, wave_mod=wv_out, mod_spec=model_out)
 
     # move this function into the cross correlation step, so the model native resol -> instrument resol
     if config_model['instrument'] != None and mode == 'high':
@@ -247,12 +252,34 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
             # Downgrade the model
             wv_out, model_out = prt.prepare_model(wv_out, model_out, lbl_res, Raf=Raf,
                                                   rot_ker=rot_ker, **rot_kwargs)
+            
+            # saving new downgraded model
+            # Generate the filename
+            species_keys = '_'.join(species.keys())
+            filename = str(out_dir) + f"/model_{config_model['instrument']}_{species_keys}.npz"
+
+            # Save wv_out and model_out into the npz file
+            np.savez(filename, wave_mod=wv_out, mod_spec=model_out)
+
+    # plotting the model
+    if path_fig is not None:
+        plt.plot(wv_out, model_out)
+        plt.xlabel('Wavelength')
+        plt.ylabel('Flux')
+        keys_string = ', '.join(species.keys())
+        plt.title(keys_string)
+        # Generate the filename
+        species_keys = '_'.join(species.keys())
+        filename = str(path_fig) + f'model_{species_keys}.pdf'
+
+        # Save the figure
+        plt.savefig(filename)
 
     return wv_out, model_out
 
-def add_instrum_model(wv_out, model_out, config_dict, Raf = None, rot_ker=None):
+def add_instrum_model(wv_out, model_out, config_dict, species, Raf = None, rot_ker=None):
    
-    if Raf is None:
+    if Raf == None:
         Raf = load_instrum(config_dict['instrument'])['resol']
         
     # --- Downgrading and broadening the model (if broadening is included)
@@ -273,8 +300,6 @@ def add_instrum_model(wv_out, model_out, config_dict, Raf = None, rot_ker=None):
         # Downgrade the model
         wave_mod, mod_spec = prt.prepare_model(wv_out, model_out, lbl_res, Raf=Raf,
                                                 rot_ker=rot_ker, **rot_kwargs)
-        
-        if Raf is None:
-                Raf = load_instrum(config_dict['instrument'])['resol']
 
+    # np.savez(f'model_{config_dict['instrument']}_{'_'.join(species.keys())}.npz', wave_mod=wave_mod, mod_spec=mod_spec)
     return wave_mod, mod_spec                                      
