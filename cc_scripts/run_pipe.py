@@ -14,6 +14,7 @@ import cc_scripts.correlations as corr
 
 from starships.correlation import quick_correl
 from starships.correlation_class import Correlations
+from starships.instruments import load_instrum
 
 # unpack input parameters into config dictionary
 config_filepath = 'config.yaml'
@@ -29,10 +30,7 @@ planet, obs = red.load_planet(config_dict)
 # all_exposures = np.arange(obs.n_spec)
 # transit_tags = np.delete(all_exposures, [20, 21, 22, 23, 31, 32, 33])  # Here we exclude the exposures [20, 21, ..., 33]
 
-'''---------------------------------------Reducing the Data--------------------------------------'''
-def reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs):
-    out_dir, path_fig = red.set_save_location(planet.name, config_dict['reduction'], config_dict['instrument']) # might replace with out_dir from YAML file
-
+def reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig):
     # building the transit spectrum
     list_tr = red.build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
 
@@ -42,26 +40,33 @@ def reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs):
     # outputting plots for reduction step
     red.reduction_plots(list_tr, n_pc, mask_tellu, mask_wings, config_dict['idx_ord'], path_fig)
 
-def make_model(config_dict, config_model, planet):
+    return list_tr
+
+def make_model(config_dict, config_model, planet, out_dir, path_fig):
     # computing extra parameters needed for model making
-    int_dict = mod.create_internal_dict(config_dict, planet)
+    int_dict = mod.create_internal_dict(config_model, planet)
 
     # create the model
-    wave_out, model_out = mod.prepare_model_high_or_low(config_model, int_dict, planet)
+    wave_mod, mod_spec = mod.prepare_model_high_or_low(config_model, int_dict, planet,out_dir=out_dir, path_fig=path_fig)
     
-    # convolving with the instrument
-    wave_mod, mod_spec = mod.add_instrum_model(config_dict, wave_out, model_out)
+    # convolving with the instrument if not already done
+    # if config_model['instrument'] == None:
+    #     wave_mod, mod_spec = mod.add_instrum_model(config_dict, wave_mod, mod_spec)
     
     return wave_mod, mod_spec
 
 
-def perform_correlations(config_dict, transit, wave_mod, mod_spec, path_fig):
+def perform_correlations(config_dict, transit, wave_mod, mod_spec, obs, path_fig):
     # performs standard ccf
-    corr.classic_ccf(config_dict, transit, wave_mod, mod_spec, str(path_fig))
+    corr_obj = corr.classic_ccf(config_dict, transit, wave_mod, mod_spec, str(path_fig))
 
-    # performs injected ccf
-    corr.inj_ccf(config_dict, transit, wave_mod, mod_spec, str(path_fig))
-    return None
+    # performs injected ccf - CHECK WHETHER CORRECT OBJECT IS BEING RETURNED HERE
+    ccf_obj, logl_obj = corr.inj_ccf(config_dict, transit, wave_mod, mod_spec, obs, str(path_fig))
+
+    # perform ttest
+    corr.ttest_map(ccf_obj, config_dict, transit, obs, str(path_fig))
+
+    return ccf_obj, logl_obj
 
 
 ## running the pipeline
@@ -79,20 +84,18 @@ def run_pipe(config_filepath, model_filepath):
     # creating the planet and observation objects
     planet, obs = red.load_planet(config_dict)
 
+    out_dir, path_fig = red.set_save_location(planet.name, config_dict['reduction'], config_dict['instrument'])
+
     # making the model
-    wave_mod, mod_spec = make_model(config_dict, config_model, planet)
+    wave_mod, mod_spec = make_model(config_dict, config_model, planet, out_dir, path_fig)
 
     # performing the reduction for each n_pc, mask_tellu, mask_wings and the corrlations
     for n_pc in config_dict['n_pc']:
         for mask_tellu in config_dict['mask_tellu']:
             for mask_wings in config_dict['mask_wings']:
 
-                config_dict['n_pc'] = n_pc
-                config_dict['mask_tellu'] = mask_tellu
-                config_dict['mask_wings'] = mask_wings
-
                 # reducing the data
-                reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs)
+                transit = reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig)
 
                 # performing correlations
-                perform_correlations()
+                ccf_obj, logl_obj = perform_correlations(config_dict, transit['1'], wave_mod, mod_spec, obs, path_fig)

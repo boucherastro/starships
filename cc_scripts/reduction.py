@@ -40,8 +40,9 @@ def set_save_location(pl_name, reduction, instrument):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Where to save figures?
-    path_fig = Path(str(out_dir) + f'/Figures/')
+    path_fig = out_dir / 'Figures' 
     path_fig.mkdir(parents=True, exist_ok=True)
+    path_fig = str(path_fig) + '/'
 
     return out_dir, path_fig
 
@@ -173,59 +174,4 @@ def reduction_plots(list_tr, n_pc, mask_tellu, mask_wings, idx_ord, path_fig):
     pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name=f'_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
 
     sequence_obj = list_tr['1']
-    pf.plot_steps(sequence_obj, idx_ord, path=path_fig, fig_name = f'_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
-
-'''                              TEST RUN FOR WASP 127-B TRANSIT 1                               '''
-if __name__ == "__main__" :
-    # setting parameters that would be set in a YAML file
-    obs_dir = Path.home() / Path(f'projects/def-dlafre/fgenest/nirps/WASP-127b/')
-    reduction = 'TEST'
-    pl_name = 'WASP-127 b'
-    instrument = 'NIRPS-APERO'
-    visit_name = 'tr1'
-    mask_tellu = 0.2 # Identify the deep tellurics that will be masked (in fraction of abosption)
-    mask_wings = 0.9 # Mask wings of these deep tellurics (in fraction of absorption)
-    n_pc = 3
-
-    # --- For emission spectra
-    # coeffs = [0.532]
-    # ld_model = 'linear'
-    # kind_trans='emission'
-
-    # --- For transmission spectra
-    coeffs = [ 0.02703969,  1.10037972, -0.96372403,  0.28750393]  # For transits
-    ld_model = 'nonlinear'
-    kind_trans='transmission'
-
-    iout_all = ['all']
-    
-    pl_kwargs = {
-    #     'M_star': 1.89 *u.M_sun,
-    #     'R_star': 1.60 *u.R_sun,
-    #     'M_pl' : 3.38 * u.M_jup,
-    #     'R_pl' : 1.83 * u.R_jup,
-                }
-    
-    clip_ratio = 6
-    clip_ts = 6
-    unberv_it = True
-
-    # recreating notebook outputs to compare
-    out_dir, path_fig = set_save_location(pl_name, reduction, instrument)
-    p, obs = load_planet(pl_name, obs_dir, pl_kwargs, instrument)
-
-    # Print some parameters (to check if they are satisfying)
-    print((f"M_pl: {p.M_pl.to('Mjup')}\n"
-        f"M_star: {p.M_star.to('Msun')}\n"
-        f"R_star: {p.R_star.to('Rsun')}\n"
-        f"R_pl: {p.R_pl.to('Rjup')}\n"
-        f"RV_sys: {p.RV_sys}"))
-
-    list_tr = build_trans_spec(mask_tellu, mask_wings, n_pc, coeffs, ld_model, kind_trans, iout_all, 
-                        clip_ratio, clip_ts, unberv_it, obs, p)
-    
-    save_pl_sig(list_tr, out_dir, n_pc, mask_wings, visit_name, do_tr = [1])
-    # check in folder
-
-    print('Kp =', list_tr['1'].Kp)
-    reduction_plots(list_tr, idx_ord = 40, path_fig = path_fig)
+    pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig), fig_name = f'_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
