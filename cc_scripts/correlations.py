@@ -65,21 +65,29 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, corrRV = [])
 
     return corr_obj
 
-def inj_ccf(config_dict, transit, wave_mod, mod_spec, obs, path_fig, corrRV = []):
+def inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir corrRV = []):
     if len(corrRV) == 0:
         corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
     
     Kp_array = np.array([transit.Kp.value])
-    ccf_map, logl_map = correl.quick_calc_logl_injred_class(transit, Kp_array, corrRV, config_dict['n_pc'], 
+    ccf_map, logl_map = correl.quick_calc_logl_injred_class(transit, Kp_array, corrRV, n_pc, 
                                                     wave_mod, np.array([mod_spec]), nolog=True, 
                                                     inj_alpha='ones', RVconst=transit.RV_const)
 
+    out_filename = 'ccf_logl_seq_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
+
+    corr.save_logl_seq(out_dir / Path(out_filename), ccf_map, logl_map,
+                           wave_mod, mod_spec, n_pc, Kp_array, corrRV, config_dict['kind_trans'])
+
     # plot ccf figures
-    ccf_obj, logl_obj = cc.plot_ccflogl(obs, ccf_map, logl_map, corrRV,
-                                    Kp_array, config_dict['n_pc'], id_pc0=0, orders=np.arange(75), 
-                                    path_fig = str(path_fig))
+    # ccf_obj, logl_obj = cc.plot_ccflogl(obs, ccf_map, logl_map, corrRV,
+    #                                 Kp_array, config_dict['n_pc'], id_pc0=0, orders=np.arange(75), 
+    #                                 path_fig = str(path_fig))
     
-    return ccf_obj, logl_obj
+    return ccf_map, logl_map
+
+def plot_all_ccf():
+    return None
 
 def ttest_map(ccf_obj, config_dict, transit, obs, path_fig):
     # ttest map

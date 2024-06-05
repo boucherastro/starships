@@ -42,12 +42,12 @@ def make_model(config_dict, config_model, planet, out_dir, path_fig):
     return wave_mod, mod_spec
 
 
-def perform_correlations(config_dict, transit, wave_mod, mod_spec, obs, path_fig):
+def perform_correlations(config_dict, transit, wave_mod, mod_spec, n_pc, path_fig):
     # performs standard ccf
     corr_obj = corr.classic_ccf(config_dict, transit, wave_mod, mod_spec, str(path_fig))
 
-    # performs injected ccf - CHECK WHETHER CORRECT OBJECT IS BEING RETURNED HERE
-    ccf_obj, logl_obj = corr.inj_ccf(config_dict, transit, wave_mod, mod_spec, obs, str(path_fig))
+    # performs injected ccf
+    ccf_obj, logl_obj = corr.inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc)
 
     # perform ttest
     # corr.ttest_map(ccf_obj, config_dict, transit, obs, str(path_fig))
@@ -75,13 +75,27 @@ def run_pipe(config_filepath, model_filepath):
     # making the model
     wave_mod, mod_spec = make_model(config_dict, config_model, planet, out_dir, path_fig)
 
-    # performing the reduction for each n_pc, mask_tellu, mask_wings and the corrlations
-    for n_pc in config_dict['n_pc']:
-        for mask_tellu in config_dict['mask_tellu']:
-            for mask_wings in config_dict['mask_wings']:
+    # creating the dictionaries to store all reductions
+    all_reductions = {}
+    all_ccf_map = {}
+    all_logl_map = {}
 
+    # performing the reduction for each n_pc, mask_tellu, mask_wings
+
+    for mask_tellu in config_dict['mask_tellu']:
+        for mask_wings in config_dict['mask_wings']:
+            for n_pc in config_dict['n_pc']:
                 # reducing the data
-                transit = reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig)
+                reduc = reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig)
+                all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
 
                 # performing correlations
-                ccf_obj, logl_obj = perform_correlations(config_dict, transit['1'], wave_mod, mod_spec, obs, path_fig)
+                ccf_map, logl_map = perform_correlations(config_dict, reduc['1'], wave_mod, mod_spec, n_pc, path_fig)
+                all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
+                all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
+
+                # plot ttest map
+
+            # plot all ccf maps
+            # plotting ccf figures and ttest map
+
