@@ -16,20 +16,6 @@ from starships.correlation import quick_correl
 from starships.correlation_class import Correlations
 from starships.instruments import load_instrum
 
-# unpack input parameters into config dictionary
-config_filepath = 'config.yaml'
-with open(config_filepath, 'r') as file:
-    config_dict = yaml.safe_load(file)
-
-config_dict['obs_dir'] = Path.home() / Path(config_dict['obs_dir'])
-
-# creating the planet and observation objects
-planet, obs = red.load_planet(config_dict)
-
-# # Choose which exposures to use
-# all_exposures = np.arange(obs.n_spec)
-# transit_tags = np.delete(all_exposures, [20, 21, 22, 23, 31, 32, 33])  # Here we exclude the exposures [20, 21, ..., 33]
-
 def reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig):
     # building the transit spectrum
     list_tr = red.build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
