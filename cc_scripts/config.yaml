@@ -17,7 +17,7 @@ kind_res: 'high'
 reduction: 'TEST'
 mask_tellu: [0.2, 0.5]
 mask_wings: [0.9, 0.95, 0.97]
-n_pc: [0, 1, 2, 3, 4, 5] # given as a list to test each
+n_pc: [1, 2, 3, 4] # given as a list to test each
 iout_all: ['all']
 clip_ratio: 6
 clip_ts: 6
@@ -34,8 +34,8 @@ del_exposures: null # exposures to delete
 # CCF INPUTS, more to add after
 
 # for NIRPS, step size of 
-RV_range: [-150, 150] # range used to build Kp_array
-RV_step: 50 # step size
+RV_range: [-150, 151] # range used to build Kp_array
+RV_step: 2 #2 # step size
 
 RV_lim: 100 # used for ttest map
 Kp_step: 5 # used for ttest map

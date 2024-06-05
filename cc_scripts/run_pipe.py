@@ -64,7 +64,7 @@ def perform_correlations(config_dict, transit, wave_mod, mod_spec, obs, path_fig
     ccf_obj, logl_obj = corr.inj_ccf(config_dict, transit, wave_mod, mod_spec, obs, str(path_fig))
 
     # perform ttest
-    corr.ttest_map(ccf_obj, config_dict, transit, obs, str(path_fig))
+    # corr.ttest_map(ccf_obj, config_dict, transit, obs, str(path_fig))
 
     return ccf_obj, logl_obj
 

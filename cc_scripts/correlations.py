@@ -71,7 +71,7 @@ def inj_ccf(config_dict, transit, wave_mod, mod_spec, obs, path_fig, corrRV = []
     
     Kp_array = np.array([transit.Kp.value])
     ccf_map, logl_map = correl.quick_calc_logl_injred_class(transit, Kp_array, corrRV, config_dict['n_pc'], 
-                                                    wave_mod, np.array(mod_spec), nolog=True, 
+                                                    wave_mod, np.array([mod_spec]), nolog=True, 
                                                     inj_alpha='ones', RVconst=transit.RV_const)
 
     # plot ccf figures
@@ -83,7 +83,7 @@ def inj_ccf(config_dict, transit, wave_mod, mod_spec, obs, path_fig, corrRV = []
 
 def ttest_map(ccf_obj, config_dict, transit, obs, path_fig):
     # ttest map
-    ccf_obj.ttest_map(transit, kind='logl', vrp=np.zeros_like(transit.vrp), orders=np.arange(len(transit.vrp)), 
+    ccf_obj.ttest_map(transit, kind='logl', vrp=np.zeros_like(transit.vrp), orders=np.arange(75), 
                   kp0=0, RV_limit=config_dict['RV_lim'], kp_step=config_dict['Kp_step'], 
                   rv_step=config_dict['RV_step'], RV=None, speed_limit=3, icorr=obs.iIn, equal_var=False, path_fig = str(path_fig))
     
