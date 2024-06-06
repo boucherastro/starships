@@ -9,7 +9,9 @@ from astropy.time import Time
 from astropy.io import fits
 from astropy.stats import sigma_clip
 from scipy.signal import find_peaks
-ß
+
+from datetime import timedelta
+
 ''' Note: paths must be changed on the following lines before using: 
 Line 62 : path to directory with observation files
 Line 129 : path for night splitting image to be saved
@@ -17,7 +19,7 @@ Line 129 : path for night splitting image to be saved
 
 # defining functions
 
-def find_sequence_gaps(time_stamps, time_threshold = 1):
+def find_sequence_gaps(time_stamps, time_threshold = 0.5):
     """Automatically find the index of new sequence.
     This is done by finding the delta t jumps
 
@@ -124,7 +126,7 @@ def split_night(obs_dir, path_fig):
 
     plt.tight_layout()
     plt.show()
-    plt.savefig(path_fig + '/night_split.pdf')
+    plt.savefig(path_fig + '/night_split.pdf') # CHANGE THIS
     print('Saved figure')
 
     """****************************************************"""
@@ -135,7 +137,13 @@ def split_night(obs_dir, path_fig):
         filenames_tr = filenames[tr_tag]
         hdu = fits.open(obs_dir / filenames_tr[0])
         date = Time(hdu[0].header['DATE'])
+
+        # modify date if hour is after midnight
+        if date.hour >= 0 and date.hour < 12:
+            date = date - timedelta(days=1)
+
         date = date.datetime.strftime('%Y-%m-%d-%H')
+
         name_list_files = Path(f'list_e2ds_visit_{date}')
         print(f'Writing to {name_list_files}')
         with open(obs_dir / name_list_files, 'w') as f:
