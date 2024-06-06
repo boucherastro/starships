@@ -81,10 +81,10 @@ def run_pipe(config_filepath, model_filepath):
     all_logl_map = {}
 
     # performing the reduction for each n_pc, mask_tellu, mask_wings
-
     for mask_tellu in config_dict['mask_tellu']:
         for mask_wings in config_dict['mask_wings']:
             for n_pc in config_dict['n_pc']:
+
                 # reducing the data
                 reduc = reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig)
                 all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
@@ -94,8 +94,13 @@ def run_pipe(config_filepath, model_filepath):
                 all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
                 all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
 
-                # plot ttest map
+            # plot all ccf maps for each n_pc
+            ccf_obj, logl_obj = corr.plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, config_dict, mask_tellu, 
+                                                    mask_wings, id_pc0=0, order_indices=np.arange(75))
 
-            # plot all ccf maps
-            # plotting ccf figures and ttest map
+            # plotting ttest maps for each n_pc
+            for n_pc in config_dict['n_pc']:
+                ccf_obj.ttest_map(all_reductions[(n_pc, mask_tellu, mask_wings)], str(path_fig))
+
+    return all_reductions, all_ccf_map, all_logl_map
 

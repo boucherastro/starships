@@ -65,7 +65,8 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, corrRV = [])
 
     return corr_obj
 
-def inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir corrRV = []):
+
+def inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir, corrRV = []):
     if len(corrRV) == 0:
         corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
     
@@ -74,26 +75,28 @@ def inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_win
                                                     wave_mod, np.array([mod_spec]), nolog=True, 
                                                     inj_alpha='ones', RVconst=transit.RV_const)
 
-    out_filename = 'ccf_logl_seq_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
+    out_filename = f'ccf_logl_seq_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
 
     corr.save_logl_seq(out_dir / Path(out_filename), ccf_map, logl_map,
                            wave_mod, mod_spec, n_pc, Kp_array, corrRV, config_dict['kind_trans'])
 
-    # plot ccf figures
-    # ccf_obj, logl_obj = cc.plot_ccflogl(obs, ccf_map, logl_map, corrRV,
-    #                                 Kp_array, config_dict['n_pc'], id_pc0=0, orders=np.arange(75), 
-    #                                 path_fig = str(path_fig))
-    
     return ccf_map, logl_map
 
-def plot_all_ccf():
-    return None
 
-def ttest_map(ccf_obj, config_dict, transit, obs, path_fig):
-    # ttest map
-    ccf_obj.ttest_map(transit, kind='logl', vrp=np.zeros_like(transit.vrp), orders=np.arange(75), 
-                  kp0=0, RV_limit=config_dict['RV_lim'], kp_step=config_dict['Kp_step'], 
-                  rv_step=config_dict['RV_step'], RV=None, speed_limit=3, icorr=obs.iIn, equal_var=False, path_fig = str(path_fig))
+def plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, config_dict, mask_tellu, mask_wings, id_pc0=0, order_indices=np.arange(75)):
+    
+    corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
+    transit = all_reductions[(config_dict['n_pc'][0], mask_tellu, mask_wings)]
+    Kp_array = np.array([transit.Kp.value])
+
+    ccf_maps_in = [all_ccf_map[(n_pc, mask_tellu, mask_wings)] for n_pc in config_dict['n_pc']]
+    ccf_maps_in = np.concatenate(ccf_maps_in, axis=-2)
+    logl_maps_in = [all_logl_map[(n_pc, mask_wings)] for n_pc in config_dict['n_pc']]
+    logl_maps_in = np.concatenate(logl_maps_in, axis=-2)
+    ccf_obj, logl_obj = cc.plot_ccflogl(transit, ccf_maps_in, logl_maps_in, corrRV,
+                                        Kp_array, config_dict['n_pc'], id_pc0=id_pc0, orders=order_indices)
+    
+    return ccf_obj, logl_obj
     
 
 
