@@ -92,13 +92,13 @@ def pl_param_units(config_dict):
     return pl_kwargs
 
 
-def load_planet(config_dict):
+def load_planet(config_dict, visit_name):
     
     # All the observations must be listed in files.
     # We need the e2ds, the telluric corrected and the reconstructed spectra.
-    list_filenames = {'list_e2ds': 'list_e2ds',
-                    'list_tcorr': 'list_tellu_corrected',
-                    'list_recon': 'list_tellu_recon'}
+    list_filenames = {f'list_e2ds': 'list_e2ds_{visit_name}',
+                    f'list_tcorr': 'list_tellu_corrected_{visit_name}',
+                    f'list_recon': 'list_tellu_recon_{visit_name}'}
 
     # check if any planet attributes were manually specified
     if bool(config_dict['pl_params']): 

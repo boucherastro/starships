@@ -1,10 +1,11 @@
 # FILE ORGANIZATION
 obs_dir: 'projects/def-dlafre/fgenest/nirps/WASP-127b/' # starting from projects, home will be added in pipeline
+night_split: 
 
 # GLOBAL PARAMETERS USED IN MULTIPLE STAGES
 pl_name: 'WASP-127 b'
 instrument: 'NIRPS-APERO'
-visit_name: 'tr1'
+visit_name: ['tr1'] # leave as [] if file lists not yet generated
 
 kind_trans: 'transmission'
 coeffs: [0.02703969,  1.10037972, -0.96372403,  0.28750393]
@@ -35,7 +36,7 @@ del_exposures: null # exposures to delete
 
 # for NIRPS, step size of 
 RV_range: [-150, 151] # range used to build Kp_array
-RV_step: 2 #2 # step size
+RV_step: 2 # step size
 
 RV_lim: 100 # used for ttest map
 Kp_step: 5 # used for ttest map
