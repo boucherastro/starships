@@ -158,6 +158,9 @@ def split_night(obs_dir, path_fig):
                 f.write(output + '\n')
             visit_name.append(str(date))
 
-    return visit_name
+    # keep only unique visit names
+    visit_name = list(set(visit_name))
+
+    return visit_name 
 
     

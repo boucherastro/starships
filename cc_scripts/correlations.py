@@ -109,7 +109,7 @@ def plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, config_dict, mask_te
     
 
 
-
+(visit, n_pc, mask_tellu, mask_wings, species)
 
 
 

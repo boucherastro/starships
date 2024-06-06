@@ -49,6 +49,8 @@ try:
 except ModuleNotFoundError:
     from petitRADTRANS.nat_cst import guillot_global, guillot_modif
 
+atmo_high = None
+atmo_low = None
 
 def init_model_retrieval(config_model, mol_species=None, kind_res='high', lbl_opacity_sampling=None,
                          wl_range=None, continuum_species=None, pressures=None, **kwargs):
@@ -182,7 +184,7 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
     
     if atmo_obj is None:
         # Use atmo object in globals parameters if it exists
-        atmo_obj = config_model['atmo_high'] if mode == 'high' else config_model['atmo_low']
+        atmo_obj = globals()['atmo_high'] if mode == 'high' else globals()['atmo_low']
         # Initiate if not done yet
         if atmo_obj is None:
             log.info(f'Model not initialized for mode = {mode}. Starting initialization...')
@@ -221,6 +223,7 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
                     dissociation=config_model['dissociation'],
                     fct_star=fct_star)
     wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
+    
     # saving wv_out, model_out for all species and each individual species
     # Generate the filename
     species_keys = '_'.join(species.keys())
