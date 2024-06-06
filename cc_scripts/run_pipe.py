@@ -16,44 +16,6 @@ from starships.correlation import quick_correl
 from starships.correlation_class import Correlations
 from starships.instruments import load_instrum
 
-def reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig):
-    # building the transit spectrum
-    list_tr = red.build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
-
-    # saving the transit spectrum
-    red.save_pl_sig(n_pc, mask_tellu, mask_wings, list_tr, out_dir, do_tr = [1])
-
-    # outputting plots for reduction step
-    red.reduction_plots(list_tr, n_pc, mask_tellu, mask_wings, config_dict['idx_ord'], path_fig)
-
-    return list_tr
-
-def make_model(config_dict, config_model, planet, out_dir, path_fig):
-    # computing extra parameters needed for model making
-    int_dict = mod.create_internal_dict(config_model, planet)
-
-    # create the model
-    wave_mod, mod_spec = mod.prepare_model_high_or_low(config_model, int_dict, planet,out_dir=out_dir, path_fig=path_fig)
-    
-    # convolving with the instrument if not already done
-    # if config_model['instrument'] == None:
-    #     wave_mod, mod_spec = mod.add_instrum_model(config_dict, wave_mod, mod_spec)
-    
-    return wave_mod, mod_spec
-
-
-def perform_correlations(config_dict, transit, wave_mod, mod_spec, n_pc, path_fig):
-    # performs standard ccf
-    corr_obj = corr.classic_ccf(config_dict, transit, wave_mod, mod_spec, str(path_fig))
-
-    # performs injected ccf
-    ccf_obj, logl_obj = corr.inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc)
-
-    # perform ttest
-    # corr.ttest_map(ccf_obj, config_dict, transit, obs, str(path_fig))
-
-    return ccf_obj, logl_obj
-
 
 ## running the pipeline
 def run_pipe(config_filepath, model_filepath):
@@ -73,7 +35,7 @@ def run_pipe(config_filepath, model_filepath):
     out_dir, path_fig = red.set_save_location(planet.name, config_dict['reduction'], config_dict['instrument'])
 
     # making the model
-    wave_mod, mod_spec = make_model(config_dict, config_model, planet, out_dir, path_fig)
+    wave_mod, mod_spec = mod.make_model(config_model, planet, out_dir, path_fig, config_dict)
 
     # creating the dictionaries to store all reductions
     all_reductions = {}
@@ -86,11 +48,11 @@ def run_pipe(config_filepath, model_filepath):
             for n_pc in config_dict['n_pc']:
 
                 # reducing the data
-                reduc = reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig)
+                reduc = red.reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig)
                 all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
 
                 # performing correlations
-                ccf_map, logl_map = perform_correlations(config_dict, reduc['1'], wave_mod, mod_spec, n_pc, path_fig)
+                ccf_map, logl_map = corr.perform_ccf(config_dict, reduc, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir)
                 all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
                 all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
 
@@ -100,7 +62,9 @@ def run_pipe(config_filepath, model_filepath):
 
             # plotting ttest maps for each n_pc
             for n_pc in config_dict['n_pc']:
-                ccf_obj.ttest_map(all_reductions[(n_pc, mask_tellu, mask_wings)], str(path_fig))
+                obs = all_reductions[(n_pc, mask_tellu, mask_wings)]
+                ccf_obj.ttest_map(obs, kind='logl', vrp=np.zeros_like(obs.vrp), orders=np.arange(75), 
+                  kp0=0, RV_limit=75, kp_step=5, rv_step=2, RV=None, speed_limit=3, icorr=obs.iIn, equal_var=False
+                  )
 
     return all_reductions, all_ccf_map, all_logl_map
-

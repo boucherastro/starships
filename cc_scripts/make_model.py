@@ -302,4 +302,17 @@ def add_instrum_model(wv_out, model_out, config_dict, species, Raf = None, rot_k
                                                 rot_ker=rot_ker, **rot_kwargs)
 
     # np.savez(f'model_{config_dict['instrument']}_{'_'.join(species.keys())}.npz', wave_mod=wave_mod, mod_spec=mod_spec)
-    return wave_mod, mod_spec                                      
+    return wave_mod, mod_spec 
+
+def make_model(config_model, planet, out_dir, path_fig, config_dict = {}):
+    # computing extra parameters needed for model making
+    int_dict = create_internal_dict(config_model, planet)
+
+    # create the model, plot and save it 
+    wave_mod, mod_spec = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, path_fig=path_fig)
+    
+    # convolving with the instrument if not already done
+    if config_model['instrument'] == None:
+        wave_mod, mod_spec = add_instrum_model(config_dict, wave_mod, mod_spec)
+    
+    return wave_mod, mod_spec                                     

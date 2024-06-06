@@ -31,6 +31,7 @@ Fe/H: 0
 
 wind: null
 
+# Note - specifying instrument will mean model will automatically be comvolved with instrument
 # if not specifying instrument, must specify wl_range and Raf
 instrument: 'NIRPS-APERO'
 kind_trans: 'transmission'

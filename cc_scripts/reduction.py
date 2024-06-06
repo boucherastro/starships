@@ -46,6 +46,7 @@ def set_save_location(pl_name, reduction, instrument):
 
     return out_dir, path_fig
 
+
 def convert_to_quantity(quantity_dict):
     """
     Convert a quantity dictionary to a physical quantity.
@@ -70,6 +71,7 @@ def convert_to_quantity(quantity_dict):
     else: unit = u.Unit(unit)
 
     return value * unit
+
 
 def pl_param_units(config_dict):
     """
@@ -122,6 +124,7 @@ def load_planet(config_dict):
     # obs.flux = np.ma.array(obs.flux, mask=new_mask)
     return p, obs
 
+
 def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
 
     # Parameters for extraction
@@ -163,11 +166,13 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
 
     return list_tr
 
+
 def save_pl_sig(n_pc, mask_tellu, mask_wings, list_tr, out_dir, do_tr = [1]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
     out_filename = f'retrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
     pl_obs.save_sequences(out_filename, list_tr, do_tr, path=out_dir) # save to projects
     # add where save_all = True to scratch
+
 
 def reduction_plots(list_tr, n_pc, mask_tellu, mask_wings, idx_ord, path_fig):
     visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
@@ -175,3 +180,16 @@ def reduction_plots(list_tr, n_pc, mask_tellu, mask_wings, idx_ord, path_fig):
 
     sequence_obj = list_tr['1']
     pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig), fig_name = f'_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
+
+
+def reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig):
+    # building the transit spectrum
+    list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
+
+    # saving the transit spectrum
+    save_pl_sig(n_pc, mask_tellu, mask_wings, list_tr, out_dir, do_tr = [1])
+
+    # outputting plots for reduction step
+    reduction_plots(list_tr, n_pc, mask_tellu, mask_wings, config_dict['idx_ord'], path_fig)
+
+    return list_tr

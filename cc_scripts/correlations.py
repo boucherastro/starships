@@ -28,7 +28,7 @@ from starships.planet_obs import Observations,Planet
 
 from itertools import product
 
-def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, corrRV = []):
+def classic_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, path_fig, corrRV = []):
     """
     Perform classic cross-correlation function (CCF) analysis.
 
@@ -61,7 +61,9 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, corrRV = [])
     corr_obj.RV_shift = np.zeros_like(transit.alpha_frac)
 
     # Make the plots and save them
-    corr_obj.full_plot(transit, [], save_fig = 'classic_ccf', path_fig = path_fig) 
+    out_filename = f'classic_ccf_logl_seq_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
+
+    corr_obj.full_plot(transit, [], save_fig = out_filename, path_fig = path_fig) 
 
     return corr_obj
 
@@ -75,12 +77,19 @@ def inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_win
                                                     wave_mod, np.array([mod_spec]), nolog=True, 
                                                     inj_alpha='ones', RVconst=transit.RV_const)
 
-    out_filename = f'ccf_logl_seq_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
+    out_filename = f'inj_ccf_logl_seq_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
 
     corr.save_logl_seq(out_dir / Path(out_filename), ccf_map, logl_map,
                            wave_mod, mod_spec, n_pc, Kp_array, corrRV, config_dict['kind_trans'])
 
     return ccf_map, logl_map
+
+
+def perform_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir, corrRV = []):
+    corr_obj = classic_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir, corrRV = [])  
+    ccf_map, logl_map = inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir, corrRV = []) 
+    
+    return ccf_map, logl_map, corr_obj
 
 
 def plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, config_dict, mask_tellu, mask_wings, id_pc0=0, order_indices=np.arange(75)):
