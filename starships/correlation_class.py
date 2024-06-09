@@ -157,7 +157,8 @@ class Correlations():
         
     def plot_multi_npca(self, logl=None, vlines=[0], kind='snr', kind_courbe='bic', ylim=None, 
                         no_signal=None, ground_type='mean',
-                        hlines=None, legend=True, title='', max_rv=None, force_max_rv=None, **kwargs):
+                        hlines=None, legend=True, title='', max_rv=None, force_max_rv=None, 
+                        path_fig = None, fig_name = None, **kwargs):
     
         lstyles = ['-','--','-.',':']
 
@@ -271,6 +272,9 @@ class Correlations():
             
         ax[0].set_ylabel(title)
 
+        # saving the plots
+        if path_fig is not None:
+            fig.savefig(path_fig+'fig_multi_npca{}.pdf'.format(fig_name))
    
     
     def get_snr_2d(self, ccf2d=None, Kp_array=None, interp_grid=None, \
@@ -745,8 +749,8 @@ class Correlations():
         ax2.set_position([pos.x0,pos2.y0,pos.width-0.02, pos2.height])
         
         if save_fig != '':
-            figs.savefig(path_fig + 'CCF_'+save_fig+'.pdf')
-            print('Saved file to : ', path_fig + 'CCF_'+save_fig+'.pdf')
+            figs.savefig(path_fig + '/CCF_'+save_fig+'.pdf')
+            print('Saved file to : ', path_fig + '/CCF_'+save_fig+'.pdf')
 
     def fit_gauss_1d(self, Kp=None):
         
@@ -1829,15 +1833,15 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
                                  n_pcas=n_pcas, kp_array=Kp_array)
     ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
-    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines)
+    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = fig_name, path_fig=path_fig)
 
     logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
                                   n_pcas=n_pcas, kp_array=Kp_array)
     logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
 
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines)
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = fig_name, path_fig=path_fig)
     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
-                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines)
+                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = fig_name, path_fig=path_fig)
 
     print(ccf_obj.npc_val)
     print(logl_obj.npc_max_abs)
@@ -1893,8 +1897,8 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                 _,_ = pf.plot_ttest_map_hist(tr, ccf_obj.rv_grid, ccf.copy(),  ccf_obj.ttest_map_kp, ccf_obj.ttest_map_rv,
                                                     t_value * (-3) / t_value.min(), ccf_obj.ttest_map_params,
                                                     orders=orders, plot_trail=True, masked=True, ccf=ccf.copy(),
-                                                    vrp=np.zeros_like(vrp), RV=ccf_obj.pos, hist=True,)
-                                                    # fig_name=label, path_fig=path_fig)
+                                                    vrp=np.zeros_like(vrp), RV=ccf_obj.pos, hist=True,
+                                                    fig_name=label, path_fig=path_fig)
     return ccf_obj, logl_obj
 
 # def plot_ccflogl_test(t, ccf_map, logl_map, n_pcas, corrRV0, indexs, Kp_array, RV=0.0, orders=np.arange(49)):
