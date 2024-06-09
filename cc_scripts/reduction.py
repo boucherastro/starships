@@ -2,9 +2,6 @@ import os, warnings
 # import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import starships.homemade as hm
-from starships import spectrum
 from starships.mask_tools import interp1d_masked
 
 interp1d_masked.iprint=False
@@ -13,8 +10,8 @@ import astropy.constants as const
 import astropy.units as u
 import numpy as np
 import starships.planet_obs as pl_obs
+from starships.planet_obs import Observations
 import starships.plotting_fcts as pf
-from starships.planet_obs import Observations, instruments_drs
 
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", RuntimeWarning)
@@ -96,9 +93,9 @@ def load_planet(config_dict, visit_name):
     
     # All the observations must be listed in files.
     # We need the e2ds, the telluric corrected and the reconstructed spectra.
-    list_filenames = {f'list_e2ds': 'list_e2ds_{visit_name}',
-                    f'list_tcorr': 'list_tellu_corrected_{visit_name}',
-                    f'list_recon': 'list_tellu_recon_{visit_name}'}
+    list_filenames = {'list_e2ds': f'list_e2ds{visit_name}',
+                    'list_tcorr': f'list_tellu_corrected{visit_name}',
+                    'list_recon': f'list_tellu_recon{visit_name}'}
 
     # check if any planet attributes were manually specified
     if bool(config_dict['pl_params']): 
@@ -167,29 +164,34 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
     return list_tr
 
 
-def save_pl_sig(n_pc, mask_tellu, mask_wings, list_tr, out_dir, do_tr = [1]):
+def save_pl_sig(list_tr, nametag, out_dir, do_tr = [1]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
-    out_filename = f'retrieval_input_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
+    out_filename = f'retrieval_input' + nametag
     pl_obs.save_sequences(out_filename, list_tr, do_tr, path=out_dir) # save to projects
     # add where save_all = True to scratch
 
 
-def reduction_plots(list_tr, n_pc, mask_tellu, mask_wings, idx_ord, path_fig):
+def reduction_plots(config_dict, list_tr, n_pc, mask_tellu, mask_wings, idx_ord, path_fig):
     visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
-    pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name=f'_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
+
+    if n_pc == config_dict['n_pc'][0]:
+        pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name=f'_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
 
     sequence_obj = list_tr['1']
     pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig), fig_name = f'_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
 
 
-def reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig):
+def reduce_data(config_dict, planet, obs, out_dir, path_fig, visit_name, mol, n_pc, mask_tellu, mask_wings):
+    
+    nametag = f'{visit_name}_{mol}_{n_pc}-pc_mw{mask_wings*100:n}_mt{mask_tellu*100:n}'
+
     # building the transit spectrum
     list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
 
     # saving the transit spectrum
-    save_pl_sig(n_pc, mask_tellu, mask_wings, list_tr, out_dir, do_tr = [1])
+    save_pl_sig(list_tr, nametag, out_dir, do_tr = [1])
 
     # outputting plots for reduction step
-    reduction_plots(list_tr, n_pc, mask_tellu, mask_wings, config_dict['idx_ord'], path_fig)
+    reduction_plots(config_dict, list_tr, n_pc, mask_tellu, mask_wings, config_dict['idx_ord'], path_fig)
 
     return list_tr
