@@ -1,15 +1,6 @@
-import os
+
 import numpy as np
 from pathlib import Path
-from sys import path
-
-import matplotlib.pyplot as plt
-from importlib import reload
-from itertools import product
-from scipy.interpolate import interp1d
-
-import astropy.units as u
-import astropy.constants as const
 
 from starships.correlation import quick_correl
 from starships.correlation_class import Correlations
@@ -19,14 +10,8 @@ import warnings
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", RuntimeWarning)
 
-import starships.plotting_fcts as pf 
-import starships.planet_obs as pl_obs
-from starships import homemade as hm
 from starships import correlation as corr
 from starships import correlation_class as cc
-from starships.planet_obs import Observations,Planet
-
-from itertools import product
 
 def classic_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, path_fig, corrRV = []):
     """
@@ -61,9 +46,9 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask
     corr_obj.RV_shift = np.zeros_like(transit.alpha_frac)
 
     # Make the plots and save them
-    out_filename = f'classic_ccf_logl_seq_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
+    out_filename = f'classic_ccf_logl_seq_{n_pc[0]}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
 
-    corr_obj.full_plot(transit, [], save_fig = out_filename, path_fig = path_fig) 
+    corr_obj.full_plot(transit, [], save_fig = out_filename, path_fig = str(path_fig))
 
     return corr_obj
 
@@ -89,27 +74,24 @@ def perform_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask
     corr_obj = classic_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir, corrRV = [])  
     ccf_map, logl_map = inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir, corrRV = []) 
     
-    return ccf_map, logl_map, corr_obj
+    return ccf_map, logl_map
 
 
-def plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, config_dict, mask_tellu, mask_wings, id_pc0=0, order_indices=np.arange(75)):
+def plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, config_dict, mask_tellu, mask_wings, id_pc0=None, order_indices=np.arange(75), path_fig = Path('.')):
     
     corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
-    transit = all_reductions[(config_dict['n_pc'][0], mask_tellu, mask_wings)]
+    transit = all_reductions[(config_dict['n_pc'][0], mask_tellu, mask_wings)]['1']
     Kp_array = np.array([transit.Kp.value])
 
     ccf_maps_in = [all_ccf_map[(n_pc, mask_tellu, mask_wings)] for n_pc in config_dict['n_pc']]
     ccf_maps_in = np.concatenate(ccf_maps_in, axis=-2)
-    logl_maps_in = [all_logl_map[(n_pc, mask_wings)] for n_pc in config_dict['n_pc']]
+    logl_maps_in = [all_logl_map[(n_pc, mask_tellu, mask_wings)] for n_pc in config_dict['n_pc']]
     logl_maps_in = np.concatenate(logl_maps_in, axis=-2)
+
+    out_filename = f'inj_ccf_logl_seq_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}'
+
     ccf_obj, logl_obj = cc.plot_ccflogl(transit, ccf_maps_in, logl_maps_in, corrRV,
-                                        Kp_array, config_dict['n_pc'], id_pc0=id_pc0, orders=order_indices)
+                                        Kp_array, config_dict['n_pc'], id_pc0=id_pc0, orders=order_indices, 
+                                        path_fig = path_fig, map = True, fig_name = out_filename)
     
     return ccf_obj, logl_obj
-    
-
-
-(visit, n_pc, mask_tellu, mask_wings, species)
-
-
-
