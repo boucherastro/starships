@@ -5,7 +5,7 @@ night_split:
 # GLOBAL PARAMETERS USED IN MULTIPLE STAGES
 pl_name: 'WASP-127 b'
 instrument: 'NIRPS-APERO'
-visit_name: ['tr1'] # leave as [] if file lists not yet generated
+visit_name: [''] # leave as [] if file lists not yet generated
 
 kind_trans: 'transmission'
 coeffs: [0.02703969,  1.10037972, -0.96372403,  0.28750393]
@@ -15,9 +15,9 @@ kind_res: 'high'
 # --------------------------------------------------------------------------------------------------
 # REDUCTION INPUTS
 
-reduction: 'TEST'
-mask_tellu: [0.2, 0.5]
-mask_wings: [0.9, 0.95, 0.97]
+reduction: 'check_multinpca'
+mask_tellu: [0.2] #, 0.5]
+mask_wings: [0.9] #, 0.95, 0.97]
 n_pc: [1, 2, 3, 4] # given as a list to test each
 iout_all: ['all']
 clip_ratio: 6

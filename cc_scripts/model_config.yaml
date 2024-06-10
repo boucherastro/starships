@@ -22,7 +22,7 @@ fct_star_global: {'high': null, 'low': null}
 atmo_high: null
 atmo_low: null
 T_eq: 1000
-p_cloud: 0.1
+p_cloud: 0.1  # cloud deck, bar
 P0: 0.1
 gamma_scat: 0
 scat_factor: 0
