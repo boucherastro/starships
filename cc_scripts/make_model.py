@@ -1,47 +1,29 @@
-from sys import path
-
-import os
-import sys
 import matplotlib.pyplot as plt
-
-from pathlib  import Path
 import numpy as np
-import yaml
 
 import logging
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
+
+# Set the log level of 'fonttools' to WARNING
+logging.getLogger('fonttools').setLevel(logging.WARNING)
+
 logging.basicConfig()
 
-import emcee
-import starships.spectrum as spectrum
-from starships.orbite import rv_theo_t
 from starships.mask_tools import interp1d_masked
-
 interp1d_masked.iprint = False
-import starships.correlation as corr
-from starships.analysis import bands, resamp_model
-import starships.planet_obs as pl_obs
-from starships.planet_obs import Observations, Planet
+from starships.analysis import resamp_model
 import starships.petitradtrans_utils as prt
-from starships.homemade import unpack_kwargs_from_command_line
-from starships import retrieval_utils as ru
-
 from starships.instruments import load_instrum
-
 
 import astropy.units as u
 import astropy.constants as const
-from astropy.table import Table
 
 from scipy.interpolate import interp1d
-
 import warnings
-
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", RuntimeWarning)
 
-import gc
 
 # from petitRADTRANS import nat_cst as nc
 try:
