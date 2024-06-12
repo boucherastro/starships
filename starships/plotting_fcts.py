@@ -1739,7 +1739,7 @@ def plot_airmass(list_tr, markers=['o','s','d'],
     plt.tight_layout()
 
     if path_fig is not None:
-        plt.savefig(path_fig+'fig_airmass_{}.pdf'.format(fig_name))
+        plt.savefig(path_fig+'fig_airmass{}.pdf'.format(fig_name))
 
     fig, ax = plt.subplots(2,1, figsize=(9,8))
     
@@ -1769,7 +1769,7 @@ def plot_airmass(list_tr, markers=['o','s','d'],
     ax[1].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
 
     if path_fig is not None:
-        plt.savefig(path_fig+'fig_SNR_{}.pdf'.format(fig_name))
+        plt.savefig(path_fig+'fig_SNR{}.pdf'.format(fig_name))
         
             
 # def plot_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False):
