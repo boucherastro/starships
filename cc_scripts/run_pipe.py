@@ -2,6 +2,7 @@ import numpy as np
 import yaml
 from sys import path
 from pathlib import Path
+import argparse
 
 path.append("opereira/starships/cc_scripts/")
 
@@ -33,91 +34,104 @@ def run_pipe(config_filepath, model_filepath):
         scratch_dir, out_dir, path_fig = red.set_save_location(config_dict['pl_name'], visit_name, config_dict['reduction'], config_dict['instrument'])
         
         if visit_name == visit_names[0]:
-            print( "Output directory: ", out_dir.parent)
+            print( "Output directory:", out_dir.parent)
 
         # creating the planet and observation objects
         planet, obs = red.load_planet(config_dict, visit_name)
 
-        # iterate over models
-        for single_mol in config_model['line_opacities']:
-            
-            # Copy input dict
-            theta_dict_single = dict(config_model)
+        # Start with model with all molecules
+        wave_mod, mod_spec = mod.make_model(config_model, planet, out_dir, path_fig, config_dict)
+        mol = 'all'
+        # creating the dictionaries to store all reductions
+        all_reductions = {}
+        all_ccf_map = {}
+        all_logl_map = {}
 
-            # Set all other linelists to zero (10^-99 to avoid division by zero)
-            for mol in config_model['line_opacities']:
-                if mol != single_mol:
-                    theta_dict_single[mol] = 1e-99
+        # performing the reduction for each n_pc, mask_tellu, mask_wings
+        for mask_tellu in config_dict['mask_tellu']:
+            for mask_wings in config_dict['mask_wings']:
+                for n_pc in config_dict['n_pc']:
 
-            wave_mod, mod_spec = mod.make_model(theta_dict_single, planet, out_dir, path_fig, config_dict)
+                    naming_kwargs = {'molecule': mol, 'n_pc': n_pc, 'mask_tellu': mask_tellu, 'mask_wings': mask_wings}
+                    print('CURRENT PARAMETERS:', naming_kwargs)
 
-            # creating the dictionaries to store all reductions
-            all_reductions = {}
-            all_ccf_map = {}
-            all_logl_map = {}
+                    # reducing the data
+                    reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings)
+                    
+                    # check if reduction was already performed
+                    if reduc != None:
+                        all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
 
-            # performing the reduction for each n_pc, mask_tellu, mask_wings
-            for mask_tellu in config_dict['mask_tellu']:
-                for mask_wings in config_dict['mask_wings']:
-                    for n_pc in config_dict['n_pc']:
+                    # performing correlations
+                    ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)]['1'], mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig)
+                    all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
+                    all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
 
-                        naming_kwargs = {'molecule': mol, 'n_pc': n_pc, 'mask_tellu': mask_tellu, 'mask_wings': mask_wings}
-                        print('CURRENT PARAMETERS:', naming_kwargs)
+                    # include injection step here, need to change the dictionaries everything is saved to
+                    # reduc.final
+                    # performing correlations
+                    # ccf_map, logl_map = corr.perform_ccf(config_dict, reduc, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir)
+                    # all_ccf_map[n_pc] = ccf_map
+                    # all_logl_map[n_pc] = logl_map
 
-                        # reducing the data
-                        reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings)
-                        
-                        # check if reduction was already performed
-                        if reduc != None:
-                            all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
+                # plot all ccf maps for each n_pc
+                ccf_obj, logl_obj = corr.plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, 
+                                                    config_dict, mol, mask_tellu, mask_wings, id_pc0=None, 
+                                                    order_indices=np.arange(75), path_fig = path_fig)
 
-                        # performing correlations
-                        ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)]['1'], mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig)
-                        all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
-                        all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
+        # iterate over individual molecules if there are more than 1
+        if len(config_model['line_opacities']) > 1:
+            for single_mol in config_model['line_opacities']:
+                
+                # Copy input dict
+                theta_dict_single = dict(config_model)
 
-                    # plot all ccf maps for each n_pc
-                    ccf_obj, logl_obj = corr.plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, 
-                                                          config_dict, mol, mask_tellu, mask_wings, 
-                                                          id_pc0=None, order_indices=np.arange(75), 
-                                                          path_fig = path_fig)
-            # plot for all mask_tellu and mask_wings
-            
+                # Set all other linelists to zero (10^-99 to avoid division by zero)
+                for mol in config_model['line_opacities']:
+                    if mol != single_mol:
+                        theta_dict_single[mol] = 1e-99
 
-    #         # repeating for model with all molecules
-    #         if len(config_model['line_opacities']) > 1:
-        #         wave_mod, mod_spec = mod.make_model(config_model, planet, out_dir, path_fig, config_dict)
+                wave_mod, mod_spec = mod.make_model(theta_dict_single, planet, out_dir, path_fig, config_dict)
 
-        #         # performing the reduction for each n_pc, mask_tellu, mask_wings
-        #         for mask_tellu in config_dict['mask_tellu']:
-        #             for mask_wings in config_dict['mask_wings']:
+                # creating the dictionaries to store all reductions
+                all_reductions = {}
+                all_ccf_map = {}
+                all_logl_map = {}
 
-        #                 all_reductions = {}
-        #                 all_ccf_map = {}
-        #                 all_logl_map = {}
+                # performing the reduction for each n_pc, mask_tellu, mask_wings
+                for mask_tellu in config_dict['mask_tellu']:
+                    for mask_wings in config_dict['mask_wings']:
+                        for n_pc in config_dict['n_pc']:
 
-        #                 for n_pc in config_dict['n_pc']:
+                            naming_kwargs = {'molecule': mol, 'n_pc': n_pc, 'mask_tellu': mask_tellu, 'mask_wings': mask_wings}
+                            print('CURRENT PARAMETERS:', naming_kwargs)
 
-        #                     # reducing the data
-        #                     reduc = red.reduce_data(config_dict, n_pc, mask_tellu, mask_wings, planet, obs, out_dir, path_fig)
-        #                     all_reductions[n_pc] = reduc
-        #                     # performing correlations
-        #                     ccf_map, logl_map = corr.perform_ccf(config_dict, reduc['1'], wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir)
-        #                     all_ccf_map[n_pc] = ccf_map
-        #                     all_logl_map[n_pc] = logl_map
+                            # reducing the data
+                            reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings)
+                            
+                            # check if reduction was already performed
+                            if reduc != None:
+                                all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
 
-        #                     # include injection step here, need to change the dictionaries everything is saved to
-        #                     # reduc.final
-        #                     # performing correlations
-        #                     # ccf_map, logl_map = corr.perform_ccf(config_dict, reduc, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir)
-        #                     # all_ccf_map[n_pc] = ccf_map
-        #                     # all_logl_map[n_pc] = logl_map
+                            # performing correlations
+                            ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)]['1'], mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig)
+                            all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
+                            all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
 
-        #                 # plot all ccf maps for each n_pc
-        #                 ccf_obj, logl_obj = corr.plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, 
-        #                                                     config_dict, mask_tellu, mask_wings, id_pc0=0, 
-        #                                                     order_indices=np.arange(75), path_fig = path_fig)
+                        # plot all ccf maps for each n_pc
+                        ccf_obj, logl_obj = corr.plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, 
+                                                            config_dict, mol, mask_tellu, mask_wings, 
+                                                            id_pc0=None, order_indices=np.arange(75), 
+                                                            path_fig = path_fig)
 
         # #     # combine all visits
 
-            
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Run the pipeline with the given config files.')
+    parser.add_argument('config_filepath', type=Path, help='Path to the config.yaml file.')
+    parser.add_argument('model_filepath', type=Path, help='Path to the model_config.yaml file.')
+
+    args = parser.parse_args()
+
+    # Call the run_pipe function with the parsed arguments
+    run_pipe(args.config_filepath, args.model_filepath)
