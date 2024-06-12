@@ -1873,7 +1873,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
         for id_pc in range(len(n_pcas)):
             if fig_name is not None:
                 if len(fig_name) > 1:
-                    label = fig_name + f'_pc{id_pc0}'
+                    label = fig_name + f'_pc{id_pc}'
                 else:
                     label = fig_name
             else:
