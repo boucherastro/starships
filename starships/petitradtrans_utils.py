@@ -1009,7 +1009,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                           gravity, P0, cloud, R_pl, R_star, C_to_O=None, Fe_to_H=None,
                           kappa_factor=None, gamma_scat=None, vmrh2he=None, plot_abundance=False,
                           kind_trans='transmission', dissociation=False, fct_star=None,
-                          contribution=False, specie_2_lnlst=None, **kwargs):
+                          contribution=False, specie_2_lnlst=None, save_abundances = False, **kwargs):
     if vmrh2he is None:
         vmrh2he = [0.85, 0.15]
     if kappa_factor is not None:
@@ -1032,6 +1032,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
     log.debug(f'Chemical equilibrium = {chemical_equilibrium}')
     
     # Compute the abundances (and add species that need to be included if not fitted)
+    
     abundances, MMW, VMR = gen_abundances([*species.keys()], [*species.values()],
                                      pressures, temperatures,
                                      verbose=False, vmrh2he=vmrh2he,
@@ -1090,8 +1091,10 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
         out = ((atmos_object.flux * (u.erg / u.cm ** 2 / u.s / u.Hz) *
                 const.c / (wave * u.um) ** 2).to(u.erg / u.cm ** 2 / u.s / u.cm) *
                (R_pl ** 2 / R_star ** 2) / star_spectrum).decompose()
-
-    return nc.c / atmos_object.freq / 1e-4, out  # .decompose()#, MMW
+    if save_abundances:
+        return nc.c / atmos_object.freq / 1e-4, out, abundances
+    
+    else: return nc.c / atmos_object.freq / 1e-4, out  # .decompose()#, MMW
 
 # def retrieval_model_plain_retrieval_version(atmos_object, species, planet, pressures, temperatures,
 #                           gravity, P0, cloud, \
