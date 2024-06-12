@@ -207,12 +207,13 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
     wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
     
     # saving wv_out, model_out for all species and each individual species
-    # Generate the filename
-    species_keys = '_'.join(species.keys())
-    filename = str(out_dir) + f'/model_native_{species_keys}.npz'
+    if out_dir != None:
+        # Generate the filename
+        species_keys = '_'.join(species.keys())
+        filename = str(out_dir) + f'/model_native_{species_keys}.npz'
 
-    # Save wv_out and model_out into the npz file
-    np.savez(filename, wave_mod=wv_out, mod_spec=model_out)
+        # Save wv_out and model_out into the npz file
+        np.savez(filename, wave_mod=wv_out, mod_spec=model_out)
 
     # move this function into the cross correlation step, so the model native resol -> instrument resol
     if config_model['instrument'] != None and mode == 'high':
@@ -239,12 +240,13 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
                                                   rot_ker=rot_ker, **rot_kwargs)
             
             # saving new downgraded model
-            # Generate the filename
-            species_keys = '_'.join(species.keys())
-            filename = str(out_dir) + f"/model_{config_model['instrument']}_{species_keys}.npz"
+            if out_dir != None:
+                # Generate the filename
+                species_keys = '_'.join(species.keys())
+                filename = str(out_dir) + f"/model_{config_model['instrument']}_{species_keys}.npz"
 
-            # Save wv_out and model_out into the npz file
-            np.savez(filename, wave_mod=wv_out, mod_spec=model_out)
+                # Save wv_out and model_out into the npz file
+                np.savez(filename, wave_mod=wv_out, mod_spec=model_out)
 
     # plotting the model
     if path_fig is not None:
@@ -300,4 +302,4 @@ def make_model(config_model, planet, out_dir, path_fig, config_dict = {}):
     if config_model['instrument'] == None:
         wave_mod, mod_spec = add_instrum_model(config_dict, wave_mod, mod_spec)
     
-    return wave_mod, mod_spec                                     
+    return wave_mod, mod_spec     
