@@ -185,7 +185,7 @@ def reduction_plots(config_dict, list_tr, n_pc, path_fig, nametag):
     visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
 
     if n_pc == config_dict['n_pc'][0]:
-        pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name=None)
+        pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name='')
 
     sequence_obj = list_tr['1']
 
