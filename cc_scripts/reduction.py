@@ -16,32 +16,43 @@ import starships.plotting_fcts as pf
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", RuntimeWarning)
 
-def set_save_location(pl_name, reduction, instrument):
+def set_save_location(pl_name, visit_name, reduction, instrument, out_dir = None):
 
     ''' Note: Better to use the scratch space to save the reductions.
     You have infinte space, but the files are deleted if untouched for 2 months. It allows to save 
     as many reductions as desired. Once the correct reduction parameters are set, you can either 
     move them into your home directory. '''
 
-    # Use scratch if available, use home if not.
+    # Set scratch directory for larger data products, use home is scratch not available
+
+    pl_name_fname = ''.join(pl_name.split())
+
     try:
-        out_dir = Path(os.environ['SCRATCH'])
+        scratch_dir = Path(os.environ['SCRATCH'])
     except KeyError:
-        out_dir = Path.home()
+        scratch_dir = Path.home()
 
     # Output reductions in dedicated directory
-    pl_name_fname = ''.join(pl_name.split())
-    out_dir /= Path(f'DataAnalysis/{instrument}/Reductions/{pl_name_fname}_{reduction}')
+    if out_dir == None:
+        out_dir = Path.home()
+        #out_dir /= Path(f'projects/def-dlafre/shared/{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
+        out_dir /= Path(f'projects/def-dlafre/opereira/{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
 
-    # Make sure the directory exists
+
+    # Output reductions in dedicated directory
+    scratch_dir /= Path(f'{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
+
+    # Make sure the directories exists
     out_dir.mkdir(parents=True, exist_ok=True)
+    scratch_dir.mkdir(parents=True, exist_ok=True)
 
     # Where to save figures?
-    path_fig = out_dir / 'Figures' 
+    path_fig = out_dir / Path('Results')
     path_fig.mkdir(parents=True, exist_ok=True)
+
     path_fig = str(path_fig) + '/'
 
-    return out_dir, path_fig
+    return scratch_dir, out_dir, path_fig
 
 
 def convert_to_quantity(quantity_dict):
@@ -139,7 +150,7 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
 
     params_all=[[mask_tellu, mask_wings, 51, 41, 5, n_pc, 5.0, 5.0, 5.0, 5.0]]
 
-    RVsys = [planet.RV_sys.value[0]]
+    RVsys = [planet.RV_sys.value]
     transit_tags = [None]
 
     kwargs_gen_tr = {
@@ -164,34 +175,40 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
     return list_tr
 
 
-def save_pl_sig(list_tr, nametag, out_dir, do_tr = [1]):
+def save_pl_sig(list_tr, nametag, scratch_dir, do_tr = [1]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
     out_filename = f'retrieval_input' + nametag
-    pl_obs.save_sequences(out_filename, list_tr, do_tr, path=out_dir) # save to projects
-    # add where save_all = True to scratch
+    pl_obs.save_sequences(out_filename, list_tr, do_tr, path=scratch_dir, save_all = True) 
 
 
-def reduction_plots(config_dict, list_tr, n_pc, mask_tellu, mask_wings, idx_ord, path_fig):
+def reduction_plots(config_dict, list_tr, n_pc, path_fig, nametag): 
     visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
 
     if n_pc == config_dict['n_pc'][0]:
-        pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name=f'_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
+        pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name=None)
 
     sequence_obj = list_tr['1']
-    pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig), fig_name = f'_{n_pc}-pc_mask_wings{mask_wings*100:n}_mask_tellu{mask_tellu*100:n}')
+
+    # plot for specified orders
+    for idx_ord in config_dict['idx_ord']:
+        pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig), fig_name = nametag + f'_ord{idx_ord}')
 
 
-def reduce_data(config_dict, planet, obs, out_dir, path_fig, visit_name, mol, n_pc, mask_tellu, mask_wings):
+def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings):
+
+    nametag = f'_pc{n_pc}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
     
-    nametag = f'{visit_name}_{mol}_{n_pc}-pc_mw{mask_wings*100:n}_mt{mask_tellu*100:n}'
+    # check if redufction already exists
+    if os.path.exists(out_dir / f'retrieval_input{nametag}_data_info.npz'):
+        return None
 
     # building the transit spectrum
     list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
 
     # saving the transit spectrum
-    save_pl_sig(list_tr, nametag, out_dir, do_tr = [1])
+    save_pl_sig(list_tr, nametag, scratch_dir)
 
     # outputting plots for reduction step
-    reduction_plots(config_dict, list_tr, n_pc, mask_tellu, mask_wings, config_dict['idx_ord'], path_fig)
+    reduction_plots(config_dict, list_tr, n_pc, path_fig, nametag)
 
     return list_tr

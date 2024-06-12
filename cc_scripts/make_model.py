@@ -6,7 +6,7 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
 # Set the log level of 'fonttools' to WARNING
-logging.getLogger('fonttools').setLevel(logging.WARNING)
+logging.getLogger('fontTools').setLevel(logging.WARNING)
 
 logging.basicConfig()
 
@@ -255,7 +255,7 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
         plt.title(keys_string)
         # Generate the filename
         species_keys = '_'.join(species.keys())
-        filename = str(path_fig) + f'fig_model_{species_keys}.pdf'
+        filename = str(path_fig) + f'model_{species_keys}.pdf'
 
         # Save the figure
         plt.savefig(filename)
