@@ -357,7 +357,7 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     theta_dict['gamma_scat'] = 0
     wv, spec_no_haze, _, _, _ = make_model(theta_dict, planet, out_dir = None, path_fig = None)
     spec_abs = (out_spec['All'] - spec_no_haze) 
-    out_spec[f'Without haze'] = spec_abs
+    out_spec[f'Haze'] = spec_abs
 
     # Iterate over input molecules, need to add clouds, haze and H2
     for mol_name in config_model['line_opacities']: 
@@ -392,7 +392,7 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
 
     
     # plot contributions
-    fig = plt.figure(figsize=(8, 10), dpi=200)
+    fig = plt.figure(figsize=(7, 10), dpi=200)
 
     # Determine the number of subplots to create
     n_subplots = max(len(out_spec.items()), len(mol_contrib.items()) + 2)
@@ -418,7 +418,7 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     ax[1].legend()
 
     # plot haze contribution
-    ax[2].plot(wv, out_spec['Without haze'], label = 'Haze', lw = 0.3)
+    ax[2].plot(wv, out_spec['Haze'], label = 'Haze', lw = 0.3)
     ax[2].legend()
 
     for i, (key, spec) in enumerate(mol_contrib.items(), start=3):
