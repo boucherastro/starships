@@ -119,9 +119,9 @@ def prepare_abundances(config_model, mode=None, ref_linelists=None):
     if config_model['chemical_equilibrium']:
         for mol in config_model['line_opacities']:
             theta_dict[mol] = 10 ** (-99.0) # doing this will change the model depending on whether you use a standard linelist or input your own!
-    # else:
-    #     for mol in config_dict['line_opacities']:
-    #         theta_dict[mol] = 10 ** config_dict['abundances'][mol]
+    else:
+        for mol in config_model['line_opacities']:
+            theta_dict[mol] = 10 ** config_model['species_vmr'][mol]
 
     # add option where if not chemical equilibrium, takes the inputted abundances from the YAML file
     # --- Prepare the abundances (with the correct linelist name for species)
@@ -158,7 +158,8 @@ def create_internal_dict(config_dict, planet):
     return int_dict
 
 def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct_star=None,
-                              species_dict=None, Raf=None, rot_ker=None, path_fig = None, out_dir = None):
+                              species_dict=None, Raf=None, rot_ker=None, path_fig = None, out_dir = None,
+                              abundances = None, MMW = None):
 
     mode = config_model['mode']
     # if Raf is None:
@@ -204,9 +205,13 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
                     kind_trans=config_model['kind_trans'],
                     dissociation=config_model['dissociation'],
                     fct_star=fct_star)
-    wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
     
-    # saving wv_out, model_out for all species and each individual species
+    if config_model['chemical_equilibrium'] == True:
+        wv_out, model_out, abundances, MMW, VMR = prt.retrieval_model_plain(atmo_obj, species, planet, save_abundances = True, *args, **kwargs)
+
+    else: wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, abundances = abundances, MMW = MMW, *args, **kwargs)
+
+    # saving wv_out, model_out
     if out_dir != None:
         # Generate the filename
         species_keys = '_'.join(species.keys())
@@ -249,19 +254,22 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
                 np.savez(filename, wave_mod=wv_out, mod_spec=model_out)
 
     # plotting the model
-    if path_fig is not None:
-        plt.plot(wv_out, model_out)
-        plt.xlabel('Wavelength')
-        plt.ylabel('Flux')
-        keys_string = ', '.join(species.keys())
-        plt.title(keys_string)
-        # Generate the filename
-        species_keys = '_'.join(species.keys())
-        filename = str(path_fig) + f'model_{species_keys}.pdf'
+    # if path_fig is not None:
+    #     plt.plot(wv_out, model_out)
+    #     plt.xlabel('Wavelength')
+    #     plt.ylabel('Flux')
+    #     keys_string = ', '.join(species.keys())
+    #     plt.title(keys_string)
+    #     # Generate the filename
+    #     species_keys = '_'.join(species.keys())
+    #     filename = str(path_fig) + f'model_{species_keys}.pdf'
 
-        # Save the figure
-        plt.savefig(filename)
+    #     # Save the figure
+    #     plt.savefig(filename)
 
+    if config_model['chemical_equilibrium'] == True:
+        return wv_out, model_out, abundances, MMW, VMR
+    
     return wv_out, model_out
 
 def add_instrum_model(wv_out, model_out, config_dict, species, Raf = None, rot_ker=None):
@@ -291,15 +299,136 @@ def add_instrum_model(wv_out, model_out, config_dict, species, Raf = None, rot_k
     # np.savez(f'model_{config_dict['instrument']}_{'_'.join(species.keys())}.npz', wave_mod=wave_mod, mod_spec=mod_spec)
     return wave_mod, mod_spec 
 
-def make_model(config_model, planet, out_dir, path_fig, config_dict = {}):
+def make_model(config_model, planet, out_dir, path_fig, config_dict = {}, abundances = None, MMW = None):
     # computing extra parameters needed for model making
     int_dict = create_internal_dict(config_model, planet)
 
     # create the model, plot and save it 
-    wave_mod, mod_spec = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, path_fig=path_fig)
+    if config_model['chemical_equilibrium']:
+        wave_mod, mod_spec, abundances, MMW, VMR = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, path_fig=path_fig)
+        if config_model['instrument'] == None:
+            wave_mod, mod_spec = add_instrum_model(config_dict, wave_mod, mod_spec)
+        return wave_mod, mod_spec, abundances, MMW, VMR
+
+    else: 
+        wave_mod, mod_spec = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, path_fig=path_fig, abundances=abundances, MMW = MMW)
+        if config_model['instrument'] == None:
+            wave_mod, mod_spec = add_instrum_model(config_dict, wave_mod, mod_spec)
+        return wave_mod, mod_spec, None, None, None
     
-    # convolving with the instrument if not already done
-    if config_model['instrument'] == None:
-        wave_mod, mod_spec = add_instrum_model(config_dict, wave_mod, mod_spec)
+def plot_model_components(config_model, planet, path_fig = None, config_dict = {}, abundances = None, MMW = None):
+    """ Get the contribution by keeping only the molecules in  `list_of_molecules`"""
     
-    return wave_mod, mod_spec     
+    # Don't modify the input object
+    # theta_dict = copy.deepcopy(config_model)
+    theta_dict = dict(config_model)
+
+    # Init outputs
+    mol_contrib = dict()
+    out_spec = dict()
+
+    # Spec with all molecules
+    wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, path_fig = None, config_dict=config_dict)
+
+
+    if config_model['species_vmr'] == {}:
+            for mol in config_model['line_opacities']:
+                config_model['species_vmr'][mol] = -99.0
+
+    # Spec without any molecule
+    # for mol in config_model['line_opacities']:
+    #     del theta_dict['line_opacities'][mol] 
+
+    # theta_dict['line_opacities']= []
+    # theta_dict['linelist_names']['high'] = None
+
+    # _, out_spec['No Mol'] = mod.make_model(theta_dict, planet, out_dir = None, path_fig = None, config_dict=config_dict)
+
+
+    # get cloud contribution
+    theta_dict = dict(config_model)
+    theta_dict['p_cloud'] = 1e99
+    wv, spec_no_cloud, _, _, _ = make_model(theta_dict, planet, out_dir = None, path_fig = None)
+    spec_abs = (out_spec['All'] - spec_no_cloud) 
+    out_spec[f'Without clouds'] = spec_no_cloud
+
+    # get haze contribution
+    theta_dict = dict(config_model)
+    theta_dict['gamma_scat'] = 0
+    wv, spec_no_haze, _, _, _ = make_model(theta_dict, planet, out_dir = None, path_fig = None)
+    spec_abs = (out_spec['All'] - spec_no_haze) 
+    out_spec[f'Without haze'] = spec_abs
+
+    # Iterate over input molecules, need to add clouds, haze and H2
+    for mol_name in config_model['line_opacities']: 
+        
+        abundances_subtracted = dict(abundances)
+
+        # Need to be a list
+        if not isinstance(mol_name, list):
+            mol_name = [mol_name]
+
+        # Spec without the targetted molecules contribution
+        theta_dict = dict(config_model)
+
+        for mol in config_model['line_opacities']:
+            if mol == mol_name[0]:
+                linelist = config_model['linelist_names'][config_model['mode']][mol]
+                abundances_subtracted[linelist] = abundances_subtracted[linelist] * 0 + 1e-99
+                
+    #             print(f'Abundances with {mol_name} removed: {abundances_subtracted}')
+
+        theta_dict['chemical_equilibrium'] = False
+        wv, spec_no_mol, _, _, _ = make_model(theta_dict, planet, out_dir = None, path_fig = None, 
+                                        abundances = abundances_subtracted,
+                                        MMW = MMW, config_dict=config_dict)
+
+        # Absolute contribution of the molecule in the spectrum
+        spec_mol_abs = (out_spec['All'] - spec_no_mol) 
+
+        # Save it in output
+        out_spec[f'Without {mol_name[0]}'] = spec_no_mol
+        mol_contrib[mol_name[0]] = spec_mol_abs
+
+    
+    # plot contributions
+    fig = plt.figure(figsize=(8, 10), dpi=200)
+
+    # Determine the number of subplots to create
+    n_subplots = max(len(out_spec.items()), len(mol_contrib.items()) + 2)
+
+    # Create the first subplot separately without sharing y-axis
+    ax = [fig.add_subplot(n_subplots, 1, 1)]
+    ax[0].plot(wv, out_spec['All'], label='All', lw=0.3)
+    ax[0].set_title('Full Model')
+    ax[0].set_ylabel('Fp/Fstar')
+    ax[0].legend()
+
+    # Create the rest of the subplots with sharing y-axis
+    for i in range(1, n_subplots):
+        ax.append(fig.add_subplot(n_subplots, 1, i+1, sharex=ax[0]))
+
+    # Find the y-limits for the shared y-axis
+    y_min = min(spec.min() for spec in mol_contrib.values())
+    y_max = max(spec.max() for spec in mol_contrib.values())
+
+    # plot cloud contribution
+    ax[1].plot(wv, out_spec['Without clouds'], label = 'Without Clouds', lw = 0.3)
+    ax[1].plot(wv, out_spec['All'], label = 'With Clouds', lw = 0.3)
+    ax[1].legend()
+
+    # plot haze contribution
+    ax[2].plot(wv, out_spec['Without haze'], label = 'Haze', lw = 0.3)
+    ax[2].legend()
+
+    for i, (key, spec) in enumerate(mol_contrib.items(), start=3):
+        ax[i].plot(wv, spec, label=key, lw=0.3)
+        ax[i].legend(loc='upper left')
+        ax[i].set_ylim(y_min, y_max)  # Set the y-limits to be the same for all subplots
+        
+    ax[1].set_title('Contributions')
+
+    plt.tight_layout()
+    if path_fig is not None:
+        filename = str(path_fig) + f'model_summary.pdf'
+        plt.savefig(filename)
