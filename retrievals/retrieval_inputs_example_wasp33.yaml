@@ -14,14 +14,12 @@ pl_name: WASP-33 b
 base_dir: null
 
 # Path to the high resolution data
-# Assuming the data is in a directory with the following structure:
-# <high_res_path>/<reduc_name>
-high_res_path: ~/DataAnalysis/SPIRou/Reductions/
+high_res_path: /home/adb/scratch/DataAnalysis_save/SPIRou_save/Reductions/WASP-33b_v07232
 
-# Name of the reduction used to load the high resolution data
-# Assuming the data is in a directory with the following structure:
-# <high_res_path>/<reduc_name>
-reduc_name: WASP-33b_v07232
+# # Name of the reduction used to load the high resolution data
+# # Assuming the data is in a directory with the following structure:
+# # <high_res_path>/<reduc_name>
+# reduc_name: WASP-33b_v07232
 
 # List of the file stems for the high resolution data
 # The files are assumed to be in the high_res_path directory
@@ -52,7 +50,7 @@ photometric_data:
 # 'wave': wavelength grid is in microns.
 # 'flux': stellar flux in erg / cm**2 / s / cm.
 # 'sampling_res': sampling resolution of the spectrum (ex: 500000).
-star_spectrum: /home/adb/projects/def-dlafre/adb/Observations/SPIRou/Reductions/WASP-33b_v07232/WASP-33b_v07232_star_spectrum.npz
+star_spectrum: /home/adb/Models/RotationSpectra/phoenix_teff_07400_logg_4.50_Z0.0_RotKer_vsini50.npz
 
 # Type of retrieval : JR, HRR or LRR  (This should be removed eventually)
 retrieval_type: HRR

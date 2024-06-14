@@ -1581,6 +1581,7 @@ from astropy import units as u
 
 import sys
 import emcee
+import starships
 import starships.spectrum as spectrum
 from starships.orbite import rv_theo_t
 from starships.mask_tools import interp1d_masked
@@ -1822,54 +1823,55 @@ def unpack_input_parameters(input_parameters):
     return input_params
 
 
-# Here I just define all the parameters so they are recognized by the code
-pl_name = 'WASP-33 b'
-base_dir = Path('/scratch/adb')
-high_res_path = Path('~/DataAnalysis/SPIRou/Reductions')
-reduc_name = 'WASP-33b_v07232'
-high_res_file_stem_list = ['retrieval_input_4-pc_mask_wings97_day2']
-spectrophotometric_data = {'wfc3': {'file_path': '/home/adb/projects/def-dlafre/adb/Observations/HST/WFC3', 'file_name': 'WASP-33_WFC3_full_res.ecsv'}}
-photometric_data = {}
-retrieval_type = 'HRR'
-white_light = False
-chemical_equilibrium = False
-dissociation = True
-add_spitzer = False
-kind_temp = 'modif'
-n_steps_burnin = 300
-n_steps_sampling = 3000
-run_name = 'emission_HRR_wfc3_modif_disso_30303539'
-walker_path = Path('/scratch/adb/DataAnalysis/walker_steps/WASP-33_b')
-walker_file_out = Path('walker_steps_emission_HRR_wfc3_modif_disso_30303539.h5')
-walker_file_in = None
-init_mode = 'from_burnin'
-params_path = Path('/scratch/adb/DataAnalysis/retrieval_params/WASP-33_b')
-params_file_out = Path('params_emission_HRR_wfc3_modif_disso_30303539.yaml')
-kind_trans = 'emission'
-n_cpu = 2
-n_walkers = 36
-n_walkers_per_cpu = 18
-opacity_sampling = 4
-orders = None
-pl_params = {'M_star': <Quantity 1.561 solMass>, 'R_star': <Quantity 1.5093043 solRad>, 'R_pl': <Quantity 1.6787561 jupiterRad>, 'excent': 0.0, 'incl': <Quantity 86.63 deg>, 'Teff': <Quantity 7300. K>, 'w': <Quantity -90. deg>, 'ap': <Quantity 0.0259 AU>}
-instrum = ['spirou']
-line_opacities = ['CO', 'H2O']
-continuum_opacities = ['H-']
-other_species = ['e-', 'H']
-species_in_prior = ['CO', 'H2O', 'H-', 'e-']
-linelist_names = {}
-fixed_params = {'P0': 0.001, 'log_f': 0.0, 'spec_scale': 1.0, 'e-': '1e-06', 'H': '1e-99', 'C/O': 0.54, 'Fe/H': 0.0, 'p_cloud': None, 'scat_factor': None, 'T_eq': 2500.0, 'tp_gamma': 10.0, 'T_int': 500.0, 'kappa_IR': 0.01, 'gravity': 23.0, 'tp_delta': '1e-07', 'ptrans': '1e-03', 'tp_alpha': 0.3, 'akima_P': ['1e-10', '1e-05', '1e-02', '1e+01'], 'akima_T': [1000.0, 1500.0, 2000.0, 2500.0], 'kp': 150.0, 'rv': 0.0, 'wind': None, 'phase1': 0.5, 'phase2': 0.75, 'rot_factor': 1.0}
-params_prior = {'rv': ['uniform', -40, 40], 'kp': ['uniform', 100, 250], 'T_eq': ['uniform', 100, 4500], 'tp_gamma': ['log_uniform', -2, 6], 'gravity': ['uniform', 1000, 10000], 'tp_delta': ['log_uniform', -8, -3], 'ptrans': ['log_uniform', -8, 3], 'tp_alpha': ['uniform', -1.0, 1.0]}
-region_id = [1]
-reg_params = []
-reg_fixed_params = {}
-custom_prior_file = None
-special_init = {'kp': ['uniform', 200, 250], 'rv': ['uniform', -30, 30], 'CO': ['log_uniform', -5.0, -2.0], 'Fe': ['log_uniform', -6.0, -2.0], 'T_eq': ['uniform', 2500, 3500]}
-get_ker_file = None
+# # Here I just define all the parameters so they are recognized by the code
+# pl_name = 'WASP-33 b'
+# base_dir = Path('/scratch/adb')
+# high_res_path = Path('~/DataAnalysis/SPIRou/Reductions')
+# reduc_name = 'WASP-33b_v07232'
+# high_res_file_stem_list = ['retrieval_input_4-pc_mask_wings97_day2']
+# spectrophotometric_data = {'wfc3': {'file_path': '/home/adb/projects/def-dlafre/adb/Observations/HST/WFC3', 'file_name': 'WASP-33_WFC3_full_res.ecsv'}}
+# photometric_data = {}
+# retrieval_type = 'HRR'
+# white_light = False
+# chemical_equilibrium = False
+# dissociation = True
+# add_spitzer = False
+# kind_temp = 'modif'
+# n_steps_burnin = 300
+# n_steps_sampling = 3000
+# run_name = 'emission_HRR_wfc3_modif_disso_30303539'
+# walker_path = Path('/scratch/adb/DataAnalysis/walker_steps/WASP-33_b')
+# walker_file_out = Path('walker_steps_emission_HRR_wfc3_modif_disso_30303539.h5')
+# walker_file_in = None
+# init_mode = 'from_burnin'
+# params_path = Path('/scratch/adb/DataAnalysis/retrieval_params/WASP-33_b')
+# params_file_out = Path('params_emission_HRR_wfc3_modif_disso_30303539.yaml')
+# kind_trans = 'emission'
+# n_cpu = 2
+# n_walkers = 36
+# n_walkers_per_cpu = 18
+# opacity_sampling = 4
+# orders = None
+# pl_params = {'M_star': 1.561 *u.solMass, 'R_star': 1.5093043 *u.solRad, 'R_pl': 1.6787561* u.jupiterRad, 'excent': 0.0,
+#               'incl': 86.63 *u.deg, 'Teff': 7300. *u.K, 'w': -90.* u.deg, 'ap': 0.0259 *u.AU}
+# instrum = ['spirou']
+# line_opacities = ['CO', 'H2O']
+# continuum_opacities = ['H-']
+# other_species = ['e-', 'H']
+# species_in_prior = ['CO', 'H2O', 'H-', 'e-']
+# linelist_names = {}
+# fixed_params = {'P0': 0.001, 'log_f': 0.0, 'spec_scale': 1.0, 'e-': '1e-06', 'H': '1e-99', 'C/O': 0.54, 'Fe/H': 0.0, 'p_cloud': None, 'scat_factor': None, 'T_eq': 2500.0, 'tp_gamma': 10.0, 'T_int': 500.0, 'kappa_IR': 0.01, 'gravity': 23.0, 'tp_delta': '1e-07', 'ptrans': '1e-03', 'tp_alpha': 0.3, 'akima_P': ['1e-10', '1e-05', '1e-02', '1e+01'], 'akima_T': [1000.0, 1500.0, 2000.0, 2500.0], 'kp': 150.0, 'rv': 0.0, 'wind': None, 'phase1': 0.5, 'phase2': 0.75, 'rot_factor': 1.0}
+# params_prior = {'rv': ['uniform', -40, 40], 'kp': ['uniform', 100, 250], 'T_eq': ['uniform', 100, 4500], 'tp_gamma': ['log_uniform', -2, 6], 'gravity': ['uniform', 1000, 10000], 'tp_delta': ['log_uniform', -8, -3], 'ptrans': ['log_uniform', -8, 3], 'tp_alpha': ['uniform', -1.0, 1.0]}
+# region_id = [1]
+# reg_params = []
+# reg_fixed_params = {}
+# custom_prior_file = None
+# special_init = {'kp': ['uniform', 200, 250], 'rv': ['uniform', -30, 30], 'CO': ['log_uniform', -5.0, -2.0], 'Fe': ['log_uniform', -6.0, -2.0], 'T_eq': ['uniform', 2500, 3500]}
+# get_ker_file = None
 
-limP = [-10, 2]    # pressure log range, standard
-n_pts = 50  
-star_spectrum = '/home/adb/projects/def-dlafre/adb/Observations/SPIRou/Reductions/WASP-33b_v07232/WASP-33b_v07232_star_spectrum.npz'
+# limP = [-10, 2]    # pressure log range, standard
+# n_pts = 50  
+# star_spectrum = '/home/adb/projects/def-dlafre/adb/Observations/SPIRou/Reductions/WASP-33b_v07232/WASP-33b_v07232_star_spectrum.npz'
 
 # The functions above should be in a separate file (maybe retrieval_utils.py)
 
@@ -1930,7 +1932,11 @@ def setup_retrieval(input_parameters, **kwargs):
         star_res = None
     else:
         star_data = np.load(star_spectrum)
-        star_wv = star_data['wave']
+        try:
+            star_wv = star_data['wave']
+        except KeyError:
+            # Old format
+            star_wv = star_data['grid']
         star_flux = star_data['flux']
         try:
             star_res = star_data['sampling_res']
@@ -1962,17 +1968,18 @@ def setup_retrieval(input_parameters, **kwargs):
     lbl_res = 1e6 / opacity_sampling
 
     # --- Additional variables ---
-    global inj_alpha, nolog
+    global inj_alpha, nolog, do_tr
     inj_alpha = 'ones'
     nolog = True
+    do_tr = [1]
 
     # --- Add some useful parameters for model---
     pressures = np.logspace(limP[0], limP[1], n_pts)
-    fixed_params['pressure'] = pressures
+    fixed_params['pressures'] = pressures
     fixed_params['temperatures'] = None  # Will be computed from the TP profile parameters
-    fixed_params['M_pl'] = planet.M_pl.to('M_jup').value
-    fixed_params['R_pl'] = planet.R_pl.to('R_jup').value
-    fixed_params['R_star'] = planet.R_star.to('R_sun').value
+    fixed_params['M_pl'] = planet.M_pl.to('Mjup').value
+    fixed_params['R_pl'] = planet.R_pl.to('Rjup').value
+    fixed_params['R_star'] = planet.R_star.to('Rsun').value
     # Get gravity in cgs units if not already given
     if 'gravity' not in fixed_params:
         fixed_params['gravity'] = planet.gp.cgs.value
@@ -2007,8 +2014,8 @@ def setup_retrieval(input_parameters, **kwargs):
 
     # Prior functions
     global prior_init_func, prior_func_dict
-    prior_init_func = ru.default_prior_func
-    prior_func_dict = ru.default_prior_init_func
+    prior_init_func = ru.default_prior_init_func
+    prior_func_dict = ru.default_prior_func
     # TODO make sure to import the custom prior functions
 
     # Get the initialisation from prior
@@ -2019,7 +2026,7 @@ def setup_retrieval(input_parameters, **kwargs):
     # --- Rotation kernel ----
     # TODO: Import correctly using the file in yaml file
     global get_ker
-    get_ker = lambda theta_regions, tr_i: None
+    get_ker = lambda theta_regions, tr_i: [None for _ in theta_regions]
 
     return input_params
 
@@ -2189,7 +2196,8 @@ def init_model_retrieval(mol_species=None, kind_res='high', lbl_opacity_sampling
 
     if kind_res == 'high':
         mode = 'lbl'
-        Raf = instrum['resol']
+        # TODO: 
+        Raf = instrum_param_list[0]['resol']
         pix_per_elem = 2
         if wl_range is None:
             wl_range = wv_range_high[0]
@@ -2577,17 +2585,19 @@ def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None):
 
     return yaml_file_out
 
-# Define the main function that will be called by the script
-def main(yaml_file=None):
+
+def prepare_run(yaml_file=None):
 
     # Read the input yaml file passed from command line
     if yaml_file is None:
         kw_cmd_line = unpack_kwargs_from_command_line(sys.argv)
         yaml_file = get_kwargs_with_message('yaml_file', kw_cmd_line)
+
+    # Unpack the yaml_file and add variables to the global space
     setup_retrieval(yaml_file)
 
-    # Save the yaml file with the version of starships
-    yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path)
+    # Read the data and add them to the global space
+    _ = load_high_res_data()
 
     ############################
     # Define additional parameters that are not in the yaml file
@@ -2616,12 +2626,10 @@ def main(yaml_file=None):
     else:
         raise ValueError(f"{init_mode} not valid.")
 
-    n_walkers, ndim = pos.shape
-
     log.info(f"(Number of walker, Number of parameters) = {pos.shape}")
 
     # Pre-run the log likelihood function
-    log.info("Checking if log likelyhood function is working.")
+    log.info("Checking if log likelihood function is working.")
     for i_walker in range(n_walkers):
         logl = lnprob(pos[i_walker])
         if np.isfinite(logl):
@@ -2643,6 +2651,19 @@ def main(yaml_file=None):
         else:
             raise ValueError('Walker File already exists.')
 
+    return n_steps, pos, walker_file_out, yaml_file
+
+
+# Define the main function that will be called by the script
+def main(yaml_file=None):
+
+    # Prepare the run
+    n_steps, pos, walker_file_out, yaml_file = prepare_run(yaml_file)
+    n_walkers, ndim = pos.shape
+
+    # Save the yaml file with the version of starships
+    yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path)
+
     # --- backend to track evolution ---
     # Create output directory if it does not exist
     walker_path.mkdir(parents=True, exist_ok=True)
@@ -2659,7 +2680,5 @@ def main(yaml_file=None):
 
     log.info('End of retrieval. It seems to be a success!')
                 
-
-
 
 # %%
