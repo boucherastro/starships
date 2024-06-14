@@ -1964,8 +1964,8 @@ def setup_retrieval(input_parameters, **kwargs):
     log.info(f'wavelength range for model at low res: {wv_range_low}')
 
     # --- Resolution of the planet model ---
-    global lbl_res
-    lbl_res = 1e6 / opacity_sampling
+    global prt_res
+    prt_res = {'high': 1e6 / opacity_sampling, 'low': 1000}
 
     # --- Additional variables ---
     global inj_alpha, nolog, do_tr
@@ -2136,31 +2136,7 @@ def load_low_res_data():
     return None
 
 
-def init_atmo_if_not_done(mode):
 
-    for i_range, wv_range in enumerate(wv_range_high):
-        # Use atmo object in globals parameters if it exists
-        # atmo_obj = atmo_high if mode == 'high' else atmo_low
-        atmo_obj_name = f'atmo_{mode}_{i_range}'
-        atmo_obj = globals().get(atmo_obj_name, None)
-        # Initiate if not done yet
-        if atmo_obj is None:
-            log.info(f'Model not initialized for mode = {mode} and range {wv_range}. Starting initialization...')
-            output = init_model_retrieval(kind_res=mode, wl_range=wv_range)
-            log.info('Saving values in `linelist_names`.')
-            atmo_obj, lnlst_names, fct_star_global[mode] = output
-            # Update the values of the global variables
-            # Need to use globals() otherwise an error is raised.
-            globals()[atmo_obj_name] = atmo_obj
-                
-            # Update the line list names
-            if linelist_names[mode] is None:
-                linelist_names[mode] = lnlst_names
-            else:
-                # Keep the predefined values and complete with the new ones
-                linelist_names[mode] = {**lnlst_names, **linelist_names[mode]}
-
-    return None
 
 
 # Here are other functions that need to stay in the retrieval script
@@ -2196,16 +2172,11 @@ def init_model_retrieval(mol_species=None, kind_res='high', lbl_opacity_sampling
 
     if kind_res == 'high':
         mode = 'lbl'
-        # TODO: 
-        Raf = instrum_param_list[0]['resol']
-        pix_per_elem = 2
         if wl_range is None:
             wl_range = wv_range_high[0]
 
     elif kind_res == 'low':
         mode = 'c-k'
-        Raf = 1000
-        pix_per_elem = 1
         if wl_range is None:
             wl_range = wv_range_low[0]
     else:
@@ -2216,18 +2187,81 @@ def init_model_retrieval(mol_species=None, kind_res='high', lbl_opacity_sampling
                                       lbl_opacity_sampling=lbl_opacity_sampling, wl_range=wl_range,
                                       continuum_opacities=continuum_species)
 
-    # --- downgrading the star spectrum to the wanted resolution
-    if kind_trans == 'emission' and star_wv is not None:
-        resamp_star = np.ma.masked_invalid(
-            resamp_model(star_wv[(star_wv >= wl_range[0] - 0.1) & (star_wv <= wl_range[1] + 0.1)],
-                         star_flux[(star_wv >= wl_range[0] - 0.1) & (star_wv <= wl_range[1] + 0.1)], star_res, Raf=Raf,
-                         pix_per_elem=pix_per_elem))
-        fct_star = interp1d(star_wv[(star_wv >= wl_range[0] - 0.1) & (star_wv <= wl_range[1] + 0.1)],
-                                     resamp_star)
+    return atmo, species_2_lnlst
+
+
+def init_atmo_if_not_done(mode):
+
+    for i_range, wv_range in enumerate(wv_range_high):
+        # Use atmo object in globals parameters if it exists
+        # atmo_obj = atmo_high if mode == 'high' else atmo_low
+        atmo_obj_name = f'atmo_{mode}_{i_range}'
+        atmo_obj = globals().get(atmo_obj_name, None)
+        # Initiate if not done yet
+        if atmo_obj is None:
+            log.info(f'Model not initialized for mode = {mode} and range {wv_range}. Starting initialization...')
+            output = init_model_retrieval(kind_res=mode, wl_range=wv_range)
+            log.info('Saving values in `linelist_names`.')
+            atmo_obj, lnlst_names = output
+            # Update the values of the global variables
+            # Need to use globals() otherwise an error is raised.
+            globals()[atmo_obj_name] = atmo_obj
+                
+            # Update the line list names
+            if linelist_names[mode] is None:
+                linelist_names[mode] = lnlst_names
+            else:
+                # Keep the predefined values and complete with the new ones
+                linelist_names[mode] = {**lnlst_names, **linelist_names[mode]}
+
+    return None
+
+
+def init_stellar_spectrum_if_not_done(mode):
+    
+    # No need to make different fct for the different wv_range (as opposed to atmo object)
+    fct_star_name = f'fct_star_{mode}'
+
+    # We need to do the try-except here because we cannot use if is None.
+    # Indeed, None is a value that can be assigned to a variable to indicate that a blackbody is used.
+    try:
+        fct_star_obj = globals()[fct_star_name]
+    except KeyError:
+        # Initiate if not done yet
+        if fct_star_obj is None:
+            log.info(f'Star spectrum not initialized for mode = {mode}. Starting initialization...')
+            fct_star_obj = init_stellar_spectrum(mode=mode)
+            # Update the values of the global variables
+            # Need to use globals() otherwise an error is raised.
+            globals()[fct_star_name] = fct_star_obj
+
+    return None
+               
+
+def init_stellar_spectrum(mode, wl_range=None):
+
+    if wl_range is None:
+        wv_range_list = globals()[f'wv_range_{mode}']
     else:
+        wv_range_list = [wl_range]
+
+    # Use same resolution as the PRT model
+    Raf = prt_res[mode]
+
+    # --- Interpolate the stellar spectrum and downgrade to model resolution ---
+    if kind_trans == 'emission' and star_wv is not None:
+        log.info(f'Interpolating the stellar spectrum for mode = {mode}.')
+        # Only interpolate over the valid wavelength ranges in the list of wavelength ranges
+        is_in_range = [star_wv[0] >= wv_rng[0] and star_wv[1] <= wv_rng[1] for wv_rng in wv_range_list]
+        is_in_range = np.any(is_in_range, axis=0)
+        resamp_star = np.ma.masked_invalid(star_wv[is_in_range], star_flux[is_in_range], star_res, Raf=Raf)
+        fct_star = interp1d(star_wv[is_in_range], resamp_star)
+        
+    else:
+        log.info('No stellar spectrum provided. A blackbody at Teff will be used.')
         fct_star = None
 
-    return atmo, species_2_lnlst, fct_star
+    return fct_star
 
 # Dictionnaries is not the best way for multiprocessing because it is not shared between processes.
 # Better to use global variables for big arrays or atmo objects. Use dictionaries only for small objects.
@@ -2337,7 +2371,7 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
                               species_dict=None, Raf=None, rot_ker=None):
 
     if Raf is None:
-        Raf = instrum['resol']
+        Raf = instrum_param_list[0]['resol']
     
     if atmo_obj is None:
         init_atmo_if_not_done(mode)
@@ -2347,7 +2381,8 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
         atmo_obj_list = [atmo_obj]
 
     if fct_star is None:
-        fct_star = fct_star_global[mode]
+        init_stellar_spectrum_if_not_done(mode)
+        fct_star = globals()[f'fct_star_{mode}']
 
     # --- Prepare the abundances (with the correct name for species)
     # Note that if species is None (not specified), `linelist_names[mode]` will be used inside `prepare_abundances`.
@@ -2382,7 +2417,7 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
                     rot_kwargs = {'rot_params': None}
                 
                 # Downgrade the model
-                wv_out, model_out = prt.prepare_model(wv_out, model_out, lbl_res, Raf=Raf,
+                wv_out, model_out = prt.prepare_model(wv_out, model_out, prt_res[mode], Raf=Raf,
                                                     rot_ker=rot_ker, **rot_kwargs)
 
         wv_all.append(wv_out)
@@ -2503,11 +2538,12 @@ def lnprob(theta, ):
                                data_info['trall_N'], axis=0, del_idx=data_info['bad_indexs'], nolog=True,
                                alpha=data_info['trall_alpha_frac'])
 
+        # TODO: Update how the white light is computed
         if (retrieval_type == "HRR") and (white_light is True):
             log.debug("Using White Light from WFC3.")
             # --- White light info ---
             Rbf = instrum['resol']
-            R_sampling = int(1e6 / opacity_sampling)
+            R_sampling = prt_res['high']
             _, mod = prepare_hst(wv_high, model_high, Rbf, R_sampling, 'WFC3')
             mean_mod = np.mean(mod)
             log.debug(f"White Light value: {mean_mod}")
@@ -2545,8 +2581,8 @@ def lnprob(theta, ):
             Rbf = instrum['resol']
             R_sampling = int(1e6 / opacity_sampling)
         else:
-            Rbf = 1000
-            R_sampling = 1000
+            Rbf = prt_res['low']
+            R_sampling = prt_res['low']
         #         print(Rbf)
         for instrument in hst.keys():
 
