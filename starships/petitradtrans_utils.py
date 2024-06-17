@@ -368,6 +368,7 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
                    vmrh2he=[0.85, 0.15], dissociation=False, scale=1.0, plot=False):  # , MMW=2.33):
 
     log.debug(f'In gen_abundances: species_list = {species_list}')
+    log.debug(f'In gen_abundances: VMRs = {VMRs}')
     abundances = {}
     profile = {}
 
@@ -1078,7 +1079,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                                contribution=contribution,
                                **kwargs)
         wave = nc.c / atmos_object.freq / 1e-4
-        if fct_star is None:
+        if fct_star is None or fct_star == 'blackbody':
             # --- if no star spectrum function has been provided, it takes a black body model
             bb_mod = BB(planet.Teff)
             # -- Converting u.erg/u.cm**2/u.s/u.Hz to u.erg/u.cm**2/u.s/u.cm
