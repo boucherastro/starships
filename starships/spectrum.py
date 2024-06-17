@@ -433,7 +433,7 @@ def resampling(wl, flux, Raf, Rbf=None, lb_range=None, ptsPerElem=1, sample=None
     # delta_v = cst since R = light_speed/delta_v, so
     # delta_v_after / delta_v_sampling = R_sampling / R_after
     fwhm = R_sampling / Raf
-    if isinstance(Raf, int) or isinstance(Raf, np.float64):
+    if np.isscalar(Raf):
         if Raf < Rbf :
             if rot_ker is None:
 #                 print('Resampling without rotation')
