@@ -354,6 +354,49 @@ def read_all_sp_spirou_CADC(path,filename,file_list):
     return headers_princ, headers_image, headers_tellu, np.array(wv), \
             np.array(count), np.array(blaze), np.array(recon), filenames
 
+def read_all_sp_nirps_apero_CADC(path,filename,file_list):
+    
+    """
+    Read all CADC-type spectra
+    Must have a list with all filename to read 
+    """
+    
+    headers_princ, headers_image, headers_tellu = list_of_dict([]), list_of_dict([]), list_of_dict([])
+    count, wv, blaze, recon = [], [], [], []
+    filenames = []
+    # print(path)
+    with open(str(path)+'/'+filename) as f:
+
+        for file in f:
+            # print(file)
+            filenames.append(file.split('\n')[0])
+            # print(filenames)
+            # print(file.split('\n')[0])
+            # print(path+'/'+file.split('\n')[0])
+            hdul = fits.open(str(path)+'/'+file.split('\n')[0])
+            # print(hdul)
+            
+            
+            headers_princ.append(hdul[0].header)
+            headers_image.append(hdul[1].header)
+            
+            if file_list == 'list_v':
+                count.append(hdul[1].data)
+            else:
+                if file_list == 'list_tellu_corrected':
+                    headers_tellu.append(hdul[4].header)
+                    recon.append(hdul[4].data)
+                    ext = [1,2,3]
+                if file_list == 'list_e2ds':
+                    ext = [1,3,5]
+
+                count.append(hdul[ext[0]].data)
+                wv.append(hdul[ext[1]].data / 1000)
+                blaze.append(hdul[ext[2]].data)
+    
+    return headers_princ, headers_image, headers_tellu, np.array(wv), \
+            np.array(count), np.array(blaze), np.array(recon), filenames
+
 def read_all_sp_igrins(path, file_list, blaze_path=None, input_type='data'):
 
     """
@@ -791,15 +834,27 @@ class Observations():
 
             if CADC:
 
-                log.info('Fetching data')
-                headers, headers_image, headers_tellu, \
-                wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr, 'list_tellu_corrected')
-            
+                if self.instrument_name == 'NIRPS-APERO':
+                    log.info('Fetching data')
+                    headers, headers_image, headers_tellu, \
+                    wave, count, blaze, tellu, filenames = read_all_sp_nirps_apero_CADC(path, list_tcorr, 'list_tellu_corrected')
+                
 
 
-                self.headers_image, self.headers_tellu = headers_image, headers_tellu
-                log.info("Fetching the uncorrected spectra")
-                _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds,'list_e2ds')
+                    self.headers_image, self.headers_tellu = headers_image, headers_tellu
+                    log.info("Fetching the uncorrected spectra")
+                    _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_nirps_apero_CADC(path, list_e2ds,'list_e2ds')
+
+                else:
+                    log.info('Fetching data')
+                    headers, headers_image, headers_tellu, \
+                    wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr, 'list_tellu_corrected')
+                
+
+
+                    self.headers_image, self.headers_tellu = headers_image, headers_tellu
+                    log.info("Fetching the uncorrected spectra")
+                    _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds,'list_e2ds')
 
             else:
                 log.info("Fetching the uncorrected spectra")
@@ -1630,9 +1685,9 @@ def get_blaze_file(path, file_list='list_tellu_corrected', blaze_default=None,
             hdul = fits.open(path + filename)
 
             try:
-                blaze_file = blaze_default or hdul[0].header['CDBBLAZE']
+                blaze_file = blaze_default or hdul[1].header['CDBBLAZE']
             except KeyError:
-                blaze_file = hdul[0].header['CDBBLAZE']
+                blaze_file = hdul[1].header['CDBBLAZE']
 
             date = hdul[0].header['DATE-OBS']
             blaze_file_list.append(date+'/'+blaze_file)

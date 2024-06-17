@@ -104,9 +104,9 @@ def load_planet(config_dict, visit_name):
     
     # All the observations must be listed in files.
     # We need the e2ds, the telluric corrected and the reconstructed spectra.
-    list_filenames = {'list_e2ds': f'list_e2ds{visit_name}',
-                    'list_tcorr': f'list_tellu_corrected{visit_name}',
-                    'list_recon': f'list_tellu_recon{visit_name}'}
+    list_filenames = {'list_e2ds': f'list_e2ds_{visit_name}',
+                    'list_tcorr': f'list_tcorr_{visit_name}'} #,
+                    #'list_recon': f'list_tellu_recon{visit_name}'}
 
     # check if any planet attributes were manually specified
     if bool(config_dict['pl_params']): 
@@ -126,7 +126,7 @@ def load_planet(config_dict, visit_name):
     p.sync_equat_rot_speed = (2*np.pi*p.R_pl/p.period).to(u.km/u.s)
 
     # Get the data
-    obs.fetch_data(config_dict['obs_dir'], **list_filenames)
+    obs.fetch_data(config_dict['obs_dir'], **list_filenames, CADC = True)
 
     # new_mask = obs.count.mask | (obs.count < 400.)
     # obs.flux = np.ma.array(obs.flux, mask=new_mask)

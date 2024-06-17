@@ -56,20 +56,19 @@ def split_gaps(time_stamps):
 
 def split_night(obs_dir, path_fig):
     # Frames for observation files reduced with APERO pipeline
-    FILE_FRAMES = {'tcorr': '{}_pp_e2dsff_tcorr_AB.fits',
-                'recon': '{}_pp_e2dsff_recon_AB.fits',
-    #                'pclean': '{}_pp_tellu_pclean_AB.fits'
+    FILE_FRAMES = {'tcorr': '{}t.fits',
+                'e2ds': '{}e.fits'
+                # 'pclean': '{}_pp_tellu_pclean_AB.fits'
                 }
 
     obs_jd = []
     filenames = []
-
-    for entry in obs_dir.glob('*e2dsff_AB.fits'):
+    for entry in obs_dir.glob('*e.fits'):
         valid_file = True
         hdu = fits.open(entry)
         
         # Check if other files needed exist
-        obs_id = hdu[0].header['filename']
+        obs_id = hdu[0].header['arcfile'][:-5] # changed for NIRPS
         for reduction_type, f_format in FILE_FRAMES.items():
             other_file = f_format.format(obs_id)
             other_file = obs_dir / Path(other_file)
@@ -78,7 +77,7 @@ def split_night(obs_dir, path_fig):
                 valid_file = False
         
         if valid_file:
-            obs_jd.append(hdu[0].header['BJD'])
+            obs_jd.append(hdu[0].header['mjd-obs'])
             filenames.append(entry.name)
 
     # sort files in array in chronological order
@@ -120,7 +119,7 @@ def split_night(obs_dir, path_fig):
     y_pos = -0.1
     for idx, tr_tag in enumerate(transit_tags):
         hdu = fits.open(obs_dir / filenames[tr_tag[0]])
-        text = f"{filenames[tr_tag[0]]}\n{hdu[0].header['PI_NAME']}, {hdu[0].header['DATE']}"
+        text = f"{filenames[tr_tag[0]]}\n{hdu[0].header['PI-COI']}, {hdu[0].header['DATE']}"
         fig.text(0, y_pos, text, ha='left', va='bottom', fontsize=9)
         y_pos -= 0.1
 
@@ -136,24 +135,24 @@ def split_night(obs_dir, path_fig):
     for idx_tr, tr_tag in enumerate(transit_tags):
         filenames_tr = filenames[tr_tag]
         hdu = fits.open(obs_dir / filenames_tr[0])
-        date = Time(hdu[0].header['DATE'])
+        date = Time(hdu[0].header['DATE']).datetime
 
         # modify date if hour is after midnight
         if date.hour >= 0 and date.hour < 12:
             date = date - timedelta(days=1)
 
-        date = date.datetime.strftime('%Y-%m-%d-%H')
+        date = date.strftime('%Y-%m-%d-%H')
 
-        name_list_files = Path(f'list_e2ds_visit_{date}')
-        print(f'Writing to {name_list_files}')
-        with open(obs_dir / name_list_files, 'w') as f:
-            output = '\n'.join(filenames_tr)
-            f.write(output + '\n')
+        # name_list_files = Path(f'list_e2ds_visit_{date}')
+        # print(f'Writing to {name_list_files}')
+        # with open(obs_dir / name_list_files, 'w') as f:
+        #     output = '\n'.join(filenames_tr)
+        #     f.write(output + '\n')
         
         file_lists = {key: [] for key in FILE_FRAMES}
         for tr_file in filenames_tr:
             hdu = fits.open(obs_dir / tr_file)
-            obs_id = hdu[0].header['filename']
+            obs_id = hdu[0].header['arcfile'][:-5]
             for reduction_type, f_format in FILE_FRAMES.items():
                 other_file = f_format.format(obs_id)
                 file_lists[reduction_type].append(other_file)
