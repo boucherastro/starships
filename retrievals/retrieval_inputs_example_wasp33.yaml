@@ -14,7 +14,7 @@ pl_name: WASP-33 b
 base_dir: null
 
 # Path to the high resolution data
-high_res_path: /home/adb/scratch/DataAnalysis_save/SPIRou_save/Reductions/WASP-33b_v07232
+high_res_path: /home/adb/scratch/DataAnalysis/SPIRou/Reductions/WASP-33b_v07232
 
 # # Name of the reduction used to load the high resolution data
 # # Assuming the data is in a directory with the following structure:
@@ -95,7 +95,8 @@ run_name: null
 
 # Path where the walker steps will be saved
 # If null, the path will be set to <base_dir>/DataAnalysis/walker_steps/<pl_name>
-walker_path: null
+# walker_path: null
+walker_path: /home/adb/scratch/DataAnalysis/SPIRou/walker_steps/WASP-33_b
 
 # Name of the file where the walker steps will be saved
 # If null, the file will be named walker_steps_<run_name>.h5
@@ -104,14 +105,14 @@ walker_file_out: null
 # Walker file used to init walkers
 # If set to null, the retrieval will use random initialisation from the prior
 # Possible values: null, 'file_name.h5'
-walker_file_in: null
+walker_file_in: walker_steps_HRR_day2.h5
 
 # How to init walkers
 # Options: "from_burnin", "continue" (not used if walker_file_in is null)
 # If "from_burnin", the walkers will be initialised from the last step of the burnin chain in walker_file_in
 # If "continue", the walkers will be initialised from the last step of the chain in walker_file_in.
 #    Note that this option allows to keep the walker_file_in as the output file, and append the new walkers to it.
-init_mode: from_burnin
+init_mode: continue
 
 # Path where this yaml file will be copied
 # If null, the path will be set to base_dir/DataAnalysis/retrieval_params/<pl_name>
@@ -293,9 +294,9 @@ fixed_params:
 
   ###### Abundances ######
   # Electron abundance
-  e-: 1e-06
+  e-: 1.0e-06
   # H abundance
-  H: 1e-99  # Some values are computed later in the code, so this is just a placeholder.
+  H: 1.0e-99  # Some values are computed later in the code, so this is just a placeholder.
 
   # Abundance ratios for chemical equilibrium
   # C/O
@@ -325,16 +326,16 @@ fixed_params:
 
   # Guillot_modif only parameters
   # Delta parameter (for Guillot_modif)
-  tp_delta: 1e-07
+  tp_delta: 1.0e-07
   # Transition pressure (for Guillot_modif)
-  ptrans: 1e-03
+  ptrans: 1.0e-03
   # Alpha parameter (for Guillot_modif)
   tp_alpha: 0.3
 
   # Akima Spline TP profile parameters
   # These lists will appear as P1, P2, ..., Pn and T1, T2, ..., Tn in the theta_dict.
   # List of pressure nodes
-  akima_P: [1e-10, 1e-05, 1e-02, 1e+01]
+  akima_P: [1.0e-10, 1.0e-05, 1.0e-02, 1.0e+01]
   # List of temperature nodes
   akima_T: [1000.0, 1500.0, 2000.0, 2500.0]
 

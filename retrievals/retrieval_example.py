@@ -533,7 +533,7 @@
 # def init_model_retrieval(mol_species=None, kind_res='high', lbl_opacity_sampling=None,
 #                          wl_range=None, continuum_species=None, pressures=None, **kwargs):
 #     """
-#     Initialize some objects needed for modelization: atmo, species, star_fct, pressures
+#     Initialize some objects needed for modelization: atmo, species, fct_star, pressures
 #     :param mol_species: list of species included (without continuum opacities)
 #     :param kind_res: str, 'high' or 'low'
 #     :param lbl_opacity_sampling: ?
@@ -541,7 +541,7 @@
 #     :param continuum_species: list of continuum opacities, H and He excluded
 #     :param pressures: pressure array. Default is `fixed_params['pressures']`
 #     :param kwargs: other kwargs passed to `starships.petitradtrans_utils.select_mol_list()`
-#     :return: atmos, species, star_fct, pressure array
+#     :return: atmos, species, fct_star, pressure array
 #     """
 
 #     if mol_species is None:
@@ -1733,7 +1733,16 @@ def unpack_input_parameters(input_parameters):
                           'reg_fixed_params', 'reg_params', 'special_init']
     for key in empty_dict_if_none:
         if input_params[key] is None:
+            log.info(f'{key} is None. Setting it to an empty dictionary instead.')
             input_params[key] = {}
+
+    # Check if some numbers are in string format and raise a warning if so.
+    for key in input_params:
+        if isinstance(input_params[key], str) and input_params[key].isnumeric():
+            msg = f'{key} is in string format. It should be a number.'
+            msg += ' Make sure the exponent format includes the decimal point.'
+            msg += ' Ex: 1.0e-3 and not 1e-3'
+            log.warning(msg)
     
     ####################################
     # --- Check paths and file names ---
@@ -1764,7 +1773,10 @@ def unpack_input_parameters(input_parameters):
         
     # Check walker file out
     if input_params['walker_file_out'] is None:
-        input_params['walker_file_out'] = f'walker_steps_{input_params["run_name"]}.h5'
+        if input_params['walker_file_in'] is None:
+            input_params['walker_file_out'] = f'walker_steps_{input_params["run_name"]}.h5'
+        else:
+            input_params['walker_file_out'] = input_params['walker_file_in']
         
     # Check params path
     if input_params['params_path'] is None:
@@ -1823,55 +1835,55 @@ def unpack_input_parameters(input_parameters):
     return input_params
 
 
-# # Here I just define all the parameters so they are recognized by the code
-# pl_name = 'WASP-33 b'
-# base_dir = Path('/scratch/adb')
-# high_res_path = Path('~/DataAnalysis/SPIRou/Reductions')
-# reduc_name = 'WASP-33b_v07232'
-# high_res_file_stem_list = ['retrieval_input_4-pc_mask_wings97_day2']
-# spectrophotometric_data = {'wfc3': {'file_path': '/home/adb/projects/def-dlafre/adb/Observations/HST/WFC3', 'file_name': 'WASP-33_WFC3_full_res.ecsv'}}
-# photometric_data = {}
-# retrieval_type = 'HRR'
-# white_light = False
-# chemical_equilibrium = False
-# dissociation = True
-# add_spitzer = False
-# kind_temp = 'modif'
-# n_steps_burnin = 300
-# n_steps_sampling = 3000
-# run_name = 'emission_HRR_wfc3_modif_disso_30303539'
-# walker_path = Path('/scratch/adb/DataAnalysis/walker_steps/WASP-33_b')
-# walker_file_out = Path('walker_steps_emission_HRR_wfc3_modif_disso_30303539.h5')
-# walker_file_in = None
-# init_mode = 'from_burnin'
-# params_path = Path('/scratch/adb/DataAnalysis/retrieval_params/WASP-33_b')
-# params_file_out = Path('params_emission_HRR_wfc3_modif_disso_30303539.yaml')
-# kind_trans = 'emission'
-# n_cpu = 2
-# n_walkers = 36
-# n_walkers_per_cpu = 18
-# opacity_sampling = 4
-# orders = None
-# pl_params = {'M_star': 1.561 *u.solMass, 'R_star': 1.5093043 *u.solRad, 'R_pl': 1.6787561* u.jupiterRad, 'excent': 0.0,
-#               'incl': 86.63 *u.deg, 'Teff': 7300. *u.K, 'w': -90.* u.deg, 'ap': 0.0259 *u.AU}
-# instrum = ['spirou']
-# line_opacities = ['CO', 'H2O']
-# continuum_opacities = ['H-']
-# other_species = ['e-', 'H']
-# species_in_prior = ['CO', 'H2O', 'H-', 'e-']
-# linelist_names = {}
-# fixed_params = {'P0': 0.001, 'log_f': 0.0, 'spec_scale': 1.0, 'e-': '1e-06', 'H': '1e-99', 'C/O': 0.54, 'Fe/H': 0.0, 'p_cloud': None, 'scat_factor': None, 'T_eq': 2500.0, 'tp_gamma': 10.0, 'T_int': 500.0, 'kappa_IR': 0.01, 'gravity': 23.0, 'tp_delta': '1e-07', 'ptrans': '1e-03', 'tp_alpha': 0.3, 'akima_P': ['1e-10', '1e-05', '1e-02', '1e+01'], 'akima_T': [1000.0, 1500.0, 2000.0, 2500.0], 'kp': 150.0, 'rv': 0.0, 'wind': None, 'phase1': 0.5, 'phase2': 0.75, 'rot_factor': 1.0}
-# params_prior = {'rv': ['uniform', -40, 40], 'kp': ['uniform', 100, 250], 'T_eq': ['uniform', 100, 4500], 'tp_gamma': ['log_uniform', -2, 6], 'gravity': ['uniform', 1000, 10000], 'tp_delta': ['log_uniform', -8, -3], 'ptrans': ['log_uniform', -8, 3], 'tp_alpha': ['uniform', -1.0, 1.0]}
-# region_id = [1]
-# reg_params = []
-# reg_fixed_params = {}
-# custom_prior_file = None
-# special_init = {'kp': ['uniform', 200, 250], 'rv': ['uniform', -30, 30], 'CO': ['log_uniform', -5.0, -2.0], 'Fe': ['log_uniform', -6.0, -2.0], 'T_eq': ['uniform', 2500, 3500]}
-# get_ker_file = None
+# Here I just define all the parameters so they are recognized by the code
+pl_name = 'WASP-33 b'
+base_dir = Path('/scratch/adb')
+high_res_path = Path('~/DataAnalysis/SPIRou/Reductions')
+reduc_name = 'WASP-33b_v07232'
+high_res_file_stem_list = ['retrieval_input_4-pc_mask_wings97_day2']
+spectrophotometric_data = {'wfc3': {'file_path': '/home/adb/projects/def-dlafre/adb/Observations/HST/WFC3', 'file_name': 'WASP-33_WFC3_full_res.ecsv'}}
+photometric_data = {}
+retrieval_type = 'HRR'
+white_light = False
+chemical_equilibrium = False
+dissociation = True
+add_spitzer = False
+kind_temp = 'modif'
+n_steps_burnin = 300
+n_steps_sampling = 3000
+run_name = 'emission_HRR_wfc3_modif_disso_30303539'
+walker_path = Path('/scratch/adb/DataAnalysis/walker_steps/WASP-33_b')
+walker_file_out = Path('walker_steps_emission_HRR_wfc3_modif_disso_30303539.h5')
+walker_file_in = None
+init_mode = 'from_burnin'
+params_path = Path('/scratch/adb/DataAnalysis/retrieval_params/WASP-33_b')
+params_file_out = Path('params_emission_HRR_wfc3_modif_disso_30303539.yaml')
+kind_trans = 'emission'
+n_cpu = 2
+n_walkers = 36
+n_walkers_per_cpu = 18
+opacity_sampling = 4
+orders = None
+pl_params = {'M_star': 1.561 *u.solMass, 'R_star': 1.5093043 *u.solRad, 'R_pl': 1.6787561* u.jupiterRad, 'excent': 0.0,
+              'incl': 86.63 *u.deg, 'Teff': 7300. *u.K, 'w': -90.* u.deg, 'ap': 0.0259 *u.AU}
+instrum = ['spirou']
+line_opacities = ['CO', 'H2O']
+continuum_opacities = ['H-']
+other_species = ['e-', 'H']
+species_in_prior = ['CO', 'H2O', 'H-', 'e-']
+linelist_names = {}
+fixed_params = {'P0': 0.001, 'log_f': 0.0, 'spec_scale': 1.0, 'e-': '1e-06', 'H': '1e-99', 'C/O': 0.54, 'Fe/H': 0.0, 'p_cloud': None, 'scat_factor': None, 'T_eq': 2500.0, 'tp_gamma': 10.0, 'T_int': 500.0, 'kappa_IR': 0.01, 'gravity': 23.0, 'tp_delta': '1e-07', 'ptrans': '1e-03', 'tp_alpha': 0.3, 'akima_P': ['1e-10', '1e-05', '1e-02', '1e+01'], 'akima_T': [1000.0, 1500.0, 2000.0, 2500.0], 'kp': 150.0, 'rv': 0.0, 'wind': None, 'phase1': 0.5, 'phase2': 0.75, 'rot_factor': 1.0}
+params_prior = {'rv': ['uniform', -40, 40], 'kp': ['uniform', 100, 250], 'T_eq': ['uniform', 100, 4500], 'tp_gamma': ['log_uniform', -2, 6], 'gravity': ['uniform', 1000, 10000], 'tp_delta': ['log_uniform', -8, -3], 'ptrans': ['log_uniform', -8, 3], 'tp_alpha': ['uniform', -1.0, 1.0]}
+region_id = [1]
+reg_params = []
+reg_fixed_params = {}
+custom_prior_file = None
+special_init = {'kp': ['uniform', 200, 250], 'rv': ['uniform', -30, 30], 'CO': ['log_uniform', -5.0, -2.0], 'Fe': ['log_uniform', -6.0, -2.0], 'T_eq': ['uniform', 2500, 3500]}
+get_ker_file = None
 
-# limP = [-10, 2]    # pressure log range, standard
-# n_pts = 50  
-# star_spectrum = '/home/adb/projects/def-dlafre/adb/Observations/SPIRou/Reductions/WASP-33b_v07232/WASP-33b_v07232_star_spectrum.npz'
+limP = [-10, 2]    # pressure log range, standard
+n_pts = 50  
+star_spectrum = '/home/adb/projects/def-dlafre/adb/Observations/SPIRou/Reductions/WASP-33b_v07232/WASP-33b_v07232_star_spectrum.npz'
 
 # The functions above should be in a separate file (maybe retrieval_utils.py)
 
@@ -1941,8 +1953,13 @@ def setup_retrieval(input_parameters, **kwargs):
         try:
             star_res = star_data['sampling_res']
         except KeyError:
-            star_res = None
+            star_res = 500000
+            log.info(f'No sampling resolution found in the stellar spectrum. Using R = {star_res} as default.')
         star_data.close()
+
+    # Init the star fct
+    for mode in ['high', 'low']:
+        globals()[f'fct_star_{mode}'] = None
 
     # --- Planet and observation objects ---
     global obs, planet, Kp_scale
@@ -1958,14 +1975,34 @@ def setup_retrieval(input_parameters, **kwargs):
     wv_range_high = get_wv_range(wv_range_high)
     log.info(f'wavelength range for model at high res: {wv_range_high}')
 
-    # TODO: Define the low resolution wavelength range based on low resolution data
-    wv_range_low = []  # empty for now (see TODO)
-    wv_range_low = get_complementary_ranges(wv_range_low, wv_range_high)
+    # Define the low resolution wavelength range based on low resolution data
+    load_low_res_data()
+    load_photometry()
+    wv_range_all_low = [infos['wv_range'] for infos in spectrophotometric_data.values()]
+    wv_range_all_low += [infos['wv_range'] for infos in photometric_data.values()]
+
+    if retrieval_type == 'LRR':
+        # If the retrieval is in LRR, the low resolution data will model the full range
+        wv_range_low = get_wv_range(wv_range_all_low)
+    else:
+        # Define the low resolution wavelength range based on low resolution data in JR or HRR
+        wv_range_low = []  # empty for now (see TODO)
+        wv_range_low = get_complementary_ranges(wv_range_low, wv_range_high)
     log.info(f'wavelength range for model at low res: {wv_range_low}')
+
+    # Initialize atmo objects based on the wavelength ranges (put None for now)
+    for mode in ['high', 'low']:
+        wv_rng = globals()[f'wv_range_{mode}']
+        for i_range, _ in enumerate(wv_rng):
+            globals()[f'atmo_{mode}_{i_range}'] = None
+
+    # Same for the stellar spectra
+    for mode in ['high', 'low']:
+        globals()[f'fct_star_{mode}'] = None
 
     # --- Resolution of the planet model ---
     global prt_res
-    prt_res = {'high': 1e6 / opacity_sampling, 'low': 1000}
+    prt_res = {'high': int(1e6 / opacity_sampling), 'low': 1000}
 
     # --- Additional variables ---
     global inj_alpha, nolog, do_tr
@@ -2133,9 +2170,25 @@ def load_high_res_data():
 
 
 def load_low_res_data():
-    return None
+
+    for instru_name, infos in spectrophotometric_data.items():
+        log.info(f'Loading data for instrument {instru_name}')
+        # For now, just return empty wv_range
+        if 'wv_range' not in infos:
+            infos['wv_range'] = []
+
+    return spectrophotometric_data
 
 
+def load_photometry():
+
+    for instru_name, infos in photometric_data.items():
+        log.info(f'Loading data for instrument {instru_name}')
+        # For now, just return empty wv_range
+        if 'wv_range' not in infos:
+            infos['wv_range'] = []
+
+    return photometric_data
 
 
 
@@ -2144,7 +2197,7 @@ def load_low_res_data():
 def init_model_retrieval(mol_species=None, kind_res='high', lbl_opacity_sampling=None,
                          wl_range=None, continuum_species=None, pressures=None, **kwargs):
     """
-    Initialize some objects needed for modelization: atmo, species, star_fct, pressures
+    Initialize some objects needed for modelization: atmo, species, fct_star, pressures
     :param mol_species: list of species included (without continuum opacities)
     :param kind_res: str, 'high' or 'low'
     :param lbl_opacity_sampling: ?
@@ -2152,7 +2205,7 @@ def init_model_retrieval(mol_species=None, kind_res='high', lbl_opacity_sampling
     :param continuum_species: list of continuum opacities, H and He excluded
     :param pressures: pressure array. Default is `fixed_params['pressures']`
     :param kwargs: other kwargs passed to `starships.petitradtrans_utils.select_mol_list()`
-    :return: atmos, species, star_fct, pressure array
+    :return: atmos, species, fct_star, pressure array
     """
 
     if mol_species is None:
@@ -2196,7 +2249,7 @@ def init_atmo_if_not_done(mode):
         # Use atmo object in globals parameters if it exists
         # atmo_obj = atmo_high if mode == 'high' else atmo_low
         atmo_obj_name = f'atmo_{mode}_{i_range}'
-        atmo_obj = globals().get(atmo_obj_name, None)
+        atmo_obj = globals()[atmo_obj_name]
         # Initiate if not done yet
         if atmo_obj is None:
             log.info(f'Model not initialized for mode = {mode} and range {wv_range}. Starting initialization...')
@@ -2208,11 +2261,13 @@ def init_atmo_if_not_done(mode):
             globals()[atmo_obj_name] = atmo_obj
                 
             # Update the line list names
-            if linelist_names[mode] is None:
+            if linelist_names.get(mode, None) is None:
                 linelist_names[mode] = lnlst_names
             else:
                 # Keep the predefined values and complete with the new ones
+                # TODO: should be the opposite, but need to make sure the input linelist names are properly handled
                 linelist_names[mode] = {**lnlst_names, **linelist_names[mode]}
+                log.info(f"final linelist_names['{mode}'] = {linelist_names[mode]}")
 
     return None
 
@@ -2221,19 +2276,14 @@ def init_stellar_spectrum_if_not_done(mode):
     
     # No need to make different fct for the different wv_range (as opposed to atmo object)
     fct_star_name = f'fct_star_{mode}'
-
-    # We need to do the try-except here because we cannot use if is None.
-    # Indeed, None is a value that can be assigned to a variable to indicate that a blackbody is used.
-    try:
-        fct_star_obj = globals()[fct_star_name]
-    except KeyError:
+    fct_star_obj = globals()[fct_star_name]
+    if fct_star_obj is None:
         # Initiate if not done yet
-        if fct_star_obj is None:
-            log.info(f'Star spectrum not initialized for mode = {mode}. Starting initialization...')
-            fct_star_obj = init_stellar_spectrum(mode=mode)
-            # Update the values of the global variables
-            # Need to use globals() otherwise an error is raised.
-            globals()[fct_star_name] = fct_star_obj
+        log.info(f'Star spectrum not initialized for mode = {mode}. Starting initialization...')
+        fct_star_obj = init_stellar_spectrum(mode=mode)
+        # Update the values of the global variables
+        # Need to use globals() otherwise an error is raised.
+        globals()[fct_star_name] = fct_star_obj
 
     return None
                
@@ -2252,26 +2302,17 @@ def init_stellar_spectrum(mode, wl_range=None):
     if kind_trans == 'emission' and star_wv is not None:
         log.info(f'Interpolating the stellar spectrum for mode = {mode}.')
         # Only interpolate over the valid wavelength ranges in the list of wavelength ranges
-        is_in_range = [star_wv[0] >= wv_rng[0] and star_wv[1] <= wv_rng[1] for wv_rng in wv_range_list]
-        is_in_range = np.any(is_in_range, axis=0)
-        resamp_star = np.ma.masked_invalid(star_wv[is_in_range], star_flux[is_in_range], star_res, Raf=Raf)
+        is_in_range = (star_wv >= np.min(wv_range_list) - 0.1) & (star_wv <= np.max(wv_range_list) + 0.1)
+        resamp_star = resamp_model(star_wv[is_in_range], star_flux[is_in_range], star_res, Raf=Raf)
+        resamp_star = np.ma.masked_invalid(resamp_star)
         fct_star = interp1d(star_wv[is_in_range], resamp_star)
         
     else:
         log.info('No stellar spectrum provided. A blackbody at Teff will be used.')
-        fct_star = None
+        fct_star = 'blackbody'
 
     return fct_star
 
-# Dictionnaries is not the best way for multiprocessing because it is not shared between processes.
-# Better to use global variables for big arrays or atmo objects. Use dictionaries only for small objects.
-# Define global dictionaries where to put the model infos so they will be shared in functions.
-fct_star_global = {'high': None, 'low': None}
-
-
-## logl
-
-# lnprob
 
 ####################################################
 
@@ -2534,7 +2575,9 @@ def lnprob(theta, ):
 
             logl_i.append(logl_tr)
 
-        total += corr.sum_logl(np.concatenate(np.array(logl_i), axis=0), data_info['trall_icorr'], orders,
+        logl_all_visits = np.concatenate(np.array(logl_i), axis=0)
+        log.debug(f'Shape of individual logl for all exposures (all visits combined): {logl_all_visits.shape}')
+        total += corr.sum_logl(logl_all_visits, data_info['trall_icorr'], orders,
                                data_info['trall_N'], axis=0, del_idx=data_info['bad_indexs'], nolog=True,
                                alpha=data_info['trall_alpha_frac'])
 
@@ -2553,6 +2596,7 @@ def lnprob(theta, ):
     ###################
     # --- LOW RES --- #
     ###################
+    atmo_low = globals().get('atmo_low_0', None)
     if ((retrieval_type == 'JR') and (spitzer is not None)) or (retrieval_type == 'LRR') or (atmo_low is not None):
         #         print('Low res')
 
@@ -2600,6 +2644,8 @@ def lnprob(theta, ):
 
     gc.collect()
 
+    log.debug(f'logL = {total}')
+
     return total
 
 
@@ -2613,8 +2659,14 @@ def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None):
 
     if output_dir is None:
         output_dir = Path.cwd()
+    else:
+        # Make sure it exists
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     yaml_file_out = output_dir / yaml_file_out
+
+    log.info(f'Saving the yaml file to: {yaml_file_out}')
 
     with open(yaml_file_out, 'w') as f:
         yaml.dump(params_yaml, f)
@@ -2624,13 +2676,13 @@ def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None):
 
 def prepare_run(yaml_file=None):
 
-    # Read the input yaml file passed from command line
-    if yaml_file is None:
-        kw_cmd_line = unpack_kwargs_from_command_line(sys.argv)
-        yaml_file = get_kwargs_with_message('yaml_file', kw_cmd_line)
+    # walker_file_out needs to be specificaly defined as global
+    # because a value can be assigned in the function (I think... anyway, it was raising an error if not)
+    global walker_file_out
 
-    # Unpack the yaml_file and add variables to the global space
-    setup_retrieval(yaml_file)
+    if yaml_file is not None:
+        # Unpack the yaml_file and add variables to the global space
+        setup_retrieval(yaml_file)
 
     # Read the data and add them to the global space
     _ = load_high_res_data()
@@ -2674,6 +2726,12 @@ def prepare_run(yaml_file=None):
     else:
         log.warning("test not successful")
 
+    # Add index to the file name if slurm array is used in sbatch
+    if 'SLURM_ARRAY_TASK_ID' in os.environ:
+        idx_file = os.environ['SLURM_ARRAY_TASK_ID']
+        walker_file_out = walker_file_out.with_stem(f'{walker_file_out.stem}_{idx_file}')
+        log.info(f'Using SLURM_ARRAY_TASK_ID={idx_file} detected. This will be added to `walker_file_out`.')
+
     # Make sure file does not already exist
     if init_mode != 'continue':
         file_stem = walker_file_out.stem
@@ -2686,6 +2744,7 @@ def prepare_run(yaml_file=None):
                 break
         else:
             raise ValueError('Walker File already exists.')
+    log.info(f'Output walker file: {walker_file_out}')
 
     return n_steps, pos, walker_file_out, yaml_file
 
@@ -2693,12 +2752,25 @@ def prepare_run(yaml_file=None):
 # Define the main function that will be called by the script
 def main(yaml_file=None):
 
+    # Read the input yaml file passed from command line
+    if yaml_file is None:
+        kw_cmd_line = unpack_kwargs_from_command_line(sys.argv)
+        yaml_file = get_kwargs_with_message('yaml_file', kw_cmd_line)
+
     # Prepare the run
     n_steps, pos, walker_file_out, yaml_file = prepare_run(yaml_file)
     n_walkers, ndim = pos.shape
 
     # Save the yaml file with the version of starships
-    yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path)
+    # Only if not in slurm array mode
+    if 'SLURM_ARRAY_TASK_ID' in os.environ:
+        # Save only if == 1
+        if os.environ['SLURM_ARRAY_TASK_ID'] == '1':
+            yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path)
+        else:
+            log.warning('SLURM_ARRAY_TASK_ID != 1. Not saving the yaml file.')
+    else:
+        yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path)
 
     # --- backend to track evolution ---
     # Create output directory if it does not exist
