@@ -353,11 +353,11 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     out_spec[f'Without clouds'] = spec_no_cloud
 
     # get haze contribution
-    theta_dict = dict(config_model)
-    theta_dict['gamma_scat'] = 0
-    wv, spec_no_haze, _, _, _ = make_model(theta_dict, planet, out_dir = None, path_fig = None)
-    spec_abs = (out_spec['All'] - spec_no_haze) 
-    out_spec[f'Haze'] = spec_abs
+    # theta_dict = dict(config_model)
+    # theta_dict['gamma_scat'] = 0
+    # wv, spec_no_haze, _, _, _ = make_model(theta_dict, planet, out_dir = None, path_fig = None)
+    # spec_abs = (out_spec['All'] - spec_no_haze) 
+    # out_spec[f'Haze'] = spec_abs
 
     # Iterate over input molecules, need to add clouds, haze and H2
     for mol_name in config_model['line_opacities']: 
@@ -413,15 +413,15 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     y_max = max(spec.max() for spec in mol_contrib.values())
 
     # plot cloud contribution
-    ax[1].plot(wv, out_spec['Without clouds'], label = 'Without Clouds', lw = 0.3)
-    ax[1].plot(wv, out_spec['All'], label = 'With Clouds', lw = 0.3)
+    ax[1].plot(wv, out_spec['Without clouds'], label = 'Without Clouds', lw = 0.3, alpha = 0.8)
+    ax[1].plot(wv, out_spec['All'], label = 'With Clouds', lw = 0.3, alpha = 0.8)
     ax[1].legend()
 
     # plot haze contribution
-    ax[2].plot(wv, out_spec['Haze'], label = 'Haze', lw = 0.3)
-    ax[2].legend()
+    # ax[2].plot(wv, out_spec['Haze'], label = 'Haze', lw = 0.3)
+    # ax[2].legend()
 
-    for i, (key, spec) in enumerate(mol_contrib.items(), start=3):
+    for i, (key, spec) in enumerate(mol_contrib.items(), start=2):
         ax[i].plot(wv, spec, label=key, lw=0.3)
         ax[i].legend(loc='upper left')
         ax[i].set_ylim(y_min, y_max)  # Set the y-limits to be the same for all subplots

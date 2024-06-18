@@ -21,12 +21,15 @@ def run_pipe(config_filepath, model_filepath):
     with open(model_filepath, 'r') as file:
         config_model = yaml.safe_load(file)
 
+    # initialize all molecule abundances
+    if config_model['species_vmr'] == {}:
+        for mol in config_model['line_opacities']:
+            config_model['species_vmr'][mol] = -99.0
+
     config_dict['obs_dir'] = Path.home() / Path(config_dict['obs_dir'])
 
     if config_dict['visit_name'] == []:
-        visit_names = split.split_night(config_dict['obs_dir'], path_fig)
-
-    else: visit_names = config_dict['visit_name']
+        visit_names = split.split_night(config_dict['obs_dir'], str(config_dict['obs_dir']))
 
     # loop over all visits
     for visit_name in visit_names:
@@ -40,8 +43,12 @@ def run_pipe(config_filepath, model_filepath):
         planet, obs = red.load_planet(config_dict, visit_name)
 
         # Start with model with all molecules
-        wave_mod, mod_spec = mod.make_model(config_model, planet, out_dir, path_fig, config_dict)
-        mol = 'all'
+        wave_mod, mod_spec, abundances, MMW, VMR = mod.make_model(config_model, planet, out_dir, path_fig, config_dict)
+
+        if len(config_model['line_opacities']) == 1:
+            mol = config_model['line_opacities'][0]
+        else: mol = 'all'
+
         # creating the dictionaries to store all reductions
         all_reductions = {}
         all_ccf_map = {}
@@ -86,12 +93,22 @@ def run_pipe(config_filepath, model_filepath):
                 # Copy input dict
                 theta_dict_single = dict(config_model)
 
-                # Set all other linelists to zero (10^-99 to avoid division by zero)
-                for mol in config_model['line_opacities']:
-                    if mol != single_mol:
-                        theta_dict_single[mol] = 1e-99
+                abundances_subtracted = dict(abundances)
 
-                wave_mod, mod_spec = mod.make_model(theta_dict_single, planet, out_dir, path_fig, config_dict)
+                # Need to be a list
+                if not isinstance(single_mol, list):
+                    single_mol = [single_mol]
+
+                # set all other molecules to zero
+                for mol in config_model['line_opacities']:
+                    if mol != single_mol[0]:
+                        linelist = config_model['linelist_names'][config_model['mode']][mol]
+                        abundances_subtracted[linelist] = abundances_subtracted[linelist] * 0 + 1e-99
+
+                theta_dict_single['chemical_equilibrium'] = False
+                wave_mod, mod_spec, _, _, _ = mod.make_model(theta_dict_single, planet, out_dir = None, path_fig = None, 
+                                                abundances = abundances_subtracted,
+                                                MMW = MMW, config_dict=config_dict)
 
                 # creating the dictionaries to store all reductions
                 all_reductions = {}
@@ -103,7 +120,7 @@ def run_pipe(config_filepath, model_filepath):
                     for mask_wings in config_dict['mask_wings']:
                         for n_pc in config_dict['n_pc']:
 
-                            naming_kwargs = {'molecule': mol, 'n_pc': n_pc, 'mask_tellu': mask_tellu, 'mask_wings': mask_wings}
+                            naming_kwargs = {'molecule': single_mol, 'n_pc': n_pc, 'mask_tellu': mask_tellu, 'mask_wings': mask_wings}
                             print('CURRENT PARAMETERS:', naming_kwargs)
 
                             # reducing the data
@@ -114,17 +131,17 @@ def run_pipe(config_filepath, model_filepath):
                                 all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
 
                             # performing correlations
-                            ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)]['1'], mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig)
+                            ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)]['1'], single_mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig)
                             all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
                             all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
 
                         # plot all ccf maps for each n_pc
                         ccf_obj, logl_obj = corr.plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, 
-                                                            config_dict, mol, mask_tellu, mask_wings, 
+                                                            config_dict, single_mol, mask_tellu, mask_wings, 
                                                             id_pc0=None, order_indices=np.arange(75), 
                                                             path_fig = path_fig)
 
-        # #     # combine all visits
+        # combine all visits
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run the pipeline with the given config files.')
