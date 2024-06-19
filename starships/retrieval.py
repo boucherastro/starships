@@ -2718,9 +2718,11 @@ def prepare_run(yaml_file=None):
 
     # Pre-run the log likelihood function
     log.info("Checking if log likelihood function is working.")
+    good_to_go = False
     for i_walker in range(n_walkers):
         logl = lnprob(pos[i_walker])
         if np.isfinite(logl):
+            good_to_go = True
             log.info("Success!")
             break
     else:
@@ -2746,7 +2748,7 @@ def prepare_run(yaml_file=None):
             raise ValueError('Walker File already exists.')
     log.info(f'Output walker file: {walker_file_out}')
 
-    return n_steps, pos, walker_file_out, yaml_file
+    return n_steps, pos, walker_file_out, yaml_file, good_to_go
 
 
 # Define the main function that will be called by the script
@@ -2758,8 +2760,11 @@ def main(yaml_file=None):
         yaml_file = get_kwargs_with_message('yaml_file', kw_cmd_line)
 
     # Prepare the run
-    n_steps, pos, walker_file_out, yaml_file = prepare_run(yaml_file)
+    n_steps, pos, walker_file_out, yaml_file, good_to_go = prepare_run(yaml_file)
     n_walkers, ndim = pos.shape
+    
+    if not good_to_go:
+        raise ValueError("Retrieval not initialized correctly.")
 
     # Save the yaml file with the version of starships
     # Only if not in slurm array mode
