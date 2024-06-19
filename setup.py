@@ -23,6 +23,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
+            'run_starships_retrieval=starships.retrieval:main',
             'starships=starships.cli:main'
         ]
     },
