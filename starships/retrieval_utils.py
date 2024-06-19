@@ -869,10 +869,10 @@ def read_walkers_file(filename, discard=0, discard_after=None, id_params=None, p
         completed = np.where(samples[:, 0, param_no_zero] == 0)[0]
         if completed.size == 0:
             cut_sample = samples[discard:, :, :]
-            print('All Completed')
+            log.info('Steps in walkers file are all completed')
         else:
             cut_sample = samples[discard:completed[0], :, :]
-            print('Completed {}/{}'.format(completed[0], samples.shape[0]))
+            log.info(f'Number of steps in walkers file completed {completed[0]}/{samples.shape[0]}')
 
     return cut_sample
 
@@ -2615,7 +2615,9 @@ def log_prior(theta, params_prior, prior_func_dict=None):
     for key, prior_info in params_prior.items():
         prior_name, prior_args = prior_info[0], prior_info[1:]
         prior_func = prior_func_dict[prior_name]
-        total += prior_func(theta_dict, key, prior_args)
+        prior_value = prior_func(theta_dict, key, prior_args)
+        log.debug(f"Prior for '{key}' -> {prior_name}({prior_args}) = {prior_value}")
+        total += prior_value
 
         if total == -np.inf:
             return total

@@ -1565,7 +1565,7 @@ class Planet():
         for key in list(kwargs.keys()):
             new_value = kwargs[key]
             old_value = getattr(self,key)
-            print('Changing {} from {} to {}'.format(key, old_value, new_value))
+            log.info('Changing {} from {} to {}'.format(key, old_value, new_value))
             if isinstance(new_value, u.Quantity) & isinstance(old_value, u.Quantity):
                 new_value = new_value.to(old_value.unit)
                 new_value = np.array([new_value.value])*new_value.unit
@@ -1573,7 +1573,7 @@ class Planet():
                 new_value = new_value * old_value.unit
                 new_value = np.array([new_value.value])*new_value.unit
 
-            print('It became {}'.format(new_value))
+            log.info('It became {}'.format(new_value))
             setattr(self, key, new_value)
 
         surf_grav_pl = (const.G * self.M_pl / self.R_pl**2).cgs
