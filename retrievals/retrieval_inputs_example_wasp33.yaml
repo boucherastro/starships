@@ -73,6 +73,15 @@ add_spitzer: false
 # Which kind of TP profile you want? (guillot, modif, iso, akima)
 kind_temp: modif
 
+# SLURM_ARRAY_TASK_ID behaviour
+# Tells how to use the SLURM_ARRAY_TASK_ID environment variable if detected.
+# Options:
+# null: the code will not use it directly.
+# 'burnin': the code will assume that multiple burnin chains are running in parallel.
+#           and will use the SLURM_ARRAY_TASK_ID to identify the different outputs (walker_file_out)
+#           Note that params_file_out will only be outputed for the first task (with ID = 1).
+slurm_array_behaviour: burnin
+
 # How many steps for burnin phase
 n_steps_burnin: 300
 

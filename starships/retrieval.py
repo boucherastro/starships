@@ -1719,13 +1719,11 @@ def unpack_input_parameters(input_parameters):
     For example, put default values if some parameters are None."""
     
     # --- Read the input parameters from a yaml file or a dictionary
-    if isinstance(input_parameters, str):
-        with open(input_parameters, 'r') as f:
-            input_params = yaml.load(f, Loader=yaml.FullLoader)
-    elif isinstance(input_parameters, dict):
+    if isinstance(input_parameters, dict):
         input_params = input_parameters
     else:
-        raise ValueError('input_parameters must be either a yaml file or a dictionary.')
+        with open(input_parameters, 'r') as f:
+            input_params = yaml.load(f, Loader=yaml.FullLoader)
     
     # --- Check for None values that should be empty dictionaries ---
     empty_dict_if_none = ['spectrophotometric_data', 'photometric_data',
@@ -1773,10 +1771,8 @@ def unpack_input_parameters(input_parameters):
         
     # Check walker file out
     if input_params['walker_file_out'] is None:
-        if input_params['walker_file_in'] is None:
-            input_params['walker_file_out'] = f'walker_steps_{input_params["run_name"]}.h5'
-        else:
-            input_params['walker_file_out'] = input_params['walker_file_in']
+        input_params['walker_file_out'] = f'walker_steps_{input_params["run_name"]}.h5'
+        log.info(f"No walker file out name given. Setting it to {input_params['walker_file_out']}")
         
     # Check params path
     if input_params['params_path'] is None:
@@ -1856,6 +1852,7 @@ walker_path = Path('/scratch/adb/DataAnalysis/walker_steps/WASP-33_b')
 walker_file_out = Path('walker_steps_emission_HRR_wfc3_modif_disso_30303539.h5')
 walker_file_in = None
 init_mode = 'from_burnin'
+slurm_array_behaviour = 'burnin'
 params_path = Path('/scratch/adb/DataAnalysis/retrieval_params/WASP-33_b')
 params_file_out = Path('params_emission_HRR_wfc3_modif_disso_30303539.yaml')
 kind_trans = 'emission'
@@ -2730,10 +2727,14 @@ def prepare_run(yaml_file=None):
 
     # Add index to the file name if slurm array is used in sbatch
     if 'SLURM_ARRAY_TASK_ID' in os.environ:
-        idx_file = os.environ['SLURM_ARRAY_TASK_ID']
-        walker_file_out = walker_file_out.with_stem(f'{walker_file_out.stem}_{idx_file}')
-        log.info(f'Using SLURM_ARRAY_TASK_ID={idx_file} detected. This will be added to `walker_file_out`.')
-
+        if slurm_array_behaviour == 'burnin':
+            idx_file = os.environ['SLURM_ARRAY_TASK_ID']
+            walker_file_out = walker_file_out.with_stem(f'{walker_file_out.stem}_{idx_file}')
+            log.info(f'Using SLURM_ARRAY_TASK_ID={idx_file} detected. This will be added to `walker_file_out`.')
+        elif slurm_array_behaviour is None:
+            log.info('SLURM_ARRAY_TASK_ID detected but not used. slurm_array_behaviour is None.')
+        else:
+            raise ValueError(f"slurm_array_behaviour = {slurm_array_behaviour} not valid.")
     # Make sure file does not already exist
     if init_mode != 'continue':
         file_stem = walker_file_out.stem
@@ -2768,7 +2769,7 @@ def main(yaml_file=None):
 
     # Save the yaml file with the version of starships
     # Only if not in slurm array mode
-    if 'SLURM_ARRAY_TASK_ID' in os.environ:
+    if 'SLURM_ARRAY_TASK_ID' in os.environ and slurm_array_behaviour=='burnin':
         # Save only if == 1
         if os.environ['SLURM_ARRAY_TASK_ID'] == '1':
             yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path)
@@ -2792,6 +2793,9 @@ def main(yaml_file=None):
         sampler.run_mcmc(pos, n_steps, progress=False)  # , skip_initial_state_check=True)
 
     log.info('End of retrieval. It seems to be a success!')
-                
+    
+
+if __name__ == '__main__':
+    main()     
 
 # %%
