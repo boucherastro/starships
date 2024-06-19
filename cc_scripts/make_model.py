@@ -158,7 +158,7 @@ def create_internal_dict(config_dict, planet):
     return int_dict
 
 def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct_star=None,
-                              species_dict=None, Raf=None, rot_ker=None, path_fig = None, out_dir = None,
+                              species_dict=None, Raf=None, rot_ker=None, out_dir = None,
                               abundances = None, MMW = None):
 
     mode = config_model['mode']
@@ -299,19 +299,19 @@ def add_instrum_model(wv_out, model_out, config_dict, species, Raf = None, rot_k
     # np.savez(f'model_{config_dict['instrument']}_{'_'.join(species.keys())}.npz', wave_mod=wave_mod, mod_spec=mod_spec)
     return wave_mod, mod_spec 
 
-def make_model(config_model, planet, out_dir, path_fig, config_dict = {}, abundances = None, MMW = None):
+def make_model(config_model, planet, out_dir, config_dict = {}, abundances = None, MMW = None):
     # computing extra parameters needed for model making
     int_dict = create_internal_dict(config_model, planet)
 
     # create the model, plot and save it 
     if config_model['chemical_equilibrium']:
-        wave_mod, mod_spec, abundances, MMW, VMR = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, path_fig=path_fig)
+        wave_mod, mod_spec, abundances, MMW, VMR = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir)
         if config_model['instrument'] == None:
             wave_mod, mod_spec = add_instrum_model(config_dict, wave_mod, mod_spec)
         return wave_mod, mod_spec, abundances, MMW, VMR
 
     else: 
-        wave_mod, mod_spec = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, path_fig=path_fig, abundances=abundances, MMW = MMW)
+        wave_mod, mod_spec = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, abundances=abundances, MMW = MMW)
         if config_model['instrument'] == None:
             wave_mod, mod_spec = add_instrum_model(config_dict, wave_mod, mod_spec)
         return wave_mod, mod_spec, None, None, None
@@ -328,8 +328,7 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     out_spec = dict()
 
     # Spec with all molecules
-    wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, path_fig = None, config_dict=config_dict)
-
+    wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict)
 
     if config_model['species_vmr'] == {}:
             for mol in config_model['line_opacities']:
@@ -348,7 +347,7 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     # get cloud contribution
     theta_dict = dict(config_model)
     theta_dict['p_cloud'] = 1e99
-    wv, spec_no_cloud, _, _, _ = make_model(theta_dict, planet, out_dir = None, path_fig = None)
+    wv, spec_no_cloud, _, _, _ = make_model(theta_dict, planet, out_dir = None)
     spec_abs = (out_spec['All'] - spec_no_cloud) 
     out_spec[f'Without clouds'] = spec_no_cloud
 
@@ -379,7 +378,7 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     #             print(f'Abundances with {mol_name} removed: {abundances_subtracted}')
 
         theta_dict['chemical_equilibrium'] = False
-        wv, spec_no_mol, _, _, _ = make_model(theta_dict, planet, out_dir = None, path_fig = None, 
+        wv, spec_no_mol, _, _, _ = make_model(theta_dict, planet, out_dir = None, 
                                         abundances = abundances_subtracted,
                                         MMW = MMW, config_dict=config_dict)
 
