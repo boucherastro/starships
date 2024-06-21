@@ -749,8 +749,8 @@ class Correlations():
         ax2.set_position([pos.x0,pos2.y0,pos.width-0.02, pos2.height])
         
         if save_fig != '':
-            figs.savefig(path_fig + '/CCF_'+save_fig+'.pdf')
-            print('Saved file to : ', path_fig + '/CCF_'+save_fig+'.pdf')
+            figs.savefig(path_fig + 'CCF_'+save_fig+'.pdf')
+            print('Saved file to : ', path_fig + 'CCF_'+save_fig+'.pdf')
 
     def fit_gauss_1d(self, Kp=None):
         
@@ -1870,7 +1870,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                               icorr=tr.iIn,
                               equal_var=False,  fig_name=label, path_fig=path_fig)
     else:
-        for id_pc in range(len(n_pcas)):
+        for id_pc in n_pcas:
             if fig_name is not None:
                 if len(fig_name) > 1:
                     label = fig_name + f'_pc{id_pc}'
