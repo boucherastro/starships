@@ -1,5 +1,7 @@
 # FILE ORGANIZATION
-obs_dir: 'projects/def-dlafre/fgenest/nirps/WASP-127b/' # starting from projects, home will be added in pipeline
+obs_dir: null # if null, takes from sbatch file 'projects/def-dlafre/fgenest/nirps/WASP-127b/' # starting from projects, home will be added in pipeline
+star_dir: "/WASP127"
+out_dir: null # if null, will save to def-dlafre/shared/INSTRUMENT/REDUCTION_NAME/PLANET_NAME...
 night_split: 
 
 # GLOBAL PARAMETERS USED IN MULTIPLE STAGES
@@ -15,16 +17,16 @@ kind_res: 'high'
 # --------------------------------------------------------------------------------------------------
 # REDUCTION INPUTS
 
-reduction: 'check_multinpca'
-mask_tellu: [0.2] #, 0.5]
-mask_wings: [0.9] #, 0.95, 0.97]
-n_pc: [1, 2, 3, 4] # given as a list to test each
+reduction: 'one_visit_full'
+mask_tellu: [0.2, 0.5]
+mask_wings: [0.9, 0.95, 0.97]
+n_pc: [0, 1, 2, 3, 4] # given as a list to test each
 iout_all: ['all']
 clip_ratio: 6
 clip_ts: 6
 unberv_it: True
 
-idx_ord: 15 #[15, 33, 41]    # for output plots
+idx_ord: [15, 33, 41]    # for output plots
 
 del_exposures: null # exposures to delete
 
@@ -32,7 +34,7 @@ del_exposures: null # exposures to delete
 # MODEL INPUTS : see other YAML file
 
 # --------------------------------------------------------------------------------------------------
-# CCF INPUTS, more to add after
+# CCF INPUTS
 
 # for NIRPS, step size of 
 RV_range: [-150, 151] # range used to build Kp_array
