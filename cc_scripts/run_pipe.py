@@ -26,29 +26,35 @@ def run_pipe(config_filepath, model_filepath):
         for mol in config_model['line_opacities']:
             config_model['species_vmr'][mol] = -99.0
 
+    out_dir_gen = None
+
     config_dict['obs_dir'] = Path.home() / Path(config_dict['obs_dir'])
 
     if config_dict['visit_name'] == []:
-        visit_names = split.split_night(config_dict['obs_dir'], str(config_dict['obs_dir']))
-
+        config_dict['visit_name'] = split.split_night(config_dict['obs_dir'], str(config_dict['obs_dir']))
+    print('VISIT NAMES: ', config_dict['visit_name'])
+    
     # loop over all visits
-    for visit_name in visit_names:
+    for visit_name in config_dict['visit_name']:
 
         scratch_dir, out_dir, path_fig = red.set_save_location(config_dict['pl_name'], visit_name, config_dict['reduction'], config_dict['instrument'])
         
-        if visit_name == visit_names[0]:
+        if visit_name == config_dict['visit_name'][0]:
             print( "Output directory:", out_dir.parent)
+            out_dir_gen = out_dir.parent
 
         # creating the planet and observation objects
-        planet, obs = red.load_planet(config_dict, visit_name)
+        if visit_name != 'combined':
+            planet, obs = red.load_planet(config_dict, visit_name)
 
         # Start with model with all molecules
-        wave_mod, mod_spec, abundances, MMW, VMR = mod.make_model(config_model, planet, out_dir, path_fig, config_dict)
+        wave_mod, mod_spec, abundances, MMW, VMR = mod.make_model(config_model, planet, out_dir, config_dict)
 
         if len(config_model['line_opacities']) == 1:
             mol = config_model['line_opacities'][0]
         else: mol = 'all'
 
+        
         # creating the dictionaries to store all reductions
         all_reductions = {}
         all_ccf_map = {}
@@ -63,14 +69,14 @@ def run_pipe(config_filepath, model_filepath):
                     print('CURRENT PARAMETERS:', naming_kwargs)
 
                     # reducing the data
-                    reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings)
+                    reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings, visit_name)
                     
                     # check if reduction was already performed
                     if reduc != None:
                         all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
 
                     # performing correlations
-                    ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)]['1'], mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig)
+                    ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)], mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig, visit_name)
                     all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
                     all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
 
@@ -85,7 +91,23 @@ def run_pipe(config_filepath, model_filepath):
                 ccf_obj, logl_obj = corr.plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, 
                                                     config_dict, mol, mask_tellu, mask_wings, id_pc0=None, 
                                                     order_indices=np.arange(75), path_fig = path_fig)
+                
+            # plots for each mask_wings -   working, need to make new functions to plots have right axes/titles
+            for n_pc in config_dict['n_pc']:
+                ccf_obj, logl_obj = corr.plot_all_maskwings(all_ccf_map, all_logl_map, all_reductions, 
+                                                        config_dict, mol, mask_tellu, n_pc, id_pc0=None, 
+                                                        order_indices=np.arange(75), path_fig = path_fig)
 
+        # plots for each mask_tellu
+        for n_pc in config_dict['n_pc']:
+            for mask_wings in config_dict['mask_wings']:
+                ccf_obj, logl_obj = corr.plot_all_masktellu(all_ccf_map, all_logl_map, all_reductions,
+                                                            config_dict, mol, mask_wings, n_pc, id_pc0=None, 
+                                                            order_indices=np.arange(75), path_fig = path_fig)
+        
+        if [mask_tellu, mask_wings, n_pc] == config_dict['night_params']:
+            corr.combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, out_dir, config_dict)
+        
         # iterate over individual molecules if there are more than 1
         if len(config_model['line_opacities']) > 1:
             for single_mol in config_model['line_opacities']:
@@ -106,10 +128,10 @@ def run_pipe(config_filepath, model_filepath):
                         abundances_subtracted[linelist] = abundances_subtracted[linelist] * 0 + 1e-99
 
                 theta_dict_single['chemical_equilibrium'] = False
-                wave_mod, mod_spec, _, _, _ = mod.make_model(theta_dict_single, planet, out_dir = None, path_fig = None, 
+                wave_mod, mod_spec, _, _, _ = mod.make_model(theta_dict_single, planet, out_dir = None, 
                                                 abundances = abundances_subtracted,
                                                 MMW = MMW, config_dict=config_dict)
-
+                
                 # creating the dictionaries to store all reductions
                 all_reductions = {}
                 all_ccf_map = {}
@@ -124,24 +146,27 @@ def run_pipe(config_filepath, model_filepath):
                             print('CURRENT PARAMETERS:', naming_kwargs)
 
                             # reducing the data
-                            reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings)
+                            reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings, visit_name)
                             
                             # check if reduction was already performed
                             if reduc != None:
                                 all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
 
                             # performing correlations
-                            ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)]['1'], single_mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig)
+                            ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)], single_mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig, visit_name)
                             all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
                             all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
 
-                        # plot all ccf maps for each n_pc
+                        # # plot all ccf maps for each n_pc
                         ccf_obj, logl_obj = corr.plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, 
                                                             config_dict, single_mol, mask_tellu, mask_wings, 
                                                             id_pc0=None, order_indices=np.arange(75), 
                                                             path_fig = path_fig)
+                        
+                if [mask_tellu, mask_wings, n_pc] == config_dict['night_params']:
+                    corr.combined_visits_ccf(planet, single_mol, wave_mod, mod_spec, scratch_dir, path_fig, out_dir, config_dict)                                
+                                            
 
-        # combine all visits
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run the pipeline with the given config files.')
