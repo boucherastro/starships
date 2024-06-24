@@ -158,7 +158,7 @@ class Correlations():
     def plot_multi_npca(self, logl=None, vlines=[0], kind='snr', kind_courbe='bic', ylim=None, 
                         no_signal=None, ground_type='mean',
                         hlines=None, legend=True, title='', max_rv=None, force_max_rv=None, 
-                        path_fig = None, fig_name = None, **kwargs):
+                        path_fig = None, fig_name = None, param = 'pc', **kwargs):
     
         lstyles = ['-','--','-.',':']
 
@@ -271,11 +271,11 @@ class Correlations():
                 ax[0].plot(self.n_pcas, max_val,'o--')
             
         ax[0].set_ylabel(title)
+        ax[0].set_xlabel(param)
 
         # saving the plots
         if path_fig is not None:
-            fig.savefig(path_fig+'fig_multi_npca{}.pdf'.format(fig_name))
-   
+            fig.savefig(path_fig+f'fig_multi_{param}_{fig_name}.pdf')
     
     def get_snr_2d(self, ccf2d=None, Kp_array=None, interp_grid=None, \
                    kp_limit=70, rv_limit=15, RV_sys=0, Kp0=151):
@@ -1223,8 +1223,8 @@ class Correlations():
         # fig.tight_layout()
         
         if fig_name is not None:
-            fig.savefig(path_fig +'fig_CCF_2D_'+fig_name+'.pdf')#, rasterize=True)
-            print('Saved file to : ', path_fig + 'fig_CCF_2D_'+fig_name+'.pdf')
+            fig.savefig(path_fig +'fig_CCF_2D'+fig_name+'.pdf')#, rasterize=True)
+            print('Saved file to : ', path_fig + 'fig_CCF_2D'+fig_name+'.pdf')
 
         
         # --- overplot all CCF ---
@@ -1815,7 +1815,7 @@ def plot_ccf_timeseries(t, rv_star, correlation, plot_gauss=True, plot_spline=Tr
 def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                  swapaxes=None, orders=np.arange(49), map=False, id_pc0=None, RV_limit=None,
                  indexs=None, icorr=None, RV=0.0, split_fig=False, std_robust=True,
-                 fig_name=None, path_fig=None, vlines=[0], **kwargs):
+                 fig_name=None, path_fig=None, vlines=[0], param = 'pc', plot_prf = True, **kwargs):
 
     if split_fig is False:
         split_fig = []
@@ -1833,22 +1833,22 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
                                  n_pcas=n_pcas, kp_array=Kp_array)
     ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
-    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = '_SNR' + fig_name, path_fig=path_fig)
+    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=path_fig, param = param)
 
     logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
                                   n_pcas=n_pcas, kp_array=Kp_array)
     logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
 
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = '_abs' + fig_name, path_fig=path_fig)
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=path_fig, param = param)
     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
-                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = '_BIC' + fig_name, path_fig=path_fig)
+                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=path_fig, param = param)
 
     print(ccf_obj.npc_val)
     print(logl_obj.npc_max_abs)
     print(logl_obj.npc_bic)
     print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
 
-    if id_pc0 is not None:
+    if id_pc0 is not None and plot_prf:
 
         if fig_name is not None:
             if len(fig_name) > 1:
@@ -1870,10 +1870,10 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                               icorr=tr.iIn,
                               equal_var=False,  fig_name=label, path_fig=path_fig)
     else:
-        for id_pc in n_pcas:
+        for id_pc in range(len(n_pcas)):
             if fig_name is not None:
                 if len(fig_name) > 1:
-                    label = fig_name + f'_pc{id_pc}'
+                    label = fig_name + f'_pc{n_pcas[id_pc]}'
                 else:
                     label = fig_name
             else:
