@@ -2327,7 +2327,8 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
                  # mask_final=list_tr[tr_key].final.mask,
                  alpha_frac=list_tr[tr_key].alpha_frac,
                  icorr=list_tr[tr_key].icorr,
-                 bad_indexs=bad_indexs
+                 bad_indexs=bad_indexs,
+                 final = list_tr[tr_key].final,
                  # clip_ts=list_tr[tr_key].clip_ts,
                  # scaling=list_tr[tr_key].scaling,
                  )
@@ -2387,6 +2388,7 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
                  mask_fl_Sref = list_tr[tr_key].fl_Sref.mask,
                  mask_fl_masked = list_tr[tr_key].fl_masked.mask,
                  mask_recon_time = list_tr[tr_key].recon_time.mask,
+                 bad_indexs=bad_indexs
                  )
 
         
