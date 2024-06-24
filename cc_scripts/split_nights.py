@@ -158,7 +158,7 @@ def split_night(obs_dir, path_fig):
                 file_lists[reduction_type].append(other_file)
                 
         for reduc_type, reduc_flist in file_lists.items():
-            name_list_files = Path(f'list_{reduc_type}_visit_{date}')
+            name_list_files = Path(f'list_{reduc_type}_{date}')
             print(f'Writing to {name_list_files}')
             with open(obs_dir / name_list_files, 'w') as f:
                 output = '\n'.join(reduc_flist)
