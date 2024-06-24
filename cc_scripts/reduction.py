@@ -36,11 +36,11 @@ def set_save_location(pl_name, visit_name, reduction, instrument, out_dir = None
     if out_dir == None:
         out_dir = Path.home()
         #out_dir /= Path(f'projects/def-dlafre/shared/{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
-        out_dir /= Path(f'projects/def-dlafre/opereira/{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
+        out_dir /= Path(f'projects/def-rdoyon/shared/{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
 
 
     # Output reductions in dedicated directory
-    scratch_dir /= Path(f'{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
+    scratch_dir /= Path(f'{instrument}/Reductions/{reduction}/{pl_name_fname}')
 
     # Make sure the directories exists
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -178,32 +178,35 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
 def save_pl_sig(list_tr, nametag, scratch_dir, do_tr = [1]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
     out_filename = f'retrieval_input' + nametag
-    pl_obs.save_sequences(out_filename, list_tr, do_tr, path=scratch_dir, save_all = True) 
+    pl_obs.save_single_sequences(out_filename, list_tr, path=scratch_dir, save_all=True)
 
 
 def reduction_plots(config_dict, list_tr, n_pc, path_fig, nametag): 
-    visit_list = [list_tr['1']]  # You could put multiple visits in the same figure
+    visit_list = [list_tr]  # You could put multiple visits in the same figure
 
     if n_pc == config_dict['n_pc'][0]:
         pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name='')
 
-    sequence_obj = list_tr['1']
+    sequence_obj = list_tr
 
     # plot for specified orders
     for idx_ord in config_dict['idx_ord']:
         pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig), fig_name = nametag + f'_ord{idx_ord}')
 
 
-def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings):
+def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings, visit_name):
 
-    nametag = f'_pc{n_pc}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
+    nametag = f'_{visit_name}_pc{n_pc}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
     
-    # check if redufction already exists
-    if os.path.exists(out_dir / f'retrieval_input{nametag}_data_info.npz'):
-        return None
+    # check if reduction already exists
+    if os.path.exists(scratch_dir / f'retrieval_input{nametag}_data_trs_.npz'):
+        print(f"Reduction already exists for {nametag}. Loading...")
+        list_tr = pl_obs.load_single_sequences(f'retrieval_input{nametag}_data_trs_.npz', planet.name, path=scratch_dir,
+                          load_all=True, filename_end='', planet=planet, plot = False)
 
-    # building the transit spectrum
-    list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
+    else: # building the transit spectrum
+        list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
+        list_tr = list_tr['1']
 
     # saving the transit spectrum
     save_pl_sig(list_tr, nametag, scratch_dir)
