@@ -26,8 +26,6 @@ def run_pipe(config_filepath, model_filepath):
         for mol in config_model['line_opacities']:
             config_model['species_vmr'][mol] = -99.0
 
-    out_dir_gen = None
-
     config_dict['obs_dir'] = Path.home() / Path(config_dict['obs_dir'])
 
     if config_dict['visit_name'] == []:
@@ -72,37 +70,33 @@ def run_pipe(config_filepath, model_filepath):
                     reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings, visit_name)
                     
                     # check if reduction was already performed
-                    if reduc != None:
-                        all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
+                    # if reduc != None:
+                    #     all_reductions[(n_pc, mask_tellu, mask_wings)] = reduc
 
                     # performing correlations
-                    ccf_map, logl_map = corr.perform_ccf(config_dict, all_reductions[(n_pc, mask_tellu, mask_wings)], mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig, visit_name)
-                    all_ccf_map[(n_pc, mask_tellu, mask_wings)] = ccf_map
-                    all_logl_map[(n_pc, mask_tellu, mask_wings)] = logl_map
+                    ccf_map, logl_map = corr.perform_ccf(config_dict, reduc, mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig, visit_name)
 
                     # include injection step here, need to change the dictionaries everything is saved to
-                    # reduc.final
-                    # performing correlations
-                    # ccf_map, logl_map = corr.perform_ccf(config_dict, reduc, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, out_dir)
-                    # all_ccf_map[n_pc] = ccf_map
-                    # all_logl_map[n_pc] = logl_map
 
                 # plot all ccf maps for each n_pc
-                ccf_obj, logl_obj = corr.plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, 
-                                                    config_dict, mol, mask_tellu, mask_wings, id_pc0=None, 
-                                                    order_indices=np.arange(75), path_fig = path_fig)
+                # load all ccf maps and reductions for (mask_tellu, mask_wings) at each n_pc
+
+                ccf_obj, logl_obj = corr.plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, scratch_dir, 
+                                                      visit_name, planet, id_pc0=None, order_indices=np.arange(75), 
+                                                      path_fig = path_fig)
                 
-            # plots for each mask_wings -   working, need to make new functions to plots have right axes/titles
+            # plots for each mask_wings 
             for n_pc in config_dict['n_pc']:
-                ccf_obj, logl_obj = corr.plot_all_maskwings(all_ccf_map, all_logl_map, all_reductions, 
-                                                        config_dict, mol, mask_tellu, n_pc, id_pc0=None, 
-                                                        order_indices=np.arange(75), path_fig = path_fig)
+                # load all ccf map and reductions for (mask_tellu, n_pc) at each mask_wings
+                ccf_obj, logl_obj = corr.plot_all_maskwings(config_dict, planet, mol, mask_tellu, n_pc, 
+                                                            scratch_dir, visit_name, id_pc0=None, 
+                                                            order_indices=np.arange(75), path_fig = path_fig)
 
         # plots for each mask_tellu
         for n_pc in config_dict['n_pc']:
             for mask_wings in config_dict['mask_wings']:
-                ccf_obj, logl_obj = corr.plot_all_masktellu(all_ccf_map, all_logl_map, all_reductions,
-                                                            config_dict, mol, mask_wings, n_pc, id_pc0=None, 
+                ccf_obj, logl_obj = corr.plot_all_masktellu(config_dict, planet, mol, mask_wings, n_pc, 
+                                                            scratch_dir, visit_name, id_pc0=None, 
                                                             order_indices=np.arange(75), path_fig = path_fig)
         
         if [mask_tellu, mask_wings, n_pc] == config_dict['night_params']:
@@ -166,7 +160,6 @@ def run_pipe(config_filepath, model_filepath):
                 if [mask_tellu, mask_wings, n_pc] == config_dict['night_params']:
                     corr.combined_visits_ccf(planet, single_mol, wave_mod, mod_spec, scratch_dir, path_fig, out_dir, config_dict)                                
                                             
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run the pipeline with the given config files.')

@@ -70,13 +70,13 @@ def inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, scratch_dir, nametag
 
 def perform_ccf(config_dict, transit, mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig, visit_name, corrRV = []):
 
-    nametag = f'_{visit_name}_{mol}_pc{n_pc}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
-    out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_pc{n_pc}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
+    nametag = f'_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
     
     corr_obj = classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, nametag) 
 
     try:
         # Check if ccf for individual visit was already generated
+        out_filename = f'inj_ccf_logl_seq{nametag}'
         saved_values = np.load(scratch_dir / Path(out_filename).with_suffix('.npz'))
         ccf_map = saved_values['corr']
         logl_map = saved_values['logl']
@@ -87,15 +87,26 @@ def perform_ccf(config_dict, transit, mol, wave_mod, mod_spec, n_pc, mask_tellu,
     return ccf_map, logl_map
 
 
-def plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, config_dict, mol, mask_tellu, mask_wings, id_pc0=None, order_indices=np.arange(75), path_fig = Path('.')):
+def plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, scratch_dir, visit_name, planet, id_pc0=None, order_indices=np.arange(75), path_fig = Path('.')):
     
     corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
-    transit = all_reductions[(config_dict['n_pc'][0], mask_tellu, mask_wings)]
+
+    n_pc = config_dict['n_pc'][0]
+    fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+    transit = pl_obs.load_single_sequences(fname, planet.name, path=scratch_dir,
+                                load_all=False, filename_end='', plot=False, planet=planet)
+    
     Kp_array = np.array([transit.Kp.value])
 
-    ccf_maps_in = [all_ccf_map[(n_pc, mask_tellu, mask_wings)] for n_pc in config_dict['n_pc']]
+    ccf_maps_in = []
+    logl_maps_in = []
+    for n_pc in  config_dict['n_pc']:
+        out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+        saved_values = np.load(scratch_dir / Path(out_filename).with_suffix('.npz'))
+        ccf_maps_in.append(saved_values['corr'])
+        logl_maps_in.append(saved_values['logl'])
+
     ccf_maps_in = np.concatenate(ccf_maps_in, axis=-2)
-    logl_maps_in = [all_logl_map[(n_pc, mask_tellu, mask_wings)] for n_pc in config_dict['n_pc']]
     logl_maps_in = np.concatenate(logl_maps_in, axis=-2)
 
     out_filename = f'_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
@@ -106,47 +117,72 @@ def plot_all_ccf(all_ccf_map, all_logl_map, all_reductions, config_dict, mol, ma
     
     return ccf_obj, logl_obj
 
-def plot_all_maskwings(all_ccf_map, all_logl_map, all_reductions, config_dict, mol, mask_tellu, n_pc, id_pc0=None, order_indices=np.arange(75), path_fig = Path('.')):
+def plot_all_maskwings(config_dict, planet, mol, mask_tellu, n_pc, scratch_dir, visit_name, id_pc0=None, order_indices=np.arange(75), path_fig = Path('.')):
 
     corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
-    transit = all_reductions[(n_pc, mask_tellu, config_dict['mask_wings'][0])]
+
+    mask_wings = config_dict['mask_wings'][0]
+    fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+    transit = pl_obs.load_single_sequences(fname, planet.name, path=scratch_dir,
+                                load_all=False, filename_end='', plot=False, planet=planet)
+    
     Kp_array = np.array([transit.Kp.value])
 
-    ccf_maps_in = [all_ccf_map[(n_pc, mask_tellu, mask_wings)] for mask_wings in config_dict['mask_wings']]
+    # load existing ccf maps for each mask_wings
+    ccf_maps_in = []
+    logl_maps_in = []
+
+    for mask_wings in config_dict['mask_wings']:
+        out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+        saved_values = np.load(scratch_dir / Path(out_filename).with_suffix('.npz'))
+        ccf_maps_in.append(saved_values['corr'])
+        logl_maps_in.append(saved_values['logl'])
+
     ccf_maps_in = np.concatenate(ccf_maps_in, axis=-1)
-    logl_maps_in = [all_logl_map[(n_pc, mask_tellu, mask_wings)] for mask_wings in config_dict['mask_wings']]
     logl_maps_in = np.concatenate(logl_maps_in, axis=-1)
 
-    out_filename = f'_{mol}_n_pc{n_pc}_masktellu{mask_tellu*100:n}'
+    out_filename = f'_{mol}_masktellu{mask_tellu*100:n}_pc{n_pc}'
 
     # CHANGE THIS
     ccf_obj, logl_obj = cc.plot_ccflogl(transit, ccf_maps_in, logl_maps_in, corrRV,
                                         Kp_array, config_dict['mask_wings'], swapaxes=(-2, -1), 
                                         fig_name = out_filename, param = 'mask_wings', path_fig = path_fig, 
-                                        plot_prf = False, id_pc0 = 0)
+                                        plot_prf = False, id_pc0 = None)
     return ccf_obj, logl_obj
 
-def plot_all_masktellu(all_ccf_map, all_logl_map, all_reductions, config_dict, mol, mask_wings, n_pc, id_pc0=None, order_indices=np.arange(75), path_fig = Path('.')):
+def plot_all_masktellu(config_dict, planet, mol, mask_wings, n_pc, scratch_dir, visit_name, id_pc0=None, order_indices=np.arange(75), path_fig = Path('.')):
 
     corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
-    transit = all_reductions[(n_pc, config_dict['mask_tellu'][0], mask_wings)]
+
+    # load in a transit to get planet/obs values, doesn't matter which values you use here
+    mask_tellu = config_dict['mask_tellu'][0]
+    fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+    transit = pl_obs.load_single_sequences(fname, planet.name, path=scratch_dir,
+                                load_all=False, filename_end='', plot=False, planet=planet)
+
     Kp_array = np.array([transit.Kp.value])
 
-    ccf_maps_in = [all_ccf_map[(n_pc, mask_tellu, mask_wings)] for mask_tellu in config_dict['mask_tellu']]
+    # load existing ccf maps for each mask_tellu
+    ccf_maps_in = []
+    logl_maps_in = []
+
+    for mask_tellu in config_dict['mask_tellu']:
+        out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+        saved_values = np.load(scratch_dir / Path(out_filename).with_suffix('.npz'))
+        ccf_maps_in.append(saved_values['corr'])
+        logl_maps_in.append(saved_values['logl'])
+
     ccf_maps_in = np.concatenate(ccf_maps_in, axis=-1)
-    logl_maps_in = [all_logl_map[(n_pc, mask_tellu, mask_wings)] for mask_tellu in config_dict['mask_tellu']]
     logl_maps_in = np.concatenate(logl_maps_in, axis=-1)
 
-    out_filename = f'_{mol[0]}_n_pc{n_pc}_maskwings{mask_wings*100:n}'
+    out_filename = f'_{mol}_maskwings{mask_wings*100:n}_pc{n_pc}'
 
-    # CHANGE THIS
     ccf_obj, logl_obj = cc.plot_ccflogl(transit, ccf_maps_in, logl_maps_in, corrRV,
                                         Kp_array, config_dict['mask_tellu'], swapaxes=(-2, -1), 
                                         fig_name = out_filename, param = 'mask_tellu', path_fig = path_fig, 
-                                        plot_prf = False, id_pc0 = 0)
+                                        plot_prf = False, id_pc0 = None)
     return ccf_obj, logl_obj
     
-
 def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, out_dir, config_dict, order_indices=np.arange(75)):
     mask_tellu, mask_wings, n_pc = config_dict['night_params'][:3]
     combined_ccf = []
@@ -157,7 +193,7 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
     # getting all the reductions to combine
     filename_dict = {}
     for idx, visit_name in enumerate(config_dict['visit_name']):
-        file_name = f'retrieval_input_{visit_name}_pc{n_pc}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
+        file_name = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
         filename_dict[(str(idx+1), visit_name)] = file_name
     
     for key, fname in filename_dict.items():
@@ -168,7 +204,7 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
         transit = pl_obs.load_single_sequences(fname, planet.name, path=scratch_dir,
                                 load_all=False, filename_end='', plot=False, planet=planet)
         
-        out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_pc{n_pc}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
+        out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
 
         corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
         Kp_array = np.array([transit.Kp.value])
@@ -200,10 +236,11 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
     logl_maps_in = np.concatenate(combined_logl)
 
     # do combined ccf
-    out_filename = f'_combined_{mol}_pc{n_pc}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
+    out_filename = f'_combined_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
     
     ccf_obj, logl_obj = cc.plot_ccflogl(all_visits, ccf_maps_in, logl_maps_in, corrRV,
                                         Kp_array, config_dict['n_pc'], id_pc0=None, orders=order_indices, 
                                         path_fig = path_fig, map = True, fig_name = out_filename)
 
     return ccf_obj, logl_obj
+
