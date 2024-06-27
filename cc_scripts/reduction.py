@@ -181,11 +181,11 @@ def save_pl_sig(list_tr, nametag, scratch_dir, do_tr = [1]):
     pl_obs.save_single_sequences(out_filename, list_tr, path=scratch_dir, save_all=True)
 
 
-def reduction_plots(config_dict, list_tr, n_pc, path_fig, nametag): 
+def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag): 
     visit_list = [list_tr]  # You could put multiple visits in the same figure
 
     if n_pc == config_dict['n_pc'][0]:
-        pf.plot_airmass(visit_list, path_fig=str(path_fig), fig_name='')
+        pf.plot_night_summary_NIRPS(visit_list, obs, path_fig=str(path_fig), fig_name='')
 
     sequence_obj = list_tr
 
@@ -196,8 +196,7 @@ def reduction_plots(config_dict, list_tr, n_pc, path_fig, nametag):
 
 def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings, visit_name):
 
-    nametag = f'_{visit_name}_pc{n_pc}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
-    
+    nametag = f'_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
     # check if reduction already exists
     if os.path.exists(scratch_dir / f'retrieval_input{nametag}_data_trs_.npz'):
         print(f"Reduction already exists for {nametag}. Loading...")
@@ -212,6 +211,6 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, 
     save_pl_sig(list_tr, nametag, scratch_dir)
 
     # outputting plots for reduction step
-    reduction_plots(config_dict, list_tr, n_pc, path_fig, nametag)
+    reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag)
 
     return list_tr

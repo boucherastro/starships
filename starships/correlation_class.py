@@ -1869,7 +1869,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                               kp0=0, RV_limit=corrRV0.max() - 20, kp_step=5, rv_step=2, RV=None, speed_limit=3,
                               icorr=tr.iIn,
                               equal_var=False,  fig_name=label, path_fig=path_fig)
-    else:
+    elif plot_prf:
         for id_pc in range(len(n_pcas)):
             if fig_name is not None:
                 if len(fig_name) > 1:

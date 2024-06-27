@@ -1719,32 +1719,67 @@ def plot_logl_grid(logl_grid, n_pcas, cases, cond, pCloud, corrRV0, sig='with', 
 def plot_airmass(list_tr, markers=['o','s','d'], 
                 colors=['darkblue','dodgerblue','darkorange'], fig_name='', path_fig=None):
 
-    plt.figure(figsize=(8,3.5))
+    ig, ax = plt.subplots(3,1, figsize=(9,8))
+
+    # plt.figure(figsize=(8,3.5))
 
     for i,tr in enumerate(list_tr):
-        plt.plot(tr.phase, tr.AM,'-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
+        ax[0].plot(tr.phase, tr.AM,'-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
 
     phase_t1 = np.min([tr.phase[tr.iIn[0]] for tr in list_tr])
     phase_t2 = np.min([tr.phase[tr.total[0]] for tr in list_tr])
     phase_t3 = np.max([tr.phase[tr.total[-1]] for tr in list_tr])
     phase_t4 = np.max([tr.phase[tr.iIn[-1]] for tr in list_tr])
 
-    plt.axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
-    plt.axvspan(phase_t2, phase_t3, alpha=0.2)
-    plt.axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+    ax[0].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[0].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[0].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
 
-    plt.ylabel('Airmass', fontsize=16)
-    plt.xlabel(r'Orbital phase ($\phi$)', fontsize=16)
-    plt.legend(loc='upper left', fontsize=12)
-    plt.tight_layout()
+    ax[0].ylabel('Airmass', fontsize=16)
+    ax[0].xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    ax[0].legend(loc='upper left', fontsize=12)
+    ax[0].tight_layout()
 
-    if path_fig is not None:
-        plt.savefig(path_fig+'fig_airmass{}.pdf'.format(fig_name))
+    # if path_fig is not None:
+    #     plt.savefig(path_fig+'fig_airmass{}.pdf'.format(fig_name))
 
-    fig, ax = plt.subplots(2,1, figsize=(9,8))
+    # fig, ax = plt.subplots(2,1, figsize=(9,8))
     
     hband = a.bands(tr.wv,'h')[2:-2]
     
+    for i,tr in enumerate(list_tr):
+        ax[1].plot(np.mean(tr.wv,axis=-1).T, np.nanmean(tr.SNR,axis=0).T,
+                   '-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
+
+
+    ax[1].set_ylabel('Mean S/N\nper order', fontsize=16)
+    ax[1].set_xlabel(r'Wavelength ($\mu$m)', fontsize=16)
+    # ax[0].axvspan(np.mean(tr.wv,axis=-1)[28], np.mean(tr.wv,axis=-1)[36], alpha=0.2, color='darkorange',label='H-band')
+    ax[1].legend(loc='upper left', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+
+    for i,tr in enumerate(list_tr):
+        ax[2].plot(tr.phase, np.nanmean(tr.SNR[:, hband],axis=-1),'-', marker=markers[i], color=colors[i])
+
+
+    ax[2].set_ylabel('Mean H-band S/N\nper exposure', fontsize=16)
+    ax[2].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+
+    ax[2].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[2].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[2].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+
+    ax[2].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+
+    if path_fig is not None:
+        plt.savefig(path_fig+'fig_SNR{}.pdf'.format(fig_name))
+
+
+def plot_night_summary_NIRPS(list_tr, obs, markers=['o','s','d'], 
+                colors=['darkblue','dodgerblue','darkorange'], fig_name='', path_fig=None):
+
+    fig, ax = plt.subplots(5,1, figsize=(8,15))
+    
+    # plot mean s/n per order
     for i,tr in enumerate(list_tr):
         ax[0].plot(np.mean(tr.wv,axis=-1).T, np.nanmean(tr.SNR,axis=0).T,
                    '-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
@@ -1752,24 +1787,76 @@ def plot_airmass(list_tr, markers=['o','s','d'],
 
     ax[0].set_ylabel('Mean S/N\nper order', fontsize=16)
     ax[0].set_xlabel(r'Wavelength ($\mu$m)', fontsize=16)
-    # ax[0].axvspan(np.mean(tr.wv,axis=-1)[28], np.mean(tr.wv,axis=-1)[36], alpha=0.2, color='darkorange',label='H-band')
-    ax[0].legend(loc='upper left', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+    ax[0].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
 
+    # plot airmass
     for i,tr in enumerate(list_tr):
-        ax[1].plot(tr.phase, np.nanmean(tr.SNR[:, hband],axis=-1),'-', marker=markers[i], color=colors[i])
+        ax[1].plot(tr.phase, tr.AM,'-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
 
-
-    ax[1].set_ylabel('Mean H-band S/N\nper exposure', fontsize=16)
-    ax[1].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    phase_t1 = np.min([tr.phase[tr.iIn[0]] for tr in list_tr])
+    phase_t2 = np.min([tr.phase[tr.total[0]] for tr in list_tr])
+    phase_t3 = np.max([tr.phase[tr.total[-1]] for tr in list_tr])
+    phase_t4 = np.max([tr.phase[tr.iIn[-1]] for tr in list_tr])
 
     ax[1].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[1].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[1].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
 
-    ax[1].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+    ax[1].set_ylabel('Airmass', fontsize=16)
+    # ax[1].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    ax[1].legend(loc='best', fontsize=12)
+    
+
+    # plot mean s/n per exposure in Y and H band
+    hband = a.bands(tr.wv,'h')[2:-2]
+    yband = a.bands(tr.wv,'y')[2:-2]
+    
+    for i,tr in enumerate(list_tr):
+        ax[2].plot(tr.phase, np.nanmean(tr.SNR[:, hband],axis=-1),'-', marker=markers[i], color=colors[0], label = 'H-band')
+        ax[2].plot(tr.phase, np.nanmean(tr.SNR[:, yband],axis=-1),'-', marker=markers[i], color='darkred', label = 'Y-band')
+
+    ax[2].set_ylabel('Mean S/N\nper exposure', fontsize=16)
+#     ax[2].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+
+    ax[2].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[2].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[2].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+
+    ax[2].legend(loc='best', fontsize=12, ncol = 2) #, bbox_to_anchor=(0.9, 0.71)
+    
+    # plot H2O telluric pre-clean exponent
+    for i,tr in enumerate(list_tr):
+        ax[3].plot(tr.phase, obs.headers_tellu.get_all('TLPEH2O')[0], '-', marker=markers[i], color=colors[0])
+    
+    ax[3].set_ylabel('Telluric exp. H2O', fontsize=16)
+#     ax[3].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+
+    ax[3].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[3].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[3].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+    
+    # plot other tellurice pre-clean exponents
+    for i,tr in enumerate(list_tr):
+        ax[4].plot(tr.phase, obs.headers_tellu.get_all('TLPEOTR')[0], '-', marker=markers[i], color=colors[i])
+    
+    ax[4].set_ylabel('Telluric exp. \nother species', fontsize=16)
+    ax[4].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+
+    ax[4].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[4].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[4].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+    
+    fig.text(0, 0, 'SEEING INFO:', ha = 'left', va = 'bottom', fontsize = 16)
+    start = 'Average seeing at start: {:5f} arcsec'.format(np.mean(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM START')))
+    fig.text(0, -0.02, start, ha='left', va='bottom', fontsize=12)
+    
+    end = 'Average seeing at end: {:5f} arcsec'.format(np.mean(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM END')))
+    fig.text(0, -0.04, end, ha='left', va='bottom', fontsize=12)
+    
+    fig.tight_layout()
 
     if path_fig is not None:
-        plt.savefig(path_fig+'fig_SNR{}.pdf'.format(fig_name))
+        plt.savefig(path_fig+'night_summary{}.pdf'.format(fig_name), bbox_inches='tight')
         
             
 # def plot_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False):
