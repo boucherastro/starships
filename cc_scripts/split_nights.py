@@ -124,8 +124,8 @@ def split_night(obs_dir, path_fig):
         y_pos -= 0.1
 
     plt.tight_layout()
-    plt.show()
-    plt.savefig(path_fig + '/night_split.pdf') # CHANGE THIS
+    # plt.show()
+    plt.savefig(path_fig + '/night_split.pdf', bbox_inches='tight') # CHANGE THIS
     print('Saved figure')
 
     """****************************************************"""
