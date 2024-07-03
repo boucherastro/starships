@@ -1777,7 +1777,7 @@ def plot_airmass(list_tr, markers=['o','s','d'],
 def plot_night_summary_NIRPS(list_tr, obs, markers=['o','s','d'], 
                 colors=['darkblue','dodgerblue','darkorange'], fig_name='', path_fig=None):
 
-    fig, ax = plt.subplots(5,1, figsize=(8,15))
+    fig, ax = plt.subplots(6,1, figsize=(8,15))
     
     # plot mean s/n per order
     for i,tr in enumerate(list_tr):
@@ -1845,14 +1845,15 @@ def plot_night_summary_NIRPS(list_tr, obs, markers=['o','s','d'],
     ax[4].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[4].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[4].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
-    
-    fig.text(0, 0, 'SEEING INFO:', ha = 'left', va = 'bottom', fontsize = 16)
-    start = 'Average seeing at start: {:5f} arcsec'.format(np.mean(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM START')))
-    fig.text(0, -0.02, start, ha='left', va='bottom', fontsize=12)
-    
-    end = 'Average seeing at end: {:5f} arcsec'.format(np.mean(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM END')))
-    fig.text(0, -0.04, end, ha='left', va='bottom', fontsize=12)
-    
+
+    mean_seeing = (obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM START') + obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM END')) / 2
+    ax[5].plot(tr.phase, mean_seeing, '-', markers = markers[i], color = colors[i])
+    ax[5].set_ylabel('Mean seeing')
+    ax[4].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    ax[5].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[5].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[5].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+
     fig.tight_layout()
 
     if path_fig is not None:
