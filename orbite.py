@@ -216,22 +216,22 @@ def transit(Rs, Rp, sep, z=None, nu=None, r=None, vr=None, i_tperi=None, w=None)
         if nu.size == sep.size:
             nu = np.squeeze(nu)
 
-            if r is not None:
-                plt.figure()
-                ax1 = plt.subplot(111, projection='polar')
-                ax1.plot(nu[out], r[out], 'r')
-                ax1.plot(nu[limb], r[limb], 'gx')
-                ax1.plot(nu[transit], r[transit], 'b+')
-                if (i_tperi < nu.size) :
-                    if (i_tperi is not None):
+#             if r is not None:
+#                 plt.figure()
+#                 ax1 = plt.subplot(111, projection='polar')
+#                 ax1.plot(nu[out], r[out], 'r')
+#                 ax1.plot(nu[limb], r[limb], 'gx')
+#                 ax1.plot(nu[transit], r[transit], 'b+')
+#                 if (i_tperi < nu.size) :
+#                     if (i_tperi is not None):
 
-                        ax1.plot(nu[i_tperi], r[i_tperi], '*')
-                    if w is not None:
-                        to_observer = nu[i_tperi] - w.to(u.rad).value - cst.pi / 2.
-                        ax1.plot([0, to_observer], [0, 1.8e10], '--k')
-                        ax1.text(to_observer, 1.8e10, 'To observer')
-                ax1.set_rmax(2.0e10)
-                plt.show()
+#                         ax1.plot(nu[i_tperi], r[i_tperi], '*')
+#                     if w is not None:
+#                         to_observer = nu[i_tperi] - w.to(u.rad).value - cst.pi / 2.
+#                         ax1.plot([0, to_observer], [0, 1.8e10], '--k')
+#                         ax1.text(to_observer, 1.8e10, 'To observer')
+#                 ax1.set_rmax(2.0e10)
+#                 plt.show()
 
 #            plt.figure()
 #            plt.polar(nu[out],r[out],'r')

@@ -310,27 +310,27 @@ def read_all_sp_spirou_apero(path, file_list, wv_default=None, blaze_default=Non
     return headers, np.array(wv), np.array(count), np.array(blaze), filenames
 
 
-def read_all_sp_spirou_CADC(path, file_list):
-    
-    """
+def read_all_sp_spirou_CADC(path, filename, file_list):
+    '''
     Read all CADC-type spectra
-    Must have a list with all filename to read 
-    Note : Probably old
-    """
-    
+    Must have a list with all filenames to read
+    Note : Probably old-----updated by georgia on May 22, 2024
+    '''
     headers_princ, headers_image, headers_tellu = list_of_dict([]), list_of_dict([]), list_of_dict([])
     count, wv, blaze, recon = [], [], [], []
     filenames = []
-    with open(path + file_list) as f:
-
+    # print(path)
+    with open(path + '/' + filename) as f:
         for file in f:
-           # print(file)
+            # print(file)
             filenames.append(file.split('\n')[0])
-            hdul = fits.open(path + file.split('\n')[0])
-            
+            # print(filenames)
+            # print(file.split(‘\n’)[0])
+            # print(path+‘/’+file.split(‘\n’)[0])
+            hdul = fits.open(path + '/' + file.split('\n')[0])
+            # print(hdul)
             headers_princ.append(hdul[0].header)
             headers_image.append(hdul[1].header)
-            
             if file_list == 'list_v':
                 count.append(hdul[1].data)
             else:
@@ -340,11 +340,9 @@ def read_all_sp_spirou_CADC(path, file_list):
                     ext = [1,2,3]
                 if file_list == 'list_e2ds':
                     ext = [1,5,9]
-
                 count.append(hdul[ext[0]].data)
                 wv.append(hdul[ext[1]].data / 1000)
                 blaze.append(hdul[ext[2]].data)
-    
     return headers_princ, headers_image, headers_tellu, np.array(wv), \
             np.array(count), np.array(blaze), np.array(recon), filenames
 
@@ -640,6 +638,7 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
         T0 = p.mid_tr + 0.5 * p.period.to(u.d)
         z = None
     
+    print(p.mid_tr)
     
     i_peri = np.searchsorted(self.t, p.mid_tr)
 
@@ -648,6 +647,8 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
                                  z=z, nu=self.nu, r=np.array(rp.decompose()), i_tperi=i_peri, w=p.w)
     #         print(out,part,total)
 
+    
+        
     if kind_trans == 'transmission':
         print('Transmission')
         self.iOut = out
@@ -662,12 +663,12 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
         self.part = part
         self.total = out
         self.iIn = np.sort(np.concatenate([out]))
-
     #             print(self.iIn.size, self.iOut.size)
 
     self.iin, self.iout = o.where_is_the_transit(self.t, p.mid_tr, p.period, p.trandur)
     self.iout_e, self.iin_e = o.where_is_the_transit(self.t, p.mid_tr + 0.5 * p.period, p.period, p.trandur)
 
+    
     if (self.part.size == 0) and (iin is True):
         print('Taking iin and iout')
         if kind_trans == 'transmission':
@@ -683,17 +684,17 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
         fig, ax = plt.subplots(2, 1, sharex=True)
         ax[1].plot(self.t, np.nanmean(self.SNR[:, :], axis=-1), 'o-')
         if out.size > 0:
-            ax[0].plot(self.t[self.iOut], self.AM[self.iOut], 'ro')
+            ax[0].plot(self.t[self.iOut], self.AM[self.iOut], 'ro', label="Out of transit")
             #             ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'ro')
-            ax[1].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'ro')
+            ax[1].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'ro', label="Out of transit")
         if part.size > 0:
-            ax[0].plot(self.t[self.part], self.AM[self.part], 'go')
+            ax[0].plot(self.t[self.part], self.AM[self.part], 'go', label="Ingress/Egress")
             #             ax[1].plot(self.t[self.part], self.adc1[self.part],'go')
-            ax[1].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :], axis=-1), 'go')
+            ax[1].plot(self.t[self.part], np.nanmean(self.SNR[self.part, :], axis=-1), 'go', label="Ingress/Egress")
         if total.size > 0:
-            ax[0].plot(self.t[self.total], self.AM[self.total], 'bo')
+            ax[0].plot(self.t[self.total], self.AM[self.total], 'bo', label="In transit")
             #             ax[1].plot(self.t[self.total], self.adc1[self.total],'bo')
-            ax[1].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :], axis=-1), 'bo')
+            ax[1].plot(self.t[self.total], np.nanmean(self.SNR[self.total, :], axis=-1), 'bo', label="In transit")
         if self.iin.size > 0:
             ax[0].plot(self.t[self.iIn], self.AM[self.iIn], 'g.')
             #             ax[1].plot(self.t[self.iIn], self.adc1[self.iIn],'g.')
@@ -702,15 +703,21 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
             ax[0].plot(self.t[self.iOut], self.AM[self.iOut], 'r.')
             #             ax[1].plot(self.t[self.iOut], self.adc1[self.iOut],'r.')
             ax[1].plot(self.t[self.iOut], np.nanmean(self.SNR[self.iOut, :], axis=-1), 'r.')
-
+        
         ax[0].set_ylabel('Airmass')
         # ax[1].set_ylabel('ADC1 angle')
+        ax[1].set_xticks(np.array(self.t), np.arange(1, np.shape(self.t)[0] + 1))
+        ax[1].set_xlabel("Exposition")
         ax[1].set_ylabel('Mean SNR')
+        ax[0].legend()
+        ax[1].legend()
 
     self.alpha = hm.calc_tr_lightcurve(p, coeffs, self.t, T0, ld_model=ld_model, kind_trans=kind_trans)
     #         self.alpha = np.array([(hm.circle_overlap(p.R_star.to(u.m), p.R_pl.to(u.m), sep) / \
     #                         p.A_star).value for sep in self.sep]).squeeze()
     #         self.alpha = np.array([hm.circle_overlap(p.R_star, p.R_pl, sep).value for sep in self.sep])
+    
+    
     self.alpha_frac = self.alpha / self.alpha.max()
 
     self.kind_trans, self.coeffs, self.ld_model = kind_trans, coeffs, ld_model
@@ -773,6 +780,7 @@ class Observations():
         """
         Retrieve all the relevent data in path 
         (tellu corrected, tellu recon and uncorrected spectra from lists of files)
+        Georgia Mraz--debugged CADC function on May 22nd 2024
         """
 
         # TODO Remove CADC references -> Use an instrument/reduction configuration instead
@@ -787,12 +795,14 @@ class Observations():
 
             log.info('Fetching data')
             headers, headers_image, headers_tellu, \
-            wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr)
+            wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr, 'list_tellu_corrected')
+           
+
 
             self.headers_image, self.headers_tellu = headers_image, headers_tellu
-
             log.info("Fetching the uncorrected spectra")
-            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds)
+            _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path,
+                                                                                                  list_e2ds,'list_e2ds')
 
         else:
             log.info("Fetching the uncorrected spectra")
@@ -899,7 +909,7 @@ class Observations():
                             instrument=self.instrument_name)
     
     # switched hard '49' value to self.nord
-    # call instrument dictionary for problematic header keys
+    # call instrument dictionary for problematic header keys         
     def calc_sequence(self, plot=True, sequence=None, K=None, uncorr=False, iin=False,
                       coeffs=[0.4], ld_model='linear', time_type='BJD', kind_trans='transmission'):
         
@@ -915,6 +925,7 @@ class Observations():
         if sequence is None:
             
             if self.CADC is False:
+
                 if time_type == 'BJD':
                     self.t_start = Time(np.array(self.headers.get_all(self.instrument['bjd'])[0], dtype='float'),
                                 format='jd').jd.squeeze()# * u.d
@@ -947,6 +958,11 @@ class Observations():
                     self.berv0 = berv
 
             else:
+                # print('CADC correct')
+                
+                print((self.headers_image.get_all('EXTSN002')))
+                
+                
 #                 obs_date = [date+' '+hour for date,hour in zip(self.headers_image.get_all('DATE-OBS')[0], \
 #                                                self.headers.get_all('UTIME')[0])]
 #                 self.t_start = Time(obs_date).jd * u.d
@@ -959,14 +975,17 @@ class Observations():
                     self.t_start = Time((np.array(self.headers_image.get_all('MJDATE')[0], dtype='float') + \
                                         np.array(self.headers_image.get_all('MJDEND')[0], dtype='float')) / 2,
                                 format='jd').jd.squeeze() #* u.d
+                    
+            #note to self---> this was commented out (lines 976-982 of the SNR and BERV) and i put it back to make the CADC reduction run
+            #also the EXTSN+{003} was changed from 03 to 003 - Georgia Mraz(May 23rd 2024) also the EXTSN+{003} was changed from 03 to 003
 
-                # try:
-                #     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
-                #                              dtype='float') for order in range(self.nord)]).T
-                # except KeyError:
-                #     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:03}'.format(order))[0], \
-                #                          dtype='float') for order in range(self.nord)]).T
-                # self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
+                try:
+                    self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
+                                             dtype='float') for order in range(self.nord)]).T
+                except KeyError:
+                    self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:003}'.format(order))[0], \
+                                         dtype='float') for order in range(self.nord)]).T
+                self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
             
             self.dt = np.array(np.array(self.headers.get_all(self.instrument['exptime'])[0], dtype='float') ).squeeze() * u.s
             self.AM = np.array(self.headers.get_all(self.instrument['airmass'])[0], dtype='float').squeeze()
@@ -1853,7 +1872,7 @@ def save_single_sequences(filename, tr, path='',
              final = tr.final,
              mask_spec_trans = tr.spec_trans.mask,
              mask_final = tr.final.mask,
-             # alpha_frac = tr.alpha_frac,
+                 # alpha_frac = tr.alpha_frac,
              filenames=tr.filenames,
              icorr = tr.icorr,
              bad_indexs = bad_indexs,
@@ -1862,12 +1881,12 @@ def save_single_sequences(filename, tr, path='',
              phase = tr.phase,
              SNR = tr.SNR,
              nu = tr.nu,
-                 berv0=tr.berv0,
-                 AM=tr.AM,
-                 RV_sys = tr.RV_sys,
-                kind_trans = tr.kind_trans,
-                 coeffs = tr.coeffs,
-                 ld_model = tr.ld_model,
+             berv0=tr.berv0,
+             AM=tr.AM,
+             RV_sys = tr.RV_sys,
+             kind_trans = tr.kind_trans,
+             coeffs = tr.coeffs,
+             ld_model = tr.ld_model,
                  # iIn = tr.iIn,
                  # iOut = tr.iOut,
              )
@@ -1914,19 +1933,19 @@ def save_single_sequences(filename, tr, path='',
              final = tr.final,
              mask_spec_trans = tr.spec_trans.mask,
              mask_final = tr.final.mask,
-             # alpha_frac = tr.alpha_frac,
-                 filenames = tr.filenames,
+                 # alpha_frac = tr.alpha_frac,
+             filenames = tr.filenames,
              icorr = tr.icorr,
              bad_indexs = bad_indexs,
              clip_ts = tr.clip_ts,
              scaling = tr.scaling,
              phase = tr.phase,
-                 berv0=tr.berv0,
-                 AM=tr.AM,
-                 RV_sys=tr.RV_sys,
-                kind_trans = tr.kind_trans,
-                 coeffs = tr.coeffs,
-                 ld_model = tr.ld_model,
+             berv0=tr.berv0,
+             AM=tr.AM,
+             RV_sys=tr.RV_sys,
+             kind_trans = tr.kind_trans,
+             coeffs = tr.coeffs,
+             ld_model = tr.ld_model,
                  # iIn = tr.iIn,
                  # iOut = tr.iOut,
              SNR = tr.SNR,
@@ -2070,7 +2089,7 @@ def load_single_sequences(filename, name, path='',
                                 mask=data_tr['mask_spec_trans'])
     tr.tellu = np.ma.array(data_tr['tellu'],
                                 mask=data_tr['mask_tellu'])
-    # tr.alpha_frac = data_tr['alpha_frac']
+        # tr.alpha_frac = data_tr['alpha_frac']
     try:
         tr.filenames = data_tr['filenames']
     except KeyError:
@@ -2083,8 +2102,9 @@ def load_single_sequences(filename, name, path='',
     tr.phase = data_tr['phase']
 
     tr.icorr = data_tr['icorr']
-    # tr.iIn = data_tr['iIn']
-    # tr.iOut = data_tr['iOut']
+    
+        # tr.iIn = data_tr['iIn']
+        # tr.iOut = data_tr['iOut']
 
     tr.AM = data_tr['AM']
     tr.berv0 = data_tr['berv0']
