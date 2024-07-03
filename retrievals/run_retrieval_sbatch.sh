@@ -11,6 +11,12 @@
 # For burnin, use slurms array option
 # Ex: #SBATCH --array=1-10
 
+# When using the slurm array option, it is preferable to use the followin output name:
+# #SBATCH --output=/home/adb/scratch/sbatch_outputs/out_sbatch_%A_%a.txt
+# If not, it is preferable to use the following output name:
+# #SBATCH --output=/home/adb/scratch/sbatch_outputs/out_sbatch_%j.txt
+# This will be easier to identify the output file corresponding to the job ID.
+
 # Note regarding slurm array:
 #    The default behaviour of run_starships_retrieval is to assume that if slurm array is used,
 #    the retrieval is in its burnin phase. Therefore, the retrieval is launched as many times
