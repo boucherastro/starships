@@ -6,10 +6,12 @@ Spectral Transmission And Radiation Search for High resolutIon Planet Signal
 Eventually, there will be  an installation via pip install.
 For now, you will have to clone this repository
 ````shell
-git clone https://github.com/boucherastro/.git
+git clone https://github.com/AntoineDarveau/starships.git
 ````
-and use the file ``requirements.txt``
-to install the packages needed.
+Go into the directory and change the branch to develop
+```shell
+git checkout develop
+```
 The current versions is tested for python 3.9.
 Note that petitRADTRANS needs to be installed separately.
 
@@ -31,17 +33,22 @@ or (depending on how your environnements work)
 virtualenv --python="/path/to/python3.9" "/path/to/new/virtualenv/"
 source /path/to/new/virtualenv/bin/activate
 ```
+NOTE: If you don't know your path to python3.9, run `which python` or `which python3`
+
 For **compute canada**:
+If you are on compute canada, you can use the following script to install starships and petitRADTRANS. 
 ```shell
 module load gcc python/3.9 mpi4py
 virtualenv /path/to/new/virtualenv/
+pip install --no-index --upgrade pip
 source /path/to/new/virtualenv/bin/activate
 ```
+A good name for the virtual environment would be `starships_39` for example, so you would do `virtualenv ~/path/to/starships_39`. I personnaly put my environments in ~/venvs/ so I would do `virtualenv ~/venvs/starships_39`.
 
-#### 2. Install required packages
-Then you have to install the relevant Python packages :
+#### 2. Install STARSHIPS
+Navigate into starhips directory (`cd /path/to/starships`). Then install the package in editor mode (temporary until we upload starships on pyPI).
 
-`pip install -r /path/to/starships/requirements.txt`
+`pip install -e .`
 
 starships relies on atmospheric models from petitRADTRANS, so also install that :
 
@@ -67,7 +74,7 @@ atmosphere = Radtrans(line_species = ['CH4'], continuum_opacities=['H2-H2'])
 ```
 You may need to install other packages (we are still building this), so note what is missing when you run the code at tell me please
 
-#### 3. Keep a local version of exofile
+#### 3. Keep a local version of exofile (optional)
 (optional, but useful without internet connexion)
 
 (Required to work on **compute canada** clusters)
@@ -93,6 +100,18 @@ edit_param(exofile_alt='/path/to/my_local_exofile_alt.ecsv')
 ```
 If you want to use the database without internet, use `ExoFile.load(query=False, ...)`
 
+### Adding the environment to jupyter notebook (or any iPython kernel)
+
+You can create a kernel for the virtual environment to use it in Jupyter notebooks. I generally do this will all my environment. This will also become handy in VSCode to execute some specific part of a python code or play in an interactive ipython console. Here is how to do it:
+
+ ```bash
+ # Make sure you are in the virtual environment (source /path/to/new/virtualenv/bin/activate)
+ mkdir -p ~/.local/share/jupyter/kernels # Create the directory where the kernels are saved
+ pip install --no-index ipykernel  # Install the ipykernel package
+ python -m ipykernel install --user --name starships_39 --display-name "STARSHIPS Kernel (3.9)"  # Create the kernel
+ ```
+
+ See https://docs.alliancecan.ca/wiki/Advanced_Jupyter_configuration#Python_kernel for more details.
 
 ## Usage 
 

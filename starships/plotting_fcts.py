@@ -35,7 +35,7 @@ retrieval_plot_labels = { 'H2O': r"$\log_{10}$ H$_2$O",
                           'kp': r"$K_{\rm P}$",
                           'rv': r"$v_{\rm rad}$",
                           'tp_delta': r'$\log_{10} \delta$',
-                          'tp_gamma': r'$\gamma$',
+                          'tp_gamma': r'$\log_{10} \gamma$',
                           'tp_kappa': r'$\log_{10} \kappa$',
                           'tp_ptrans': r'$\log P_{trans}$',
                           'tp_alpha': r'$\alpha$'}
@@ -670,18 +670,36 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
 #         return interp_grid, snr_list
 
 def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
-                            vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr',
+                            vrp=None, RV_sys=None, limit_shift=60., vmin=None,vmax=None, vline=None, hline=None, kind='snr',
                             return_snr=False):
     
-    '''
+    """
     Plot Vrad vs exposition number for all orders, then Vrad vs SNR (in σ) for all orders.
-    
     The text above each small plot indicates: {index} - SNR: {mean SNR of that order} - {fraction of pixels with signal in that order}. The color of this text is the wavelength band: yellow-orange = y band; green = j band; steel blue = h band; purple = k band; red = areas of strong telluric absorption.
-    
-    The dashed vertical line is at Vrad = 0, or the Vsys of the planet in the planetary rest frame.
-    
+    The dashed vertical line is at Vrad = 0, or the Vsys of the planet in the planetary rest frame.    
     Each bottom plot shows the sum of each column in its associated top plot, normalized. The horizontal blue line is set at 2σ. A peak above 2σ or 3σ indicates a detection signal in that order. This is useful to check from which order / wavelength range a detection signal really comes from.
-    '''
+       Args:
+        corrRV (array-like): The RV values for correlation.
+        ccf (array-like): The cross-correlation function.
+        tr (object): The transit object.
+        output_file (str, optional): The output file path. Defaults to None.
+        icorr (int, optional): The index of the correlation. Defaults to None.
+        logl (bool, optional): Whether to plot the logarithm of the correlation. Defaults to False.
+        tresh (float, optional): The threshold for pixel fraction. Defaults to 0.4.
+        sharey (bool, optional): Whether to share the y-axis among subplots. Defaults to True.
+        vrp (array-like, optional): The radial velocity values. Defaults to None.
+        RV_sys (float, optional): The system radial velocity. Defaults to None.
+        limit_shift (float, optional): The limit for shifting. Defaults to 60.
+        vmin (float, optional): The minimum value for the color scale. Defaults to None.
+        vmax (float, optional): The maximum value for the color scale. Defaults to None.
+        vline (float, optional): The vertical line position. Defaults to None.
+        hline (float, optional): The horizontal line position. Defaults to None.
+        kind (str, optional): The type of plot ('snr' or 'courbe'). Defaults to 'snr'.
+        return_snr (bool, optional): Whether to return the SNR list. Defaults to False.
+
+    Returns:
+        list: The SNR list if return_snr is True.
+    """
     
     if icorr is None:
         icorr = tr.icorr
@@ -732,7 +750,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
                                 color=fg_color)
 
             shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*n_cols+j], corrRV, \
-                                                            vrp[icorr], RV_sys=RV_sys)
+                                                            vrp[icorr], RV_sys=RV_sys, limit_shift=limit_shift)
             snr_list.append(snr)
             if kind == 'courbe':
                 ax_single[i,j].plot(interp_grid, courbe)
@@ -792,7 +810,8 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
 
 
     fig,(ax00,ax0,ax01,ax1,ax2,ax3,ax4) = plt.subplots(7,1, sharex=True, 
-                                         gridspec_kw = {'height_ratios':[1.,1.,1.,1.,1.,1.,1.]}, figsize=(10,12))########HERE
+                                         gridspec_kw = {'height_ratios':[1.,1.,1.,1.,1.,1.,1.]},
+                                        figsize=(13,16))
     uncorr_fl = tr.uncorr/(tr.blaze/np.nanmax(tr.blaze, axis=-1)[:,:,None])
     ax00.plot(tr.wv[iord], (uncorr_fl[id_spec,iord]/uncorr_fl[id_spec,iord].mean(axis=-1)[None]).T  + 0.4,
               'k', alpha=1, label='Uncorrected Flux')
@@ -813,7 +832,7 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
     ax00.legend(loc='lower left')
 #     ax00.set_title('A) Mean SNR = {:.2f}'.format(45, tr.SNR[:,iord].mean()))
     ax00.set_ylabel('Normalized\nFlux',fontsize=12)
-    ax00.set_ylim(0.,3.3)
+    ax00.set_ylim(0.,2.1)
     
     divider00 = make_axes_locatable(ax00)
     cax00 = divider00.append_axes('right', size='3%', pad=0.05)
@@ -2150,3 +2169,28 @@ def plot_spectra_sample_GTC(wave, spectra_stats_list, colorsOrder=None, wv_range
             ax.plot(wv[idx_plt], y2[idx_plt], color=color_dict[key], **kwargs)
 
     return fig, ax
+
+
+def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None):
+    """Plot horizontal and vertical line at a given position.
+    Leave a hole at this position so the lines don't overplot at the wanted position."""
+    
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+    
+    # x_hole is the size of the region around x where the vertical line is not shown.
+    # y_hole is the size of the region around y where the horizontal line is not shown.
+    # x_hole and y_hole are in fraction of the x and y range.
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
+    x_hole = x_hole * (x_max - x_min)
+    y_hole = y_hole * (y_max - y_min)
+    
+    # Plot vertical and horizontal lines around the hole.
+    ax.vlines(x, y_min, y - y_hole,  color='grey', linestyle='--')
+    ax.vlines(x, y + y_hole, y_max, color='grey', linestyle='--')
+    ax.hlines(y, x_min, x - x_hole,  color='grey', linestyle='--')
+    ax.hlines(y, x + x_hole, x_max, color='grey', linestyle='--')
+    
+    return fig, ax
+    
+    

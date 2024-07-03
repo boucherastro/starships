@@ -161,9 +161,12 @@ def sum_logl(loglbl, icorr, orders, N, alpha=None, axis=0, del_idx=None,
     """Sum the log likelihood over the orders and the spectra.
     This may be done differently depending on the log likelihood prescription
     (e.g. Brogi 2019, 2 possible versions of Gibson 2020).
-    When 'nolog'=True, the Bro.
+    When `nolog`=True, the Bro.
     """
 
+    if orders is None:
+        orders = slice(None)
+ 
     if del_idx is not None:
         correlation = loglbl.copy()
         correlation[del_idx] = np.nan
@@ -644,9 +647,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                     hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
                                              n_pc, i+1,len(Kp_array),Kpi, f+1, models.shape[0], v+1,corrRV.size))
 
-                    Kp_scale=1
-                    velocities = vrad + vrp_orb - vr_orb * Kp_scale + RV_const
-    
+                    velocities = vrad + vrp_orb - vr_orb + RV_const
                     model_seq = gen_model_sequence_noinj(velocities,
                                          wave, sep, pca, int(params[5]),
                                          planet, wave_mod[20:-20], specMod[20:-20],

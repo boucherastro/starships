@@ -438,10 +438,26 @@ def col_remove(flux):
     return out.swapaxes(0, 1).reshape(shape)
 
 def get_mask_tell(tell, tresh, pad_tresh, pad_masked=False):
-    
+    """ Return a boolean mask of deep telluric lines.
+    Parameters
+    ----------
+    tell : array
+        Telluric transmission spectrum (between 0 and 1).
+    tresh : float
+        Mask lines deeper than this threshold (ex: less then 0.3).
+    pad_tresh : float
+        For the lines deeper than `thresh`, mask their wings up to
+        `pad_tresh` (ex: if `thresh` is 0.3 and `pad_tresh` is 0.9,
+        then the tellurics with transmission < 0.3 will be masked
+        up to 0.9).
+    pad_masked : bool
+        If True, mask 3 pixels each sides of already masked tellurics.
+
+    """
     if tell.mask.all():
         return tell.mask
-    
+
+#     # Old version
 #     new_mask = (tell < tresh)
 #      while True:
 #         temp_mask = np.convolve(new_mask, [1,1,1], 'same').astype(bool)

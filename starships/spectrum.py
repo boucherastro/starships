@@ -18,6 +18,8 @@ from astropy.convolution import Gaussian1DKernel
 # import astropy.io.ascii as ascii_ap
 from astropy.io import fits
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.colors import ListedColormap
 import scipy.constants as cst
 from scipy.interpolate import interp1d
 from scipy.io.idl import readsav
@@ -431,7 +433,7 @@ def resampling(wl, flux, Raf, Rbf=None, lb_range=None, ptsPerElem=1, sample=None
     # delta_v = cst since R = light_speed/delta_v, so
     # delta_v_after / delta_v_sampling = R_sampling / R_after
     fwhm = R_sampling / Raf
-    if isinstance(Raf, int) or isinstance(Raf, np.float64):
+    if np.isscalar(Raf):
         if Raf < Rbf :
             if rot_ker is None:
 #                 print('Resampling without rotation')
@@ -441,17 +443,19 @@ def resampling(wl, flux, Raf, Rbf=None, lb_range=None, ptsPerElem=1, sample=None
                 profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=fwhm)
 
             else:
-#                 print('Resampling with rotation')
-                # R_af is implicitly included in the rot_ker object
-                try:
-                    profil = rot_ker.resample(R_sampling, n_os=1000, pad=7)
-                except KernelIndexError:
-                    # - On on va vouloir un vecteur de taille ~7xfwhm
-                    taille = hm.myround(fwhm * 7, base=2) + 1
-                    # - On génère notre gaussienne avec le nb de point (pxl) qu'on vient de calculer
-                    profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=fwhm)
-#             print(flux)
-#             print(profil)
+                if isinstance(rot_ker, np.ndarray):
+                    profil = rot_ker
+                else:
+    #                 print('Resampling with rotation')
+                    # R_af is implicitly included in the rot_ker object
+                    try:
+                        profil = rot_ker.resample(R_sampling, n_os=500, pad=7)
+                    except KernelIndexError:
+                        # - On on va vouloir un vecteur de taille ~7xfwhm
+                        taille = hm.myround(fwhm * 7, base=2) + 1
+                        # - On génère notre gaussienne avec le nb de point (pxl) qu'on vient de calculer
+                        profil = hm.gauss(np.arange(taille), mean=(taille - 1) / 2, FWHM=fwhm)
+            
             # - On convolue notre ancien spectre avec le nouveau profil
             new_flux = np.convolve(flux, profil, mode='same')
             # - Notre nouveau spectre a la bonne résolution, mais pas le bon échantillonnage
@@ -609,9 +613,14 @@ class BaseKer:
             fwhm = self.res_elem
 
         if rot_ker is None: 
-            v_grid, rot_ker = self.get_ker(norm=norm, **kwargs)
+            results = self.get_ker(norm=norm, **kwargs)
+            v_grid, rot_ker = results[:2]
+            
         gauss_ker = hm.gauss(v_grid, 0.0, FWHM=fwhm)
+        gauss_ker /= gauss_ker.sum()
+        
         out_ker = np.convolve(rot_ker, gauss_ker, mode='same')
+        
         if norm:
             out_ker /= out_ker.sum()
         return v_grid, out_ker
@@ -639,9 +648,11 @@ class BaseKer:
         dv_new = const.c / res_sampling
         dv_new = dv_new.to('m/s').value
         v_grid, kernel = self.degrade_ker(rot_ker=rot_ker, v_grid=v_grid, norm=norm, fwhm=fwhm, **kwargs)
+        dv_old = np.diff(v_grid).mean()
         ker_spl = interp1d(v_grid, kernel, kind='linear')
         v_grid = np.arange(v_grid.min(), v_grid.max(), dv_new)
         out_ker = ker_spl(v_grid)
+        out_ker *= dv_new / dv_old
         return out_ker
     
     def show(self, norm=True, **kwargs):
@@ -655,8 +666,8 @@ class BaseKer:
         res_elem = self.res_elem
         v_grid, kernel = self.get_ker(norm=norm, **kwargs)
         gauss_ker = hm.gauss(v_grid, 0.0, FWHM=res_elem)
-        if norm:
-            gauss_ker /= gauss_ker.sum()
+        # if norm:
+        #     gauss_ker /= gauss_ker.sum()
         _, ker_degraded = self.degrade_ker(norm=norm, **kwargs)
         fig = plt.figure()
         plt.plot(v_grid/1e3, gauss_ker, "--", color="gray",
@@ -670,6 +681,10 @@ class BaseKer:
         plt.legend()
         plt.xlabel('dv [km/s]')
         plt.ylabel('Kernel')
+        
+        axtwin = plt.gca().twinx()
+        axtwin.plot(v_grid/1e3, gauss_ker, "--", color="gray",
+                    label='Instrumental resolution element')
 
         return fig
 
@@ -768,9 +783,14 @@ class BaseKerMulti:
         out_ker_list = []
         for rot_ker in rot_ker_list:
             ker_spl = interp1d(v_grid, rot_ker, kind='linear')
-            v_grid = np.arange(v_grid.min(), v_grid.max(), dv_new)
-            out_ker_list.append(ker_spl(v_grid))
-
+            v_grid_new = np.arange(v_grid.min(), v_grid.max(), dv_new)
+            out_ker_list.append(ker_spl(v_grid_new))
+            
+        # Make sure the sum over all kernels is 1 (conservation of flux)
+        if norm == True:
+            all_sum = np.sum(out_ker_list)
+            out_ker_list = [ker / all_sum for ker in out_ker_list]
+            
         return out_ker_list
 
 
@@ -1106,7 +1126,7 @@ class RotKerTransitCloudy(BaseKer):
         self.amp1 = amp1
         self.amp2 = amp2
         
-    def get_ker(self, n_os=None, pad=7, v_grid=None):
+    def get_ker(self, n_os=None, pad=7, v_grid=None, norm=False):
         '''
         n_os: scalar, oversampling (to sample the kernel)
         pad: scalar
@@ -1145,19 +1165,24 @@ class RotKerTransitCloudy(BaseKer):
 
         # Get cloud transmission function
         idx_valid = (kernel > 0)
+        norm_factor = kernel[idx_valid].sum()  # normalization factor
         if idx_valid.sum() <= 1:
-            raise KernelIndexError("Kernel size too small for grid.")
+            idx_valid = np.searchsorted(v_grid, 0)
+            kernel[idx_valid] = 1
+            # raise KernelIndexError("Kernel size too small for grid.")
         clouds = np.ones_like(kernel) * np.nan
-        clouds[idx_valid] = box_smoothed_step(v_grid[idx_valid], *clouds_args)
+        clouds[idx_valid] = box_smoothed_step(v_grid[idx_valid], *clouds_args)        
         kernel[idx_valid] = kernel[idx_valid] * clouds[idx_valid]
-
-        # normalize
-        kernel /= kernel.sum()
+        kernel /= norm_factor
+        
+        # normalize to unity
+        if norm:
+            kernel /= kernel.sum()
 
         return v_grid, kernel, clouds
     
     # TODO: Should be the get_ker method in a separate class
-    def get_ker_vphi(self, n_os=1000, pad=7):
+    def get_ker_vphi(self, n_os=1000, pad=7, norm=False):
         '''
         n_os: scalar, oversampling (to sample the kernel)
         pad: scalar
@@ -1199,7 +1224,8 @@ class RotKerTransitCloudy(BaseKer):
 #         v_grid = 0.5*(bins[1:] + bins[:-1])        
         kernel = np.array(kernel)
 #         ker_sum = kernel.sum()
-        kernel = kernel/(kernel.sum())
+        if norm:
+            kernel = kernel/(kernel.sum())
 
 
 #         v_max = np.max(np.abs([self.amp1, self.amp2])) + pad*res_elem*(u.m/u.s).to(u.km/u.s)#.value
@@ -1446,6 +1472,60 @@ def citrus_to_ker(y_coord, citrus_phases, phase, radius=1.):
     return v_lengths
 
 
+def plot_sphere(phase_limits, colors=None, viewing_phase=0.):
+    
+    phase_limits = (np.array(phase_limits) % 1)
+    
+    # Define the sphere's surface
+    theta = np.linspace(0, 2.*np.pi, 100)  # longitude
+    phi = np.linspace(0, np.pi, 100)  # latitude
+    theta, phi = np.meshgrid(theta, phi)
+    x = np.sin(phi) * np.cos(theta)
+    y = np.sin(phi) * np.sin(theta)
+    z = np.cos(phi)
+
+    # Define a list of colors for the different regions
+    color_map = np.zeros(theta.shape, dtype=float)
+    for idx, end in enumerate(phase_limits):
+        start = phase_limits[idx - 1]
+        start = start * 2 * np.pi
+        end = end * 2 * np.pi
+        if (start < end):
+            cond = (theta >= start) & (theta < end)
+        else:
+            cond = (theta >= start) | (theta < end)
+        color_map[cond] = idx / (len(phase_limits) - 1)
+    
+    if colors is None:
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    cmap = ListedColormap(colors[:len(phase_limits)])
+
+    # Create a 3D plot
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(x, y, z, rstride=1, cstride=1, facecolors=cmap(color_map), shade=False)
+    ax.set_xlim([-1, 1])
+    ax.set_ylim([-1, 1])
+    ax.set_zlim([-1, 1])
+    ax.set_aspect('equal')
+
+    # Remove axes
+    ax.axis('off')
+
+    # Set the viewing angle to longitude 180
+    ax.view_init(azim=viewing_phase * 360, elev=0)
+    
+    # Add legend
+    for idx, end in enumerate(phase_limits):
+        start = phase_limits[idx - 1]
+        color = colors[idx]
+        ax.plot([0], [0], 's', color=color, label=f'{start:0.2}° to {end}°')
+
+    ax.legend(loc='upper right')
+
+    return fig, ax
+
+
 class CitrusRotationKernel(BaseKerMulti):
     """
     Class to compute the rotation kernel for a planet with a solid rotation
@@ -1455,8 +1535,8 @@ class CitrusRotationKernel(BaseKerMulti):
     ----------
     citrus_phases: list of floats
         phases of the citrus boundaries
-    pl_rad: scalar astropy quantity, planet radius
-    omega: scalar astropy quantity, rotation rate
+    pl_rad: scalar astropy quantity, planet radius in m
+    omega: scalar astropy quantity, angular frequency (2 pi / period) in rad/s
     resolution: scalar (float or int)
         spectral resolution of the instrument
 
@@ -1492,6 +1572,7 @@ class CitrusRotationKernel(BaseKerMulti):
         self.omega = omega
         self.r_p = pl_rad
         self.citrus_phases = citrus_phases
+        self.n_kernel = len(citrus_phases)
 
     def get_ker(self, phase, n_os=None, pad=7, norm=True):
         """
@@ -1612,8 +1693,12 @@ class CitrusRotationKernel(BaseKerMulti):
         plt.xlabel('dv [km/s]')
         ax_native.set_ylabel('Kernel')
         ax_degraded.set_ylabel('Kernel * Instrumental')
+        
+        # Plot the sphere
+        phase_limits = self.citrus_phases
+        fig_sphere, _ = plot_sphere(phase_limits, viewing_phase=-kwargs['phase'])
 
-        return fig
+        return fig, fig_sphere
 
 
 #####################################################

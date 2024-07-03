@@ -537,7 +537,7 @@ def read_all_sp_nirps_geneva(path, file_list, wv_default=None, blaze_default=Non
             # remove berv correction (Geneva data is already berv corrected)
             # barycentric correction (km/s)
             berv = header['HIERARCH ESO QC BERV']
-            shift = hm.calc_shift(-berv, kind='rel')
+            shift = hm.calc_shift(berv, kind='rel')
             wvsol = wvsol/shift
 
             try:
@@ -1523,7 +1523,7 @@ class Planet():
         self.name = name
         
         if parametres is None:
-            print('Getting {} from ExoFile'.format(name))
+            log.info('Getting {} from ExoFile'.format(name))
             # Try locally, if not available, try to query the exofile
             try:
                 parametres = ExoFile.load(query=False, use_alt_file=True).by_pl_name(name)
@@ -1585,7 +1585,7 @@ class Planet():
         for key in list(kwargs.keys()):
             new_value = kwargs[key]
             old_value = getattr(self,key)
-            print('Changing {} from {} to {}'.format(key, old_value, new_value))
+            log.info('Changing {} from {} to {}'.format(key, old_value, new_value))
             if isinstance(new_value, u.Quantity) & isinstance(old_value, u.Quantity):
                 new_value = new_value.to(old_value.unit)
                 new_value = np.array([new_value.value])*new_value.unit
@@ -1593,7 +1593,7 @@ class Planet():
                 new_value = new_value * old_value.unit
                 new_value = np.array([new_value.value])*new_value.unit
 
-            print('It became {}'.format(new_value))
+            log.info('It became {}'.format(new_value))
             setattr(self, key, new_value)
 
         surf_grav_pl = (const.G * self.M_pl / self.R_pl**2).cgs
@@ -2347,7 +2347,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
 
     if len(do_tr) > 1 :
         out_filename = Path(f'{filename.name}_data_info.npz')
-        print('Reading:', path / out_filename)
+        log.info(f'Reading: {path / out_filename}')
         data_info_file = np.load(path / out_filename)
         data_info = {}
 
@@ -2364,7 +2364,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
         data_trs[str(i_tr)] = {}
 
         out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
-        print('Reading:', path / out_filename)
+        log.info(f'Reading: {path / out_filename}')
         data_tr = np.load(path / out_filename)
 
         if len(do_tr) <= 1:
@@ -2376,7 +2376,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
                 data_info['bad_indexs'] = data_tr['bad_indexs']
             except KeyError:
                 out_filename = Path(f'{filename.name}_data_info.npz')
-                print('Reading:', path / out_filename)
+                log.info(f'Reading: {path / out_filename}')
                 data_info_file = np.load(path / out_filename)
                 data_info = {}
 

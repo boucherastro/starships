@@ -869,10 +869,10 @@ def read_walkers_file(filename, discard=0, discard_after=None, id_params=None, p
         completed = np.where(samples[:, 0, param_no_zero] == 0)[0]
         if completed.size == 0:
             cut_sample = samples[discard:, :, :]
-            print('All Completed')
+            log.info('Steps in walkers file are all completed')
         else:
             cut_sample = samples[discard:completed[0], :, :]
-            print('Completed {}/{}'.format(completed[0], samples.shape[0]))
+            log.info(f'Number of steps in walkers file completed {completed[0]}/{samples.shape[0]}')
 
     return cut_sample
 
@@ -916,7 +916,41 @@ def single_max_dist(samp, bins='auto', start=0, end=-1, bin_size=6, plot=False):
 
 
 def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True, prob=0.68, print_gen_walkers=False,
-                   cut_sample=None):
+                   cut_sample=None, print_latex_style=False):
+    """
+    Compute the maximum values and errors for each parameter in the given sample.
+    The maximum values are computed using a spline interpolation of the smoothed histogram
+    of the sample (the smoothing is a box convolution with width=`bin_size`).
+
+    Parameters:
+    -----------
+    sample_all : numpy.ndarray
+        The input sample of shape (n_samples, n_walkers, n_params).
+    labels : list, optional
+        The labels for each parameter. If not provided, default labels (integers) will be used.
+    bin_size : int, optional
+        The size of the bins used for histogram binning. Default is 6.
+    flag_id : numpy.ndarray, optional
+        An array of shape (n_flags, 2) where each row contains the parameter index and the flag value.
+        If provided, a different binning method will be used for the flagged parameters.
+    plot : bool, optional
+        Whether to plot the walker chains, histograms and maximum values. Default is True.
+    prob : float, optional
+        The probability value used to compute the highest density interval (HDI) for the errors.
+        Default is 0.68 which corresponds to 1 sigma. The 2 or 3 sigma intervals can be computed
+        by setting prob to 0.95 or 0.997 respectively.
+    print_gen_walkers : bool, optional
+        Whether to print the generated walkers initialization. Default is False.
+    cut_sample : numpy.ndarray, optional
+        A subset of the sample to be used for computation. If provided, the sample_all parameter will be ignored.
+
+    Returns:
+    --------
+    maxs : list
+        A list of maximum values for each parameter.
+    errors : list
+        A list of HDI errors for each parameter.
+    """
     n_params = sample_all.shape[-1]
 
     if labels is None:
@@ -924,32 +958,20 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
 
     maxs = []
     errors = []
-    #     print(n_params)
+
     if plot is True:
         fig, ax = plt.subplots(len(labels), 2, constrained_layout=True, figsize=(10, len(labels)), sharex='col',
                                sharey='row', gridspec_kw={'width_ratios': [5, 1]})
 
     for i in range(n_params):
-
-        #     if i == 9 :
-        #         sample_all[:, :, i] = ((sample_all[:, :, i]/u.day).to('1/s') * maxs[6] * const.R_jup.to(u.km)).value
-        samp = sample_all[:, :, i].ravel()  # cut_sample[:, :, i].ravel()
+        samp = sample_all[:, :, i].ravel()
         sample_i = sample_all[:, :, i].reshape(sample_all.shape[0] * sample_all.shape[1], 1)
 
         if cut_sample is not None:
             samp = cut_sample[:, i]
             sample_i = cut_sample[:, i]
-        #         his, edges = np.histogram(samp, bins='auto',density=True)
-        #         mids = 0.5*(edges[1:] + edges[:-1])
-        #         if flag_id is not None and i == flag_id[0]:
-        #             binned = spectrum.box_binning(his[30:], flag_id[1])
-        #             maximum = a.find_max_spline(mids[30:], binned, binning=True)[0]
-        #         else:
-        #             binned = spectrum.box_binning(his,bin_size)
-        #             maximum = a.find_max_spline(mids, binned, binning=True)[0]
-        #         maxs.append(maximum)
+
         if plot:
-            #         print(i)
             ax[i, 0].plot(sample_all[:, :, i], "k", alpha=0.3)
             ax[i, 0].set_xlim(0, len(sample_all))
             ax[i, 0].set_ylabel(labels[i])
@@ -988,24 +1010,18 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
         if plot:
             ax[i, 1].axhline(maximum, color='dodgerblue')
             ax[i, 1].axhspan(errbars2[0], errbars2[1], alpha=0.2, color='dodgerblue')
-        #         ax[i,1].axhline(errbars2[0], linestyle='--')
-        #         ax[i,1].axhline(errbars2[1], linestyle='--')
-        print(maximum, errbars2 - maximum, errbars2)
+
+        if print_latex_style:
+            # Print the uncertainties as it would be in a latex table. Ex: $-2.49_{-1.72}^{+1.99}$ 
+            # And the limits of the HDI as well. Ex: $> -12.00 $, $< -2.94 $
+            d_max = maximum - errbars2
+            print(f"{labels[i]}: value = $ {maximum:.2f}_{{ {d_max[0]:.2f} }}^{{ +{d_max[1]:.2f} }}",
+                  f"$> {errbars2[0]:.2f}$, $< {errbars2[1]:.2f}$")
+        else:
+            print(f"{labels[i]}: Maximum={maximum}, Error={errbars2 - maximum}, HDI({prob*100:.2f}%)={errbars2}")
 
     if print_gen_walkers:
         gen_walkers_init(errors)
-    #     if plot:
-    #         ax[-1,0].set_xlabel("Steps")
-
-    #         fig, axes = plt.subplots(n_params, figsize=(10, n_params), sharex=True)
-    #         for i in range(n_params):
-    #             ax = axes[i]
-    #             ax.plot(sample_all[:, :, i], "k", alpha=0.3)
-    #             ax.set_xlim(0, len(sample_all))
-    #             ax.set_ylabel(labels[i])
-    #             ax.yaxis.set_label_coords(-0.1, 0.5)
-
-    #         axes[-1].set_xlabel("step number");
 
     return maxs, errors
 
@@ -2534,6 +2550,41 @@ def plot_p_profile_sample(pressures, sample_stats, line_color=None, region_color
 #
 #     return total
 
+# def gaussian_prior(cube, mu, sigma):
+#     #     SQRT2 = math.sqrt(2.)
+#     #     return mu + sigma*SQRT2*erfcinv(2.0*(1.0 - cube))
+#     return -(((cube - mu) / sigma) ** 2.) / 2.
+
+def gaussian_prior(theta_dict, key, prior_inputs):
+    """Gaussian prior"""
+    x = theta_dict[key]
+    mu, sigma = prior_inputs
+    out = -(((x - mu) / sigma) ** 2.) / 2.
+
+    return out
+
+
+def init_gaussian_prior(prior_inputs, n_wlkr):
+    """Initialize from gaussian prior"""
+    mu, sigma = prior_inputs
+    sample = np.random.normal(mu, sigma, size=(n_wlkr, 1))
+
+    return sample
+    
+
+def uniform_prior(theta_dict, key, prior_inputs):
+    """Uniform prior"""
+    x = theta_dict[key]
+    low, high = prior_inputs
+    if x < low:
+        out = -np.inf
+    elif x > high:
+        out = -np.inf
+    else:
+        out = 0.
+        
+    return out
+
 
 def init_uniform_prior(prior_inputs, n_wlkr):
     """Initialize from uniform prior"""
@@ -2541,6 +2592,53 @@ def init_uniform_prior(prior_inputs, n_wlkr):
     sample = np.random.uniform(low, high, size=(n_wlkr, 1))
 
     return sample
+
+
+def ordered_prior(theta_dict, key, prior_inputs):
+        
+    ordered_keys, prior_func, prior_func_inputs = prior_inputs
+    
+    # First, check if the order is respected
+    # (theta_dict[keys] in ordered_keys must be in increasing order)
+    ordered_values = [theta_dict[k] for k in ordered_keys]
+    if not np.all(np.diff(ordered_values) > 0):
+        return -np.inf
+        
+    # Then apply the correct prior
+
+    
+    return out
+
+default_prior_init_func = {'gaussian': init_gaussian_prior,
+                            'uniform': init_uniform_prior,
+                            'log_uniform': init_uniform_prior}
+
+default_prior_func = {'gaussian': gaussian_prior,
+                      'uniform': uniform_prior,
+                      'log_uniform': uniform_prior}
+
+
+def log_prior(theta, params_prior, prior_func_dict=None):
+    
+    if prior_func_dict is None:
+        prior_func_dict = default_prior_func
+    
+    total = 0.
+    
+    # Get the parameters and unpack them in a dictionnary.
+    theta_dict = {key: val for key, val in zip(params_prior.keys(), theta)}
+    
+    for key, prior_info in params_prior.items():
+        prior_name, prior_args = prior_info[0], prior_info[1:]
+        prior_func = prior_func_dict[prior_name]
+        prior_value = prior_func(theta_dict, key, prior_args)
+        log.debug(f"Prior for '{key}' -> {prior_name}({prior_args}) = {prior_value}")
+        total += prior_value
+
+        if total == -np.inf:
+            return total
+        
+    return total
 
 
 def init_from_prior(n_wlkrs, prior_init_func, prior_dict, n_mol=1, special_treatment=None):
@@ -2638,10 +2736,18 @@ def init_from_burnin(n_walkers, n_best_min=1000, quantile=None, wlkr_file=None, 
 
 ## Utilities to compute model profiles and spectra from sample
 def get_tp_from_retrieval(param, retrieval_obj):
-    prt_args, prt_kwargs, rot_kwargs, _ = retrieval_obj.prepare_prt_inputs(param)
-
-    pressures = retrieval_obj.temp_params['pressures']
-    temperatures = prt_args[0]
+    # Older version of the retrieval code uses `prepare_prt_inputs`
+    if hasattr(retrieval_obj, 'prepare_prt_inputs'):
+        prt_args, _, _, _ = retrieval_obj.prepare_prt_inputs(param)
+        pressures = retrieval_obj.temp_params['pressures']
+        temperatures = prt_args[0]
+    else:
+        theta_dict = retrieval_obj.unpack_theta(param)
+        # Can be a list or a list of dictionaries depending on the version.
+        # If it is a list, it means multi-region retrieval. take the first one.
+        if isinstance(theta_dict, list): theta_dict = theta_dict[0]
+        pressures = theta_dict['pressures']
+        temperatures = theta_dict['temperatures']
 
     return pressures, temperatures
 
@@ -2754,15 +2860,10 @@ def draw_tp_profiles_from_sample(n_draw, flat_samples, retrieval_obj=None, get_t
     # Take random integers (no repeated value)
     random_idx = rng.permutation(range(flat_samples.shape[0]))[:n_draw]
 
-    # Other molecule profiles will be added to this dictionary on the fly
     tp_samples = []
-
     for param_i in flat_samples[random_idx]:
-
         param_i = param_i.copy()
-
         pressures, temp_profile = get_tp_from_param(param_i)
-
         tp_samples.append(temp_profile)
 
     # Convert to array
@@ -2903,3 +3004,153 @@ def get_all_param_names(retrieval_obj):
     params = retrieval_obj.list_mols + retrieval_obj.continuum_opacities + valid_params
 
     return params
+
+
+# Initialize global variables to store the shared arrays and their names if needed.
+shared_arrays = None
+shared_keys = None
+non_array_dict = None
+
+
+def prepare_shared_array_obj(shared_obj):
+    """Save (big) arrays and their name in a numpy object.
+    The best way to share data between processes is to use a numpy array
+    since it is stored in a single block of memory.
+    Once the array is created, it can be accessed using:
+    shared_arrays[shared_keys.index(key)].
+    
+    Inputs:
+    - shared_obj: dictionary-like object
+        Dictionary-like object containing the arrays to be shared. Simply needs to
+        support the method items() to iterate over the key-value pairs.
+        
+    Outputs:
+    - shared_arrays: numpy array
+        Array containing the shared arrays.
+    - shared_keys: list of strings
+        List containing the names of the shared arrays.
+    - non_array_dict: dictionary-like object
+        Dictionary-like object containing the non-array objects.
+        
+    Notes:
+    The best usage would be to import this package in the main script.
+    Example:
+    import this_package as tp
+    
+    # Load a file containing multiple arrays (could be also a dictionary)
+    npz_file = np.load('data.npz')
+    
+    # Prepare the shared arrays
+    shared_array, _, shared_dict = logl_a.prepare_shared_array_obj(npz_file)
+    
+    # Then it can be accessed anywhere (like in a function)
+    # First get the index of the array in the shared arrays
+    idx, key_idx, keys_dict = tp.get_shared_array_index('key_1', 'key_2')
+    
+    # Put them  in a dictionary
+    array_dict = {key: shared_array[i] for i, key in zip(idx, key_idx)}
+    non_arr_dict = {key: shared_dict[key] for key in keys_dict}
+    # Which can be combined with the non-array dictionary
+    all_dict = {**array_dict, **non_arr_dict}
+    """
+    arrays, keys = [], []
+    non_array_dict = {}
+    for key, obj in shared_obj.items():
+        if isinstance(obj, np.ndarray):
+            arrays.append(obj)
+            keys.append(key)
+        else:
+            non_array_dict[key] = obj
+    arrays = np.array(arrays, dtype=object)
+    
+    # Save the outputs in global variables
+    globals()['shared_arrays'] = arrays
+    globals()['shared_keys'] = keys
+    globals()['non_array_dict'] = non_array_dict
+    
+    return globals()['shared_arrays'], globals()['shared_keys'], globals()['non_array_dict']
+
+
+def get_shared_array_index(*args):
+    """Get the index of a key in the shared arrays and in the non-array dictionary.
+    Returns:
+    - idx_shared: list of indices
+        Indices of the shared arrays.
+    - keys_shared: list of strings
+        Names of the shared arrays.
+    - keys_non_arr: list of strings
+        Names of the non-array objects.
+    """
+    idx_shared, keys_shared, keys_non_arr = [], [], []
+    for key in args:
+        try:
+            idx_shared.append(shared_keys.index(key))
+            keys_shared.append(key)
+        except ValueError:
+            keys_non_arr.append(key)
+
+    return idx_shared, keys_shared, keys_non_arr
+
+
+def get_logl(alpha=1., beta=1., kind='BL', f_x_g=None, s2g=None, s2f=None,
+             uncert_sum=None, N=None, idx_orders=None, idx_exposure=None, sum_axis=None):
+    
+    if f_x_g is None:
+        idx = get_shared_array_index('cross_terms')
+        f_x_g = shared_arrays[idx][0]
+    
+    if s2g is None:
+        idx = get_shared_array_index('squared_terms')
+        s2g = shared_arrays[idx][0]
+        
+    if s2f is None:
+        idx = get_shared_array_index('s2f')
+        s2f = shared_arrays[idx][0]
+        
+    if uncert_sum is None:
+        idx = get_shared_array_index('uncert_sum')
+        uncert_sum = shared_arrays[idx][0]
+        
+    if N is None:
+        idx = get_shared_array_index('N')
+        N = shared_arrays[idx][0]
+    
+    # Mask N = 0 or nans
+    N = np.ma.array(N, mask=((N == 0) | (N == np.nan)))
+    
+    if idx_exposure is None:
+        idx_exposure = slice(None)
+    else:
+        idx_exposure = np.array(idx_exposure)[:, None]
+        
+    if idx_orders is None:
+        idx_orders = np.arange(N.shape[-1])
+
+    # Predifine the slicing
+    idx = (..., idx_exposure, idx_orders)
+    
+    # Apply slicing to some arrays
+    uncert_sum = uncert_sum[idx]
+    N = N[idx]
+    
+    # Compute chi2
+    chi2 = s2f[idx] -2 * alpha * f_x_g[idx] + alpha**2 * s2g[idx]
+    
+    if sum_axis is not None:
+        # Needed for all logl prescriptions
+        chi2 = np.ma.sum(chi2, axis=sum_axis)
+        N = np.ma.sum(N, axis=sum_axis)
+        
+        # Needed for specific logl presciptions
+        if kind == 'G':
+            uncert_sum = np.sum(uncert_sum, axis=sum_axis)
+
+    if kind == 'BL':
+        # Brogi and Line logl
+        logl = -N / 2 * np.ma.log(chi2 / N)
+    elif kind == 'G':
+        # Gibson logl
+        cst = -N / 2 * np.ma.log(2. * np.pi) - N * np.log(beta) - uncert_sum
+        logl = cst - 0.5 * chi2 / beta**2
+    
+    return logl

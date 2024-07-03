@@ -1339,3 +1339,52 @@ def get_c_matrix(kernel, grid, bounds=None, i_bounds=None, norm=True,
         kernel = sparse_c(kernel, len(grid), a)
 
     return kernel
+
+
+# ==============================================================================
+# One to one mappping
+# ==============================================================================
+
+class OneToOneMap:
+    
+    def __init__(self, keys, values):
+        
+        self.keys = tuple(keys)
+        self.values = tuple(values)
+        
+    def __getitem__(self, args):
+        
+        if isinstance(args, list):
+            idx_list = [self.keys.index(key) for key in args]
+            out = tuple(self.values[idx] for idx in idx_list)
+        else:
+            idx = self.keys.index(args)
+            out = self.values[idx]
+            
+        return out
+    
+    def inverse(self):
+        return OneToOneMap(self.values, self.keys)
+    
+    
+# ==============================================================================
+# Function to deal with command line arguments
+# ==============================================================================
+# Get kwargs from command line (if called from command line)
+def unpack_kwargs_from_command_line(sys_argv):
+    kwargs_in = dict([arg.split('=') for arg in sys_argv[1:]])
+    if kwargs_in:
+        for key, value in kwargs_in.items():
+            print(f"Keyword argument from command line: {key} = {value}")
+    return kwargs_in
+
+
+def get_kwargs_with_message(key, kwargs_from_cmd_line, default_val=None):
+    """Function to access keywords from command line and print an message when using a default value."""
+    try:
+        val = kwargs_from_cmd_line[key]
+    except KeyError:
+        print(f"{key} not provided, using default value of {default_val}")
+        val = default_val
+    
+    return val
