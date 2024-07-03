@@ -35,7 +35,7 @@ retrieval_plot_labels = { 'H2O': r"$\log_{10}$ H$_2$O",
                           'kp': r"$K_{\rm P}$",
                           'rv': r"$v_{\rm rad}$",
                           'tp_delta': r'$\log_{10} \delta$',
-                          'tp_gamma': r'$\gamma$',
+                          'tp_gamma': r'$\log_{10} \gamma$',
                           'tp_kappa': r'$\log_{10} \kappa$',
                           'tp_ptrans': r'$\log P_{trans}$',
                           'tp_alpha': r'$\alpha$'}
