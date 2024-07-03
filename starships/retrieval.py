@@ -1575,8 +1575,12 @@ import yaml
 import logging
 import numpy as np
 
+import scipy
+from scipy.interpolate import interp1d
+
 from astropy import constants as const
 from astropy import units as u
+from astropy.table import Table
 
 
 import sys
@@ -1606,7 +1610,6 @@ from astropy.table import Table
 
 
 
-from scipy.interpolate import interp1d
 
 from multiprocessing import Pool
 
@@ -1627,6 +1630,64 @@ except ModuleNotFoundError:
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 logging.basicConfig()
+
+# Here is a list of all the global parameters that are used in the code
+# This is done to optimize the multiprocessing for two main reasons:
+# - Avoid passing big arguments to functions makes a huge difference in speed
+# - Avoid loading the same data multiple times.
+#   Indeed, when multiprocessing in python, most variable are copied as many times
+#   as there are processes (so that can become a lot of memory).
+#   There is a hack with numpy arrays, if they are defined in the global space.
+# Finally, there is also the reason that it becomes easier to analyse the results
+# of the retrievals by setting some variables as globals. Then, the retrieval code
+# can be imported inside a notebook or another code and used like an object, with
+# attributes and methods to reproduce the spectra or TP profiles for example.
+global pl_name
+global base_dir
+global high_res_path
+global reduc_name
+global high_res_file_stem_list
+global spectrophotometric_data
+global photometric_data
+global retrieval_type
+global white_light
+global chemical_equilibrium
+global dissociation
+global kind_temp
+global n_steps_burnin
+global n_steps_sampling
+global run_name
+global walker_path
+global walker_file_out
+global walker_file_in
+global init_mode
+global slurm_array_behaviour
+global params_path
+global params_file_out
+global kind_trans
+global n_cpu
+global n_walkers
+global n_walkers_per_cpu
+global opacity_sampling
+global orders
+global pl_params
+global instrum
+global line_opacities
+global continuum_opacities
+global other_species
+global species_in_prior
+global linelist_names
+global fixed_params
+global params_prior
+global region_id
+global reg_params
+global reg_fixed_params
+global custom_prior_file
+global special_init
+global get_ker_file
+global limP
+global n_pts
+global star_spectrum
 
 
 def convert_to_quantity(quantity_dict):
@@ -1725,6 +1786,10 @@ def unpack_input_parameters(input_parameters):
         with open(input_parameters, 'r') as f:
             input_params = yaml.load(f, Loader=yaml.FullLoader)
     
+    ########################################
+    # --- Make some checks on the inputs ---
+    ########################################
+        
     # --- Check for None values that should be empty dictionaries ---
     empty_dict_if_none = ['spectrophotometric_data', 'photometric_data',
                           'pl_params', 'linelist_names', 'fixed_params',
@@ -1741,6 +1806,13 @@ def unpack_input_parameters(input_parameters):
             msg += ' Make sure the exponent format includes the decimal point.'
             msg += ' Ex: 1.0e-3 and not 1e-3'
             log.warning(msg)
+            
+    # Check that white_light is only used in HRR mode
+    if input_params['white_light'] and input_params['retrieval_type'] != 'HRR':
+        msg = f"white_light is set to True but the retrieval type is"
+        msg += f" '{input_params['retrieval_type']}'. Forcing white_light to False"
+        log.warning(msg)
+        input_params['white_light'] = False
     
     ####################################
     # --- Check paths and file names ---
@@ -1784,10 +1856,11 @@ def unpack_input_parameters(input_parameters):
         
     # Make sure all the file paths are Path objects
     all_file_keys = ['base_dir', 'high_res_path', 'walker_path', 'walker_file_out',
-                     'walker_file_in', 'params_path', 'params_file_out']
+                     'walker_file_in', 'params_path', 'params_file_out', 'star_spectrum']
     for key in all_file_keys:
         if input_params[key] is not None:
-            input_params[key] = Path(input_params[key])
+            # expanduser() to make sure to replace the '~' in the paths
+            input_params[key] = Path(input_params[key]).expanduser()
             
     ####################################
     # --- Other parameters that need to be manipulated ---
@@ -1831,56 +1904,56 @@ def unpack_input_parameters(input_parameters):
     return input_params
 
 
-# Here I just define all the parameters so they are recognized by the code
-pl_name = 'WASP-33 b'
-base_dir = Path('/scratch/adb')
-high_res_path = Path('~/DataAnalysis/SPIRou/Reductions')
-reduc_name = 'WASP-33b_v07232'
-high_res_file_stem_list = ['retrieval_input_4-pc_mask_wings97_day2']
-spectrophotometric_data = {'wfc3': {'file_path': '/home/adb/projects/def-dlafre/adb/Observations/HST/WFC3', 'file_name': 'WASP-33_WFC3_full_res.ecsv'}}
-photometric_data = {}
-retrieval_type = 'HRR'
-white_light = False
-chemical_equilibrium = False
-dissociation = True
-add_spitzer = False
-kind_temp = 'modif'
-n_steps_burnin = 300
-n_steps_sampling = 3000
-run_name = 'emission_HRR_wfc3_modif_disso_30303539'
-walker_path = Path('/scratch/adb/DataAnalysis/walker_steps/WASP-33_b')
-walker_file_out = Path('walker_steps_emission_HRR_wfc3_modif_disso_30303539.h5')
-walker_file_in = None
-init_mode = 'from_burnin'
-slurm_array_behaviour = 'burnin'
-params_path = Path('/scratch/adb/DataAnalysis/retrieval_params/WASP-33_b')
-params_file_out = Path('params_emission_HRR_wfc3_modif_disso_30303539.yaml')
-kind_trans = 'emission'
-n_cpu = 2
-n_walkers = 36
-n_walkers_per_cpu = 18
-opacity_sampling = 4
-orders = None
-pl_params = {'M_star': 1.561 *u.solMass, 'R_star': 1.5093043 *u.solRad, 'R_pl': 1.6787561* u.jupiterRad, 'excent': 0.0,
-              'incl': 86.63 *u.deg, 'Teff': 7300. *u.K, 'w': -90.* u.deg, 'ap': 0.0259 *u.AU}
-instrum = ['spirou']
-line_opacities = ['CO', 'H2O']
-continuum_opacities = ['H-']
-other_species = ['e-', 'H']
-species_in_prior = ['CO', 'H2O', 'H-', 'e-']
-linelist_names = {}
-fixed_params = {'P0': 0.001, 'log_f': 0.0, 'spec_scale': 1.0, 'e-': '1e-06', 'H': '1e-99', 'C/O': 0.54, 'Fe/H': 0.0, 'p_cloud': None, 'scat_factor': None, 'T_eq': 2500.0, 'tp_gamma': 10.0, 'T_int': 500.0, 'kappa_IR': 0.01, 'gravity': 23.0, 'tp_delta': '1e-07', 'ptrans': '1e-03', 'tp_alpha': 0.3, 'akima_P': ['1e-10', '1e-05', '1e-02', '1e+01'], 'akima_T': [1000.0, 1500.0, 2000.0, 2500.0], 'kp': 150.0, 'rv': 0.0, 'wind': None, 'phase1': 0.5, 'phase2': 0.75, 'rot_factor': 1.0}
-params_prior = {'rv': ['uniform', -40, 40], 'kp': ['uniform', 100, 250], 'T_eq': ['uniform', 100, 4500], 'tp_gamma': ['log_uniform', -2, 6], 'gravity': ['uniform', 1000, 10000], 'tp_delta': ['log_uniform', -8, -3], 'ptrans': ['log_uniform', -8, 3], 'tp_alpha': ['uniform', -1.0, 1.0]}
-region_id = [1]
-reg_params = []
-reg_fixed_params = {}
-custom_prior_file = None
-special_init = {'kp': ['uniform', 200, 250], 'rv': ['uniform', -30, 30], 'CO': ['log_uniform', -5.0, -2.0], 'Fe': ['log_uniform', -6.0, -2.0], 'T_eq': ['uniform', 2500, 3500]}
-get_ker_file = None
+# # Here I just define all the parameters so they are recognized by the code
+# pl_name = 'WASP-33 b'
+# base_dir = Path('/scratch/adb')
+# high_res_path = Path('~/DataAnalysis/SPIRou/Reductions')
+# reduc_name = 'WASP-33b_v07232'
+# high_res_file_stem_list = ['retrieval_input_4-pc_mask_wings97_day2']
+# spectrophotometric_data = {'wfc3': {'file_path': '/home/adb/projects/def-dlafre/adb/Observations/HST/WFC3', 'file_name': 'WASP-33_WFC3_full_res.ecsv'}}
+# photometric_data = {}
+# retrieval_type = 'HRR'
+# white_light = False
+# chemical_equilibrium = False
+# dissociation = True
+# add_spitzer = False
+# kind_temp = 'modif'
+# n_steps_burnin = 300
+# n_steps_sampling = 3000
+# run_name = 'emission_HRR_wfc3_modif_disso_30303539'
+# walker_path = Path('/scratch/adb/DataAnalysis/walker_steps/WASP-33_b')
+# walker_file_out = Path('walker_steps_emission_HRR_wfc3_modif_disso_30303539.h5')
+# walker_file_in = None
+# init_mode = 'from_burnin'
+# slurm_array_behaviour = 'burnin'
+# params_path = Path('/scratch/adb/DataAnalysis/retrieval_params/WASP-33_b')
+# params_file_out = Path('params_emission_HRR_wfc3_modif_disso_30303539.yaml')
+# kind_trans = 'emission'
+# n_cpu = 2
+# n_walkers = 36
+# n_walkers_per_cpu = 18
+# opacity_sampling = 4
+# orders = None
+# pl_params = {'M_star': 1.561 *u.solMass, 'R_star': 1.5093043 *u.solRad, 'R_pl': 1.6787561* u.jupiterRad, 'excent': 0.0,
+#               'incl': 86.63 *u.deg, 'Teff': 7300. *u.K, 'w': -90.* u.deg, 'ap': 0.0259 *u.AU}
+# instrum = ['spirou']
+# line_opacities = ['CO', 'H2O']
+# continuum_opacities = ['H-']
+# other_species = ['e-', 'H']
+# species_in_prior = ['CO', 'H2O', 'H-', 'e-']
+# linelist_names = {}
+# fixed_params = {'P0': 0.001, 'log_f': 0.0, 'spec_scale': 1.0, 'e-': '1e-06', 'H': '1e-99', 'C/O': 0.54, 'Fe/H': 0.0, 'p_cloud': None, 'scat_factor': None, 'T_eq': 2500.0, 'tp_gamma': 10.0, 'T_int': 500.0, 'kappa_IR': 0.01, 'gravity': 23.0, 'tp_delta': '1e-07', 'ptrans': '1e-03', 'tp_alpha': 0.3, 'akima_P': ['1e-10', '1e-05', '1e-02', '1e+01'], 'akima_T': [1000.0, 1500.0, 2000.0, 2500.0], 'kp': 150.0, 'rv': 0.0, 'wind': None, 'phase1': 0.5, 'phase2': 0.75, 'rot_factor': 1.0}
+# params_prior = {'rv': ['uniform', -40, 40], 'kp': ['uniform', 100, 250], 'T_eq': ['uniform', 100, 4500], 'tp_gamma': ['log_uniform', -2, 6], 'gravity': ['uniform', 1000, 10000], 'tp_delta': ['log_uniform', -8, -3], 'ptrans': ['log_uniform', -8, 3], 'tp_alpha': ['uniform', -1.0, 1.0]}
+# region_id = [1]
+# reg_params = []
+# reg_fixed_params = {}
+# custom_prior_file = None
+# special_init = {'kp': ['uniform', 200, 250], 'rv': ['uniform', -30, 30], 'CO': ['log_uniform', -5.0, -2.0], 'Fe': ['log_uniform', -6.0, -2.0], 'T_eq': ['uniform', 2500, 3500]}
+# get_ker_file = None
 
-limP = [-10, 2]    # pressure log range, standard
-n_pts = 50  
-star_spectrum = '/home/adb/projects/def-dlafre/adb/Observations/SPIRou/Reductions/WASP-33b_v07232/WASP-33b_v07232_star_spectrum.npz'
+# limP = [-10, 2]    # pressure log range, standard
+# n_pts = 50  
+# star_spectrum = '/home/adb/projects/def-dlafre/adb/Observations/SPIRou/Reductions/WASP-33b_v07232/WASP-33b_v07232_star_spectrum.npz'
 
 # The functions above should be in a separate file (maybe retrieval_utils.py)
 
@@ -1973,20 +2046,36 @@ def setup_retrieval(input_parameters, **kwargs):
     log.info(f'wavelength range for model at high res: {wv_range_high}')
 
     # Define the low resolution wavelength range based on low resolution data
+    # NOTE: The low-res models are taking less memory, so we model the full range,
+    #       even the regions in between where there is no data.
     load_low_res_data()
     load_photometry()
     wv_range_all_low = [infos['wv_range'] for infos in spectrophotometric_data.values()]
     wv_range_all_low += [infos['wv_range'] for infos in photometric_data.values()]
 
-    if retrieval_type == 'LRR':
-        # If the retrieval is in LRR, the low resolution data will model the full range
-        wv_range_low = get_wv_range(wv_range_all_low)
-    else:
-        # Define the low resolution wavelength range based on low resolution data in JR or HRR
-        wv_range_low = []  # empty for now (see TODO)
-        wv_range_low = get_complementary_ranges(wv_range_low, wv_range_high)
+    if retrieval_type != 'LRR':
+        # In JR or HRR, model at least the full range of the high-res data.
+        # It won't necessarily be used, but it is useful for analysis later on.
+        # So add it to the list of wv_range
+        wv_range_all_low.append([np.min(wv_range_high), np.max(wv_range_high)])
+    
+    # The low resolution data will model the full range
+    wv_range_low = [[np.min(wv_range_all_low), np.max(wv_range_all_low)]]
     log.info(f'wavelength range for model at low res: {wv_range_low}')
+    
+    # Assign (to each low res dataset) which kind of model (high or low)
+    # will be used to compare with the data (only use in JR mode)
+    if retrieval_type == 'JR':
+        assign_model_type(wv_range_high)
+        
+    # --- Define the default resolution for high-res models ---
+    # The models at high resolution will be downgraded
+    # to the highest instruments resolution when generated.
+    # Then the model can be downgraded again to match other high-res instrument's
+    global res_instru
+    res_instru = max([p_list['resol'] for p_list in instrum_param_list])
 
+    # --- Initialize model objects to None ---
     # Initialize atmo objects based on the wavelength ranges (put None for now)
     for mode in ['high', 'low']:
         wv_rng = globals()[f'wv_range_{mode}']
@@ -2015,13 +2104,13 @@ def setup_retrieval(input_parameters, **kwargs):
     fixed_params['R_pl'] = planet.R_pl.to('Rjup').value
     fixed_params['R_star'] = planet.R_star.to('Rsun').value
     # Get gravity in cgs units if not already given
-    if 'gravity' not in fixed_params:
+    if fixed_params.get('gravity', None) is None:
         fixed_params['gravity'] = planet.gp.cgs.value
 
     # --- Complete prior parameters ---
     global general_params, n_regions, reg_fixed_params
 
-    # Add species that are fitted
+    # Add species that are fitted (if not included yet in priors)
     for specie in species_in_prior:
         if specie not in params_prior:
             params_prior[specie] = ['log_uniform', -12.0, -0.5]
@@ -2166,29 +2255,215 @@ def load_high_res_data():
     return data_info, data_trs
 
 
-def load_low_res_data():
+def load_low_res_data(pad_n_res_elem=5):
+    """Load the low resolution data.
 
+    This function loads the low resolution data for each instrument
+    specified in the `spectrophotometric_data` dictionary, which needs
+    to exist in the global variables.
+    The function reads the data file (found in `spectrophotometric_data`),
+    extracts the wavelengths, data, uncertainties, instrument resolution, and wavelength range.
+
+    Args:
+    pad_n_res_elem (int, optional):
+        The number of resolution elements to use for padding the wavelength range. 
+        Defaults to 5.
+
+    Returns:
+        dict: The `spectrophotometric_data` dictionary containing the loaded data for each instrument.
+
+    """
     for instru_name, infos in spectrophotometric_data.items():
         log.info(f'Loading data for instrument {instru_name}')
-        # For now, just return empty wv_range
-        if 'wv_range' not in infos:
-            infos['wv_range'] = []
+        
+        # Read the data file (astropy table)
+        low_res_path = Path(infos['file_path'])
+        low_res_file = Path(infos['file_name'])
+        data_table = Table.read(low_res_path / low_res_file)
+            
+        # Read the data file (astropy table)
+        low_res_path = Path(infos['file_path'])
+        low_res_file = Path(infos['file_name'])
+        data_table = Table.read(low_res_path / low_res_file)
+        
+        # Get the wavelenghts
+        default_name = 'wave'
+        col_name = infos.get('wv_col_name', default_name)
+        infos['wave'] = data_table[col_name].to('um').value
+        
+        # Get the data (depends on emission or transmission)
+        default_name = 'F_p/F_star' if (kind_trans == 'emission') else 'dppm'
+        col_name = infos.get('data_col_name', default_name)
+        infos['data'] = data_table[col_name].quantity
+
+        # Get uncertainties
+        default_name = 'err'
+        col_name = infos.get('err_col_name', default_name)
+        infos['err'] = data_table[col_name].quantity
+
+        # Check units for uncertainties and data
+        for key in ['data', 'err']:
+            if infos[key].unit == 'percent':
+                infos[key] = infos[key].value / 100.
+            elif infos[key].unit == 'None':
+                infos[key] = infos[key].value
+            else:
+                infos[key] = infos[key].decompose().value
+                
+        # Get instrument resolution
+        infos['res'] = data_table.meta['Resolution']
+        
+        # Get wavelength range
+        if 'wv_range' in data_table.meta:
+            infos['wv_range'] = data_table.meta['wv_range']
+        else:
+            # Define a padding based on the resolution (R = lambda / d_lambda)
+            wv = np.sort(infos['wave'])
+            dwv = wv[[0, -1]] / infos['res']
+            wv_min = wv[0] - pad_n_res_elem * dwv[0]
+            wv_max = wv[-1] + pad_n_res_elem * dwv[-1]
+            infos['wv_range'] = [wv_min, wv_max]
 
     return spectrophotometric_data
 
 
-def load_photometry():
+def read_response(f_name, f_path, fmt):
+    """Read the response fonction for photometric bands."""
+    
+    f_name = Path(f_name)
+    f_path = Path(f_path)
+
+    log.debug(f"Reading {f_path}/{f_name} with format='{fmt}'")
+    
+    # Read transmission function
+
+    response = Table.read(f_path / f_name, format=fmt)
+    
+    x_rsp, y_rsp = response['col1'].value, response['col2'].value
+    
+    return x_rsp, y_rsp
+
+
+
+def get_wv_band_coverage(x_rsp, y_rsp, coverage_percent=99.9):
+    """
+    Compute the limits in wavelengths of each photometric bands
+    based on a specified coverage percentage of y values.
+    """
+
+    # Normalize y_rsp
+    y_rsp_normalized = y_rsp / np.max(y_rsp)
+    
+    # Calculate the cumulative sum of the normalized y_rsp
+    cumulative_sum = np.cumsum(y_rsp_normalized)
+    cumulative_sum_normalized = cumulative_sum / np.max(cumulative_sum)
+    
+    # Calculate the lower and upper bounds for the specified coverage percentage
+    lower_bound = (100 - coverage_percent) / 2 / 100
+    upper_bound = 1 - lower_bound
+    
+    # Find the x values corresponding to the calculated bounds of the cumulative sum
+    lower_index = np.where(cumulative_sum_normalized > lower_bound)[0][0]
+    upper_index = np.where(cumulative_sum_normalized < upper_bound)[0][-1]
+    
+    # The band limits are the x values at the lower and upper indices
+    band_limits = (x_rsp[lower_index], x_rsp[upper_index])
+    
+    return band_limits
+
+
+def load_photometry(model_res=250, pad_n_res_elem=5):
 
     for instru_name, infos in photometric_data.items():
         log.info(f'Loading data for instrument {instru_name}')
-        # For now, just return empty wv_range
-        if 'wv_range' not in infos:
-            infos['wv_range'] = []
+    
+        # Read the data file (astropy table)
+        data_path = Path(infos['file_path'])
+        data_file = Path(infos['file_name'])
+        data_table = Table.read(data_path / data_file)
+        
+        # Get the wavelenghts
+        default_name = 'wave'
+        col_name = infos.get('wv_col_name', default_name)
+        infos['wave'] = data_table[col_name].to('um').value
+        
+        # Get the data (depends on emission or transmission)
+        default_name = 'F_p/F_star' if (kind_trans == 'emission') else 'dppm'
+        col_name = infos.get('data_col_name', default_name)
+        infos['data'] = data_table[col_name].quantity
+
+        # Get uncertainties
+        default_name = 'err'
+        col_name = infos.get('err_col_name', default_name)
+        infos['err'] = data_table[col_name].quantity
+
+        # Check units for uncertainties and data
+        for key in ['data', 'err']:
+            if infos[key].unit == 'percent':
+                infos[key] = infos[key].value * 100.
+            elif infos[key].unit == 'None':
+                infos[key] = infos[key].value
+            else:
+                infos[key] = infos[key].decompose().value
+                
+        # --- Response function
+        # if the path for the response function is not available, use the data path
+        response_path = data_table.meta.get('response_path', data_path)
+        response_format = data_table.meta.get('response_format', 'ascii')
+        # Get the transmission function and wavelenght grid for each filters
+        fcts, wv_grids, wv_coverages = [], [], []
+        for f_name in data_table.meta['response_files']:
+            x_rsp, y_rsp = read_response(f_name, response_path, response_format)
+            # Transmission function
+            fct_band = interp1d(x_rsp, y_rsp, kind='cubic', bounds_error=False, fill_value=0.)
+            fcts.append(fct_band)
+            wv_grids.append(x_rsp)  # Used later
+            # Save intervals for plotting purposes
+            wv_cov = get_wv_band_coverage(x_rsp, y_rsp, coverage_percent=99.9)
+            wv_coverages.append(wv_cov)
+        # Save
+        infos['response_fcts'] = fcts
+        infos['wv_coverages'] = wv_coverages
+        
+        # Get spectral resolution that will be used to downgrade the model
+        # before applying the transmission function.
+        # This is done to insure a smooth spectrum before integrating
+        # with the response functions.
+        infos['res'] = data_table.meta.get('model_resolution', model_res)
+        
+        # Get wavelength range
+        if 'wv_range' in data_table.meta:
+            infos['wv_range'] = data_table.meta['wv_range']
+        else:
+            # Use the grid range + a padding based on a given resolution
+            wv_grids = np.concatenate(wv_grids)
+            wv = np.array([np.min(wv_grids), np.max(wv_grids)])
+            dwv = wv[[0, -1]] / infos['res']
+            wv_min = wv[0] - pad_n_res_elem * dwv[0]
+            wv_max = wv[-1] + pad_n_res_elem * dwv[-1]
+            infos['wv_range'] = [wv_min, wv_max]
 
     return photometric_data
-
-
-
+    
+def assign_model_type(wv_rng_list_high):
+    """Assign the kind of model (high res or low res) that will be used
+    to create synthetic data. The input is the list of wavelength ranges
+    that are covered by the high res models. If one of these ranges covers
+    entirely the data of a specific instrument, then the high res model is used.
+    The low res model is used otherwise."""
+    
+    for data_dict in [spectrophotometric_data, photometric_data]:
+        for infos in data_dict.values():
+            model_type = 'low'
+            for wv_rng in wv_rng_list_high:
+                wv_min, wv_max = infos['wv_range']
+                if (wv_min >= wv_rng[0]) and (wv_max <= wv_rng[-1]):
+                    model_type = 'high'
+                    
+            infos['model_type'] = model_type
+        
+    return
+        
 # Here are other functions that need to stay in the retrieval script
 
 def init_model_retrieval(mol_species=None, kind_res='high', lbl_opacity_sampling=None,
@@ -2242,15 +2517,16 @@ def init_model_retrieval(mol_species=None, kind_res='high', lbl_opacity_sampling
 
 def init_atmo_if_not_done(mode):
 
-    for i_range, wv_range in enumerate(wv_range_high):
+    wv_range = globals()[f'wv_range_{mode}']
+    for i_range, wv_rng in enumerate(wv_range):
         # Use atmo object in globals parameters if it exists
         # atmo_obj = atmo_high if mode == 'high' else atmo_low
         atmo_obj_name = f'atmo_{mode}_{i_range}'
         atmo_obj = globals()[atmo_obj_name]
         # Initiate if not done yet
         if atmo_obj is None:
-            log.info(f'Model not initialized for mode = {mode} and range {wv_range}. Starting initialization...')
-            output = init_model_retrieval(kind_res=mode, wl_range=wv_range)
+            log.info(f'Model not initialized for mode = {mode} and range {wv_rng}. Starting initialization...')
+            output = init_model_retrieval(kind_res=mode, wl_range=wv_rng)
             log.info('Saving values in `linelist_names`.')
             atmo_obj, lnlst_names = output
             # Update the values of the global variables
@@ -2349,7 +2625,7 @@ def unpack_theta(theta):
         combined_dict = {**fixed_params, **theta_region}
 
         # gravity depends on Rp if included in the fit
-        if 'R_pl' in theta_region:
+        if 'R_pl' in theta_region and not 'gravity' in theta_region:
             combined_dict['gravity'] = (const.G * planet.M_pl /
                                         (theta_region['R_pl'] * const.R_jup) ** 2).cgs.value
             
@@ -2408,8 +2684,9 @@ def prepare_abundances(theta_dict, mode=None, ref_linelists=None):
 def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
                               species_dict=None, Raf=None, rot_ker=None):
 
+    # Take the highest resolution among instruments
     if Raf is None:
-        Raf = instrum_param_list[0]['resol']
+        Raf = max([p_list['resol'] for p_list in instrum_param_list])
     
     if atmo_obj is None:
         init_atmo_if_not_done(mode)
@@ -2466,7 +2743,7 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
 
     return wv_all, model_all
 
-def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=None, tr_i=0):
+def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=None, tr_i=0, Raf=None):
     
     # Get the list of rotation kernels
     rot_ker_list = get_ker(theta_regions, tr_i=tr_i)
@@ -2476,7 +2753,8 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
     for theta_dict, reg_id in zip(theta_regions, region_id):
         wv_i, model_i = prepare_model_high_or_low(theta_dict, mode,
                                                   rot_ker=rot_ker_list[reg_id - 1],
-                                                  atmo_obj=atmo_obj)
+                                                  atmo_obj=atmo_obj,
+                                                  Raf=Raf)
         model_i *= theta_dict['spec_scale']
         wv_list.append(wv_i)
         model_list.append(model_i)
@@ -2487,41 +2765,64 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
     return wv_out, model_out
 
 
-def prepare_spitzer(wv_low, model_low):
+def prepare_photometry(wv_mod, spec_mod, model_res, data_info, mod_sampling=None, integrate_fct='simpson'):
+    
+    if mod_sampling is None:
+        mod_sampling = model_res
+        
+    if isinstance(integrate_fct, str):
+        integrate_fct = getattr(scipy.integrate, integrate_fct)
+    
+    # Get the values needed from the data_info dictionary
+    info_keys = ['wv_range', 'res', 'wave', 'response_fcts']
+    wv_rng, instru_res, wv_band, fct_band = (data_info[key] for key in info_keys)
 
-    # print('Spitzer')
-    spit_wave, _, _, wave_sp, fct_sp = spitzer
+    # First downgrade to a lower resolution to make sure the spectrum is smooth
+    cond = (wv_mod >= wv_rng[0]) & (wv_mod <= wv_rng[-1])
+    wv_mod_sub, spec_mod_sub = wv_mod[cond], spec_mod[cond]
+    kwargs = dict(Raf=instru_res, Rbf=model_res, sample=wv_mod_sub)
+    _, resamp_prt = spectrum.resampling(wv_mod_sub, spec_mod_sub, **kwargs)
+    
+    # Apply the response function to the spectrum
+    mod_out = list()
+    for fct_i in fct_band:
+        response_i = fct_i(wv_mod_sub)
+        norm = integrate_fct(response_i, x=wv_mod_sub)
+        mod_i = integrate_fct(response_i * resamp_prt, x=wv_mod_sub) / norm
+        mod_out.append(mod_i)
+    mod_out = np.array(mod_out)
+    
 
-    spit_mod = []
-    for wave_i, fct_i in zip(wave_sp, fct_sp):
-        # --- Computing the model broadband point
-        cond = (wv_low >= wave_i[0]) & (wv_low <= wave_i[-1])
-        spit_mod.append(np.average(model_low[cond], weights=fct_i(wv_low[cond])))
-
-    spit_mod = np.array(spit_mod)
-
-    return spit_wave, spit_mod
+    return wv_band, mod_out
 
 
-def prepare_hst(wv_low, model_low, Rbf, R_sampling, instrument, wave_pad=None):
+def prepare_spectrophotometry(wv_mod, spec_mod, model_res, data_info, mod_sampling=None):
+    
+    if mod_sampling is None:
+        mod_sampling = model_res
+    
+    # Get the values needed from the data_info dictionary
+    wv_rng, instru_res, wv_grid = (data_info[key] for key in ['wv_range', 'res', 'wave'])
+    
+    # TODO: Add the possibility to use unequal spectral bins
+    # The binning function spectrum.box_binning needs to be replaced
+    # because it assumes evenly spaced grid for now.
+    # The function that reads the spectrophotometry should also
+    # be changed to be able to read bin limits.
+    
+    # Downgrade to instrument resolution
+    cond = (wv_mod >= wv_rng[0]) & (wv_mod <= wv_rng[-1])
+    kwargs = dict(Raf=instru_res, Rbf=model_res, sample=wv_mod[cond])
+    _, resamp_prt = spectrum.resampling(wv_mod[cond], spec_mod[cond], **kwargs)
+    
+    # Bin the spectrum and interpolate
+    # TODO: replace the binning function, which is just a box convolution for now.
+    binned_prt = spectrum.box_binning(resamp_prt, mod_sampling / instru_res)
+    fct_prt = interp1d(wv_mod[cond], binned_prt)
+    # Project into instrument wv grid
+    mod = fct_prt(wv_grid)
 
-    hst_wave, _, _, hst_res = hst[instrument]
-    log.debug('Prepare HST...')
-    log.debug(f"hst_wave: {hst_wave}")
-    log.debug(f"hst_res: {hst_res}")
-
-    if wave_pad is None:
-        d_wv_bin = np.diff(hst_wave)
-        wave_pad = 10 * d_wv_bin[[0, -1]]   # This is a bit arbitrary
-
-    cond = (wv_low >= hst_wave[0] - wave_pad[0]) & (wv_low <= hst_wave[-1] + wave_pad[-1])
-
-    _, resamp_prt = spectrum.resampling(wv_low[cond], model_low[cond], Raf=hst_res, Rbf=Rbf, sample=wv_low[cond])
-    binned_prt_hst = spectrum.box_binning(resamp_prt, R_sampling / hst_res)
-    fct_prt = interp1d(wv_low[cond], binned_prt_hst)
-    mod = fct_prt(hst_wave)
-
-    return hst_wave, mod
+    return wv_grid, mod
 
 
 def lnprob(theta, ):
@@ -2541,6 +2842,7 @@ def lnprob(theta, ):
     ####################
     # --- HIGH RES --- #
     ####################
+    # High res is needed in joint retrievals or High-res retrievals
     if (retrieval_type == 'JR') or (retrieval_type == 'HRR'):
 
         # For the rest, just use the first region
@@ -2553,7 +2855,10 @@ def lnprob(theta, ):
             # NOTE: Not optimal to re-compute the model for each sequence.
             # Could be done once for all regions and then the rotation kernel
             # could be applied to the model for each region depending on the phase.
-            wv_high, model_high = prepare_model_multi_reg(theta_regions, 'high', tr_i=tr_i)
+            wv_high, model_high = prepare_model_multi_reg(theta_regions,
+                                                          'high',
+                                                          tr_i=tr_i,
+                                                          Raf=res_instru)
             if not np.isfinite(model_high[100:-100]).all():
                 log.warning("NaN in high res model spectrum encountered")
                 return -np.inf
@@ -2578,61 +2883,53 @@ def lnprob(theta, ):
                                data_info['trall_N'], axis=0, del_idx=data_info['bad_indexs'], nolog=True,
                                alpha=data_info['trall_alpha_frac'])
 
-        # TODO: Update how the white light is computed
-        if (retrieval_type == "HRR") and (white_light is True):
-            log.debug("Using White Light from WFC3.")
-            # --- White light info ---
-            Rbf = instrum['resol']
-            R_sampling = prt_res['high']
-            _, mod = prepare_hst(wv_high, model_high, Rbf, R_sampling, 'WFC3')
-            mean_mod = np.mean(mod)
-            log.debug(f"White Light value: {mean_mod}")
-
-            total += -1 / 2 * corr.calc_chi2(mean_wl, mean_wl_err, mean_mod)
-
     ###################
     # --- LOW RES --- #
     ###################
-    atmo_low = globals().get('atmo_low_0', None)
-    if ((retrieval_type == 'JR') and (spitzer is not None)) or (retrieval_type == 'LRR') or (atmo_low is not None):
-        #         print('Low res')
+    if (retrieval_type == 'JR') or (retrieval_type == 'LRR') or white_light:
+        
+        # If at least one instrument need the low-res model, then compute it
+        model_type = [infos.get('model_type', 'low') for infos
+                      in list(spectrophotometric_data.values()) + list(photometric_data.values())]
+        if 'low' in model_type:
+            wv_low, model_low = prepare_model_high_or_low(theta_dict, 'low')
+            
+            if np.sum(np.isnan(model_low)) > 0:
+                log.info("NaN in low res model spectrum encountered")
+                return -np.inf
 
-        wv_low, model_low = prepare_model_high_or_low(theta_dict, 'low')
-
-        if np.sum(np.isnan(model_low)) > 0:
-            print("NaN in low res model spectrum encountered")
-            return -np.inf
-
-        if spitzer is not None:
-            _, spit_mod = prepare_spitzer(wv_low, model_low)
-
-            # --- Computing the logL
-            _, spit_data, spit_data_err, _, _ = spitzer
-            total += -1 / 2 * corr.calc_chi2(spit_data, spit_data_err, spit_mod)
-
-    #             print('Spitzer', spitzer_logl)
-
-    if (retrieval_type == 'JR') or (retrieval_type == 'LRR'):
-        #         print('HST')
-
-        if (retrieval_type == 'JR') and (spitzer is None):
-            # --- If no Spitzer or STIS data is included, only the high res model is generated
-            # and this is the model that will be downgraded for WFC3
-            wv_low, model_low = wv_high, model_high
-            Rbf = instrum['resol']
-            R_sampling = int(1e6 / opacity_sampling)
-        else:
-            Rbf = prt_res['low']
-            R_sampling = prt_res['low']
-        #         print(Rbf)
-        for instrument in hst.keys():
-
-            _, mod = prepare_hst(wv_low, model_low, Rbf, R_sampling, instrument)
-
-            # --- Computing the logL
-            _, hst_data, hst_data_err, _ = hst[instrument]
-            total += corr.calc_logl_chi2_scaled(hst_data, hst_data_err, mod, theta_dict['log_f'])
-            # total += -1 / 2 * corr.calc_chi2(hst_data, hst_data_err, mod)
+        # Iterate over all low-res spectrophotometric observations
+        for low_res_data_type in ['spectrophotometric', 'photometric']:
+            if low_res_data_type == 'photometric':
+                prepare_fct = prepare_photometry
+            else:
+                prepare_fct = prepare_spectrophotometry
+                
+            low_res_data_dict = globals()[f'{low_res_data_type}_data']
+            for instru_name, infos in low_res_data_dict.items():
+                log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
+                model_type = infos.get('model_type', 'low')
+                log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
+                if model_type == 'low':
+                    args = (wv_low, model_low, prt_res['low'], infos)
+                else:
+                    args = (wv_high, model_high, res_instru, infos, prt_res['high'])
+                # Generate the synthetic data
+                _, synt_data = prepare_fct(*args)
+                
+                # Get data measured by the instrument
+                data, uncert = infos['data'], infos['err']
+                
+                # In white-light mode, use the mean of the data
+                if white_light:
+                    log.debug(f"Using white light from {instru_name}.")
+                    synt_data = np.mean(synt_data)
+                    data = np.mean(data)
+                    uncert = np.sqrt(np.sum(uncert ** 2)) / len(uncert)
+                    
+                # Compute the log likelihood
+                scale_uncert = theta_dict.get(f'log_f_{instru_name}', 1)
+                total += corr.calc_logl_chi2_scaled(data, uncert, synt_data, scale_uncert)
 
         del wv_low, model_low
 
@@ -2648,11 +2945,14 @@ def lnprob(theta, ):
 
 def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None):
 
-    with open(yaml_file_in, 'w') as f:
+    with open(yaml_file_in, 'r') as f:
             params_yaml = yaml.load(f, Loader=yaml.FullLoader)
 
     # Add the version of starships to the yaml file
     params_yaml['starships_version'] = starships.__version__
+    
+    # Edit some values to make sure it is consistent with the current run
+    params_yaml['walker_file_out'] = globals()['walker_file_out']
 
     if output_dir is None:
         output_dir = Path.cwd()
@@ -2761,7 +3061,7 @@ def main(yaml_file=None):
         yaml_file = get_kwargs_with_message('yaml_file', kw_cmd_line)
 
     # Prepare the run
-    n_steps, pos, walker_file_out, yaml_file, good_to_go = prepare_run(yaml_file)
+    n_steps, pos, walker_file_out, yaml_file, good_to_go = prepare_run(yaml_file=yaml_file)
     n_walkers, ndim = pos.shape
     
     if not good_to_go:
