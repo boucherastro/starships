@@ -916,7 +916,41 @@ def single_max_dist(samp, bins='auto', start=0, end=-1, bin_size=6, plot=False):
 
 
 def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True, prob=0.68, print_gen_walkers=False,
-                   cut_sample=None):
+                   cut_sample=None, print_latex_style=False):
+    """
+    Compute the maximum values and errors for each parameter in the given sample.
+    The maximum values are computed using a spline interpolation of the smoothed histogram
+    of the sample (the smoothing is a box convolution with width=`bin_size`).
+
+    Parameters:
+    -----------
+    sample_all : numpy.ndarray
+        The input sample of shape (n_samples, n_walkers, n_params).
+    labels : list, optional
+        The labels for each parameter. If not provided, default labels (integers) will be used.
+    bin_size : int, optional
+        The size of the bins used for histogram binning. Default is 6.
+    flag_id : numpy.ndarray, optional
+        An array of shape (n_flags, 2) where each row contains the parameter index and the flag value.
+        If provided, a different binning method will be used for the flagged parameters.
+    plot : bool, optional
+        Whether to plot the walker chains, histograms and maximum values. Default is True.
+    prob : float, optional
+        The probability value used to compute the highest density interval (HDI) for the errors.
+        Default is 0.68 which corresponds to 1 sigma. The 2 or 3 sigma intervals can be computed
+        by setting prob to 0.95 or 0.997 respectively.
+    print_gen_walkers : bool, optional
+        Whether to print the generated walkers initialization. Default is False.
+    cut_sample : numpy.ndarray, optional
+        A subset of the sample to be used for computation. If provided, the sample_all parameter will be ignored.
+
+    Returns:
+    --------
+    maxs : list
+        A list of maximum values for each parameter.
+    errors : list
+        A list of HDI errors for each parameter.
+    """
     n_params = sample_all.shape[-1]
 
     if labels is None:
@@ -924,32 +958,20 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
 
     maxs = []
     errors = []
-    #     print(n_params)
+
     if plot is True:
         fig, ax = plt.subplots(len(labels), 2, constrained_layout=True, figsize=(10, len(labels)), sharex='col',
                                sharey='row', gridspec_kw={'width_ratios': [5, 1]})
 
     for i in range(n_params):
-
-        #     if i == 9 :
-        #         sample_all[:, :, i] = ((sample_all[:, :, i]/u.day).to('1/s') * maxs[6] * const.R_jup.to(u.km)).value
-        samp = sample_all[:, :, i].ravel()  # cut_sample[:, :, i].ravel()
+        samp = sample_all[:, :, i].ravel()
         sample_i = sample_all[:, :, i].reshape(sample_all.shape[0] * sample_all.shape[1], 1)
 
         if cut_sample is not None:
             samp = cut_sample[:, i]
             sample_i = cut_sample[:, i]
-        #         his, edges = np.histogram(samp, bins='auto',density=True)
-        #         mids = 0.5*(edges[1:] + edges[:-1])
-        #         if flag_id is not None and i == flag_id[0]:
-        #             binned = spectrum.box_binning(his[30:], flag_id[1])
-        #             maximum = a.find_max_spline(mids[30:], binned, binning=True)[0]
-        #         else:
-        #             binned = spectrum.box_binning(his,bin_size)
-        #             maximum = a.find_max_spline(mids, binned, binning=True)[0]
-        #         maxs.append(maximum)
+
         if plot:
-            #         print(i)
             ax[i, 0].plot(sample_all[:, :, i], "k", alpha=0.3)
             ax[i, 0].set_xlim(0, len(sample_all))
             ax[i, 0].set_ylabel(labels[i])
@@ -988,24 +1010,18 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
         if plot:
             ax[i, 1].axhline(maximum, color='dodgerblue')
             ax[i, 1].axhspan(errbars2[0], errbars2[1], alpha=0.2, color='dodgerblue')
-        #         ax[i,1].axhline(errbars2[0], linestyle='--')
-        #         ax[i,1].axhline(errbars2[1], linestyle='--')
-        print(maximum, errbars2 - maximum, errbars2)
+
+        if print_latex_style:
+            # Print the uncertainties as it would be in a latex table. Ex: $-2.49_{-1.72}^{+1.99}$ 
+            # And the limits of the HDI as well. Ex: $> -12.00 $, $< -2.94 $
+            d_max = maximum - errbars2
+            print(f"{labels[i]}: value = $ {maximum:.2f}_{{ {d_max[0]:.2f} }}^{{ +{d_max[1]:.2f} }}",
+                  f"$> {errbars2[0]:.2f}$, $< {errbars2[1]:.2f}$")
+        else:
+            print(f"{labels[i]}: Maximum={maximum}, Error={errbars2 - maximum}, HDI({prob*100:.2f}%)={errbars2}")
 
     if print_gen_walkers:
         gen_walkers_init(errors)
-    #     if plot:
-    #         ax[-1,0].set_xlabel("Steps")
-
-    #         fig, axes = plt.subplots(n_params, figsize=(10, n_params), sharex=True)
-    #         for i in range(n_params):
-    #             ax = axes[i]
-    #             ax.plot(sample_all[:, :, i], "k", alpha=0.3)
-    #             ax.set_xlim(0, len(sample_all))
-    #             ax.set_ylabel(labels[i])
-    #             ax.yaxis.set_label_coords(-0.1, 0.5)
-
-    #         axes[-1].set_xlabel("step number");
 
     return maxs, errors
 
@@ -2727,7 +2743,9 @@ def get_tp_from_retrieval(param, retrieval_obj):
         temperatures = prt_args[0]
     else:
         theta_dict = retrieval_obj.unpack_theta(param)
-
+        # Can be a list or a list of dictionaries depending on the version.
+        # If it is a list, it means multi-region retrieval. take the first one.
+        if isinstance(theta_dict, list): theta_dict = theta_dict[0]
         pressures = theta_dict['pressures']
         temperatures = theta_dict['temperatures']
 
@@ -2842,15 +2860,10 @@ def draw_tp_profiles_from_sample(n_draw, flat_samples, retrieval_obj=None, get_t
     # Take random integers (no repeated value)
     random_idx = rng.permutation(range(flat_samples.shape[0]))[:n_draw]
 
-    # Other molecule profiles will be added to this dictionary on the fly
     tp_samples = []
-
     for param_i in flat_samples[random_idx]:
-
         param_i = param_i.copy()
-
         pressures, temp_profile = get_tp_from_param(param_i)
-
         tp_samples.append(temp_profile)
 
     # Convert to array
