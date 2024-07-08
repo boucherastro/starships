@@ -17,7 +17,7 @@ from .transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, 
 
 
 def quick_correl(wave, flux, corrRV, mod_x, mod_y, wave_ref=None, 
-                     get_logl=False, kind='BL', mod2d=False, expand_mask=0, noise=None, somme=False):
+                     get_logl=False, kind='BL', mod2d=False, expand_mask=0, noise=None, somme=False, counting = True):
     
     n_spec, nord, npix = flux.shape
     correl = np.ma.zeros((n_spec, nord, corrRV.size))
@@ -43,7 +43,8 @@ def quick_correl(wave, flux, corrRV, mod_x, mod_y, wave_ref=None,
         sig, flux_norm, s2f, cst = calc_logl_OG_cst(flux, axis=2, sig=noise)
     
     for iOrd in range(nord):
-        hm.print_static('{} / {}'.format(iOrd+1,nord))
+        if counting:
+            hm.print_static('{} / {}'.format(iOrd+1,nord))
 
         if flux[:,iOrd].mask.all():
             continue

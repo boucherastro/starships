@@ -37,7 +37,7 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, nametag, cor
 
     # Do the correlation
     ccf = quick_correl(transit.wave, transit.final, corrRV, wave_mod, mod_spec, wave_ref=None, 
-                        get_logl=False, kind='BL', mod2d=False, expand_mask=0, noise=None, somme=False)
+                        get_logl=False, kind='BL', mod2d=False, expand_mask=0, noise=None, somme=False, counting = False)
 
     # Create the object do make the plots and compute the different Kp
 
