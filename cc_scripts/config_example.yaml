@@ -1,13 +1,30 @@
+# Example config file for running the automated starships pipeline
+
+# -----------------------------------------------------------
+# --- Main parameters ---
+# -----------------------------------------------------------
+
+# Planet name 
+# This is used to fetch information in ExoFile, and also to save the results, 
+# with the spaces replaced by '_'
+pl_name: WASP-127 b
+
+# Observation directory
+# This is the directory where the observations are stored
+# if null, takes from projects/def-rdoyon/shared/NIRPS-APERO/WASP-127b/
+
+
+# ----------------------------------------------------------- OLD PARAMETERS
+
 # FILE ORGANIZATION
 obs_dir: null # if null, takes from sbatch file 'projects/def-dlafre/fgenest/nirps/WASP-127b/' # starting from projects, home will be added in pipeline
 star_dir: "/WASP127"
+
 out_dir: null # if null, will save to def-dlafre/shared/INSTRUMENT/REDUCTION_NAME/PLANET_NAME...
-night_split: 
 
 # GLOBAL PARAMETERS USED IN MULTIPLE STAGES
-pl_name: 'WASP-127 b'
 instrument: 'NIRPS-APERO'
-visit_name: [''] # leave as [] if file lists not yet generated
+visit_name: [] # leave as [] if file lists not yet generated
 
 kind_trans: 'transmission'
 coeffs: [0.02703969,  1.10037972, -0.96372403,  0.28750393]
@@ -28,7 +45,13 @@ unberv_it: True
 
 idx_ord: [15, 33, 41]    # for output plots
 
-del_exposures: null # exposures to delete
+# If you have already split files by visit (i.e., not left visit_name blank), you can specify exposures
+# to remove for each night
+bad_indexs: {
+  # 'night1': [],
+  # 'night2': [],
+  # 'night3': [],
+} 
 
 # --------------------------------------------------------------------------------------------------
 # MODEL INPUTS : see other YAML file
@@ -83,7 +106,7 @@ pl_params:
     value: 4.1780625
     unit: d
   
-  excent: 
+  excent: # LEAVE AS DEFAULT
     value: 0.0
     unit: null
   
@@ -103,7 +126,7 @@ pl_params:
   Tp: 
     value: 1400 
     unit: K
-  w: 
+  w: # LEAVE AS DEFAULT
     value: -90
     unit: deg
   ap: 
