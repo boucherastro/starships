@@ -12,10 +12,13 @@ import cc_scripts.correlations as corr
 import cc_scripts.split_nights as split
 
 ## running the pipeline
-def run_pipe(config_filepath, model_filepath):
+def run_pipe(config_filepath, model_filepath, run_name):
+
     # unpack input parameters into config dictionary
     with open(config_filepath, 'r') as file:
         config_dict = yaml.safe_load(file)
+
+    config_dict['reduction'] = run_name
 
     # unpack the model input parameters
     with open(model_filepath, 'r') as file:
@@ -165,8 +168,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run the pipeline with the given config files.')
     parser.add_argument('config_filepath', type=Path, help='Path to the config.yaml file.')
     parser.add_argument('model_filepath', type=Path, help='Path to the model_config.yaml file.')
+    parser.add_argument('run_name', type=str, help='Name of reduction.')
 
     args = parser.parse_args()
 
     # Call the run_pipe function with the parsed arguments
-    run_pipe(args.config_filepath, args.model_filepath)
+    run_pipe(args.config_filepath, args.model_filepath, args.run_name)
