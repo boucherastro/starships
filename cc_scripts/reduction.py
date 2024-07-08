@@ -175,10 +175,10 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
     return list_tr
 
 
-def save_pl_sig(list_tr, nametag, scratch_dir, do_tr = [1]):
+def save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs=[]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
     out_filename = f'retrieval_input' + nametag
-    pl_obs.save_single_sequences(out_filename, list_tr, path=scratch_dir, save_all=True)
+    pl_obs.save_single_sequences(out_filename, list_tr, path=scratch_dir, save_all=True, bad_indexs = bad_indexs)
 
 
 def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag): 
@@ -208,7 +208,14 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, 
         list_tr = list_tr['1']
 
     # saving the transit spectrum
-    save_pl_sig(list_tr, nametag, scratch_dir)
+
+    if config_dict['bad_indexs']:
+        bad_indexs = config_dict['bad_indexs']['visit_name']
+        print('Masking exposure(s) at index(s) ', bad_indexs)
+
+    else: bad_indexs = []
+    
+    save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs)
 
     # outputting plots for reduction step
     reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag)
