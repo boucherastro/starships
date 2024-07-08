@@ -547,7 +547,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                      kind_trans, final=None, spec_trans=None, noise=None, ratio=None,
                                  pca=None, alpha=None, inj_alpha='ones',
                                  get_GG=True, vrp_kind='t', nolog=True, 
-                                 change_noise=False, force_npc=None, filename=None, **kwargs):
+                                 change_noise=False, force_npc=None, filename=None, counting = True, **kwargs):
     
     if models.ndim < 2:
         models = models[None,:]
@@ -641,8 +641,9 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
 
                 for v,vrad in enumerate(corrRV):
 #                     print('v',v)
-                    hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
-                                             n_pc, i+1,len(Kp_array),Kpi, f+1, models.shape[0], v+1,corrRV.size))
+                    if counting:
+                        hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
+                                                n_pc, i+1,len(Kp_array),Kpi, f+1, models.shape[0], v+1,corrRV.size))
                     
                     velocities = vrad + vrp_orb - vr_orb + RV_const
                     model_seq = gen_model_sequence_noinj(velocities, 
@@ -736,7 +737,7 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
                                  get_GG=True, RVconst = 0.0, new_mask=None,
                                  vrp_kind='t',  master_out=None, iOut=None, ratio=None,
                                  reconstructed=None, change_noise=False, force_npc=None,
-                                 filename=None, **kwargs):
+                                 filename=None, counting = True, **kwargs):
     
     if modelTD0.ndim < 2:
         modelTD0 = modelTD0[None,:]
@@ -822,8 +823,9 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
 
                 for v,vrad in enumerate(corrRV):
 #                     print('v',v)
-                    hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
-                                             n_pc, i+1,len(Kp_array),Kpi, f+1, modelTD0.shape[0], v+1,corrRV.size))
+                    if counting:
+                        hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
+                                                n_pc, i+1,len(Kp_array),Kpi, f+1, modelTD0.shape[0], v+1,corrRV.size))
     
                     model_seq = gen_model_sequence([vrad, vrp_orb-vr_orb, RVconst], tr, modelWave0, specMod,  
                                                    pca=pca, n_pcs=n_pc_mod, norm=norm,

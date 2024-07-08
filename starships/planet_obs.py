@@ -1229,7 +1229,7 @@ class Observations():
     
     def build_trans_spec(self, flux=None, params=None, n_comps=None, 
                          change_ratio=False, change_noise=False, ratio_recon=False, 
-                         clip_ts=None, clip_ratio=None, fast=False, poly_time=None, **kwargs):
+                         clip_ts=None, clip_ratio=None, fast=False, poly_time=None, counting = True, **kwargs):
         
         """
         Compute the transmission/emission spectrum of the planet
@@ -1259,7 +1259,7 @@ class Observations():
                                     last_tresh=params[8], last_tresh_lim=params[9],
                                     n_comps=self.n_comps,
                                     clip_ts=clip_ts, clip_ratio=clip_ratio,
-                                    poly_time=poly_time, **kwargs)
+                                    poly_time=poly_time, counting = counting, **kwargs)
         
 #         self.n_comps = n_comps
 #         self.reconstructed = (self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None] * \
@@ -2502,7 +2502,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
 
 def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
                      coeffs, ld_model, kind_trans, RV_sys, polynome=None, 
-                     ratio_recon=False, cont=False, cbp=True, noise_npc=None, **kwargs_build_ts):
+                     ratio_recon=False, cont=False, cbp=True, noise_npc=None, counting = True, **kwargs_build_ts):
     if transit_tag is not None:
         tr = obs.select_transit(transit_tag)
     else:
@@ -2522,7 +2522,7 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
     if noise_npc is None:
         tr.build_trans_spec(params= params_all, \
                     iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
-                        cbp=cbp, poly_time=poly_time, **kwargs_build_ts)
+                        cbp=cbp, poly_time=poly_time, counting = counting, **kwargs_build_ts)
     else:
        
         params_copy = params_all.copy()
@@ -2566,7 +2566,7 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
                           do_tr=[1,2,3,12,123], cbp=True, 
                            kind_trans='transmission', flux_all=None,
                           ld_model = 'linear', coeffs=[0.53],
-                           polynome=None, noise_npc=None, **kwargs_build_ts):
+                           polynome=None, noise_npc=None, counting = True, **kwargs_build_ts):
     #                           
     
     ratio_recon=True
@@ -2584,7 +2584,7 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
                                                  iOut_temp[tag-1],
                                                  coeffs, ld_model, kind_trans, RV_sys[tag-1], 
                                                  polynome=polynome[tag-1], noise_npc=noise_npc, 
-                                 ratio_recon=ratio_recon, cont=cont, cbp=cbp, **kwargs_build_ts)
+                                 ratio_recon=ratio_recon, cont=cont, cbp=cbp, counting = counting, **kwargs_build_ts)
         
         else :  
 

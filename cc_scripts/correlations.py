@@ -58,10 +58,11 @@ def inj_ccf(config_dict, transit, wave_mod, mod_spec, n_pc, scratch_dir, nametag
         corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
     
     Kp_array = np.array([transit.Kp.value])
+    print('Computing CCF')
     ccf_map, logl_map = correl.quick_calc_logl_injred_class(transit, Kp_array, corrRV, n_pc, 
                                                     wave_mod, np.array([mod_spec]), nolog=True, 
-                                                    inj_alpha='ones', RVconst=transit.RV_const)
-
+                                                    inj_alpha='ones', RVconst=transit.RV_const, counting = False)
+    print('Done!')
     corr.save_logl_seq(scratch_dir / Path(f'inj_ccf_logl_seq{nametag}'), ccf_map, logl_map,
                            wave_mod, mod_spec, n_pc, Kp_array, corrRV, config_dict['kind_trans'])
 
@@ -216,10 +217,11 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
             logl_map = saved_values['logl']
         except FileNotFoundError:
             # if not, generate the ccf for each visit and save it
+            print('Computing CCF')
             ccf_map, logl_map = correl.quick_calc_logl_injred_class(transit, Kp_array, corrRV, [n_pc], 
                                                     wave_mod, np.array([mod_spec]), nolog=True, 
-                                                    inj_alpha='ones', RVconst=transit.RV_const)
-        
+                                                    inj_alpha='ones', RVconst=transit.RV_const, counting = False)
+            print('Done!')
             corr.save_logl_seq(scratch_dir / Path(out_filename), ccf_map, logl_map,
                             wave_mod, mod_spec, n_pc, Kp_array, corrRV, config_dict['kind_trans'])
 
