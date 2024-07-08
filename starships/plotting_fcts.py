@@ -1840,7 +1840,7 @@ def plot_night_summary_NIRPS(list_tr, obs, markers=['o','s','d'],
         ax[4].plot(tr.phase, obs.headers_tellu.get_all('TLPEOTR')[0], '-', marker=markers[i], color=colors[i])
     
     ax[4].set_ylabel('Telluric exp. \nother species', fontsize=16)
-    ax[4].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    # ax[4].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
 
     ax[4].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[4].axvspan(phase_t2, phase_t3, alpha=0.2)
@@ -1850,8 +1850,8 @@ def plot_night_summary_NIRPS(list_tr, obs, markers=['o','s','d'],
     end = np.array(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM END')[0])
     mean_seeing = (start + end) / 2
 
-    ax[5].plot(tr.phase, mean_seeing, '-', color = colors[i])
-    ax[5].set_ylabel('Mean seeing')
+    ax[5].plot(tr.phase, mean_seeing, '-', marker=markers[i], color = colors[i])
+    ax[5].set_ylabel('Mean seeing', fontsize = 16)
     ax[5].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
     ax[5].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[5].axvspan(phase_t2, phase_t3, alpha=0.2)

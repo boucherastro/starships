@@ -15,6 +15,7 @@ import astropy.constants as const
 from scipy.interpolate import interp1d, interp2d
 from scipy.optimize import curve_fit, fsolve
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import matplotlib as mpl
 mpl.rc('pdf', fonttype = 42) 
@@ -158,7 +159,7 @@ class Correlations():
     def plot_multi_npca(self, logl=None, vlines=[0], kind='snr', kind_courbe='bic', ylim=None, 
                         no_signal=None, ground_type='mean',
                         hlines=None, legend=True, title='', max_rv=None, force_max_rv=None, 
-                        path_fig = None, fig_name = None, param = 'pc', **kwargs):
+                        path_fig = None, fig_name = None, param = 'pc', axs = None, **kwargs):
     
         lstyles = ['-','--','-.',':']
 
@@ -174,8 +175,16 @@ class Correlations():
         pos = []
         snr = []
         courbe = []
-        
-        fig,ax = plt.subplots(1,2, figsize=(10,4))
+
+        if axs is None:
+            fig,ax = plt.subplots(1,2, figsize=(10,4))
+        else:
+            fig = axs.figure
+            ax = []
+            ax[0] = inset_axes(axs, width="50%", height="50%", loc='upper left')
+            ax[1]= inset_axes(axs, width="50%", height="50%", loc='lower right')
+            
+
         for i in range(len(self.n_pcas)):
             couleur = (0.5,0.1,i/len(self.n_pcas))
             
@@ -1830,18 +1839,25 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
     if RV_limit is None:
         RV_limit = corrRV0.max()
 
+
+    fig, axs = plt.subplots(3, 1, figsize=(15, 5))
+
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
                                  n_pcas=n_pcas, kp_array=Kp_array)
     ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
-    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=path_fig, param = param)
+    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = axs[0])
 
     logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
                                   n_pcas=n_pcas, kp_array=Kp_array)
     logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
 
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=path_fig, param = param)
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = axs[1])
     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
-                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=path_fig, param = param)
+                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = axs[2])
+
+    plt.tight_layout()
+    plt.savefig(path_fig + f'fig_multi_{param}'+fig_name+'.pdf')
+
 
     print(ccf_obj.npc_val)
     print(logl_obj.npc_max_abs)
