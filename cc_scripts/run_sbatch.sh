@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=wasp-127b
+#SBATCH --job-name=
 #SBATCH --output=wasp-127b.out
 #SBATCH --mem=120G
 #SBATCH --time=03:00:00
@@ -13,7 +13,7 @@ main_path = PATH/TO/ALL/REDUCTIONS
 # Save all outputs to a .txt file called output.txt
 python run_pipe.py config.yaml model_config.yaml > output.txt
 
-Get the name of the output directory from output.txt
+# Get the name of the output directory from output.txt
 out_dir=$(grep -oP '(?<=Output directory: ).*' output.txt)
 
 # If the output directory was found, copy the input yaml files and output.txt to it
