@@ -102,7 +102,7 @@ def run_pipe(config_filepath, model_filepath, run_name):
                                                             scratch_dir, visit_name, id_pc0=None, 
                                                             order_indices=np.arange(75), path_fig = path_fig)
         
-        if [mask_tellu, mask_wings, n_pc] == config_dict['night_params']:
+        if ([mask_tellu, mask_wings, n_pc] == config_dict['night_params']) and (visit_name == config_dict['visit_name'][-1]):
             corr.combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, out_dir, config_dict)
         
         # iterate over individual molecules if there are more than 1
@@ -160,7 +160,7 @@ def run_pipe(config_filepath, model_filepath, run_name):
                                                             id_pc0=None, order_indices=np.arange(75), 
                                                             path_fig = path_fig)
                         
-                if [mask_tellu, mask_wings, n_pc] == config_dict['night_params']:
+                if ([mask_tellu, mask_wings, n_pc] == config_dict['night_params']) and (visit_name == config_dict['visit_name'][-1]):
                     corr.combined_visits_ccf(planet, single_mol, wave_mod, mod_spec, scratch_dir, path_fig, out_dir, config_dict)                                
                                             
 
