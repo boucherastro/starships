@@ -399,8 +399,9 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     # Create the first subplot separately without sharing y-axis
     ax = [fig.add_subplot(n_subplots, 1, 1)]
     ax[0].plot(wv, out_spec['All'], label='All', lw=0.3)
-    ax[0].set_title('Full Model')
-    ax[0].set_ylabel('Fp/Fstar')
+    ax[0].set_title('Full Model', fontsize = 18)
+    ax[0].set_ylabel('Spectrum', fontsize = 16)
+    ax[0].set_xlabel('Wavelength', fontsize = 16)
     ax[0].legend()
 
     # Create the rest of the subplots with sharing y-axis
@@ -416,16 +417,13 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     ax[1].plot(wv, out_spec['All'], label = 'With Clouds', lw = 0.3, alpha = 0.8)
     ax[1].legend()
 
-    # plot haze contribution
-    # ax[2].plot(wv, out_spec['Haze'], label = 'Haze', lw = 0.3)
-    # ax[2].legend()
-
     for i, (key, spec) in enumerate(mol_contrib.items(), start=2):
         ax[i].plot(wv, spec, label=key, lw=0.3)
         ax[i].legend(loc='upper left')
-        ax[i].set_ylim(y_min, y_max)  # Set the y-limits to be the same for all subplots
+        ax[i].set_ylabel('$Model_{w/ molecule} - Model_{w/o molecule}$', fontsize = 16)
+        ax[i].set_ylim(y_min, y_max) # Set the y-limits to be the same for all subplots
         
-    ax[1].set_title('Contributions')
+    ax[1].set_title('Contributions', fontsize = 18)
 
     plt.tight_layout()
     if path_fig is not None:
