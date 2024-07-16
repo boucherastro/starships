@@ -3,6 +3,144 @@
 # -----------------------------------------------------------
 # --- Main parameters ---
 # -----------------------------------------------------------
+# These are the parameters you will change most often (for a given planet)
+# NOTE: You will also often modify the content of --- Parameters and Priors --- section.
+#       (This is the last section, at the end of this file)
+#       (I did not include it here for clarity)
+
+
+# --- High resolution data ---
+
+# Name of the instrument (used to get the resolution and wavelength range)
+# This should be a list, matching the number of high resolution files
+# If a single element is given, it will be used for all observation files.
+instrum: 
+  - spirou
+
+# List of the file stems for the high resolution data
+# The files are assumed to be in the high_res_path directory
+high_res_file_stem_list:
+  - 'retrieval_input_2-pc_mask_wings90_day1'
+  - 'retrieval_input_4-pc_mask_wings97_day2'
+
+
+# --- Low-resolution data
+  
+# Dictionary of path to spectrophotometric data (ex: JWST, HST)
+# If empty, no spectrophotometric data will be used
+spectrophotometric_data:
+#   wfc3: 
+#     file_path: '~/projects/def-dlafre/adb/Observations/HST/WFC3'
+#     file_name: 'WASP-33_WFC3_full_res.ecsv'
+
+# Dictionary of path to photometric data (ex: Spitzer)
+# If empty, no photometric data will be used
+photometric_data:
+  spitzer:
+    file_path: '~/projects/def-dlafre/adb/Observations/Spitzer'
+    file_name: 'WASP-33_Spitzer.ecsv'
+
+
+# --- Some nobs to play with ---
+
+# Type of retrieval : JR, HRR or LRR  (This should be removed eventually)
+retrieval_type: 'JR'
+
+# In HRR mode only, use white light curve from spectrophotometric and photometric bandpass?
+# This include the mean of all data in the fit for each low-resolution instruments.
+white_light: False
+
+# Chemical equilibrium?
+# Note that C/O and Fe/H need to be included in the parameters if chemical equilibrium is True
+# *** NOT USED YET ***
+# For now, if you include C/O or Fe/H either in fixed_params or params_prior, chemical equilibrium will be used.
+chemical_equilibrium: False
+
+# Include dissociation parametrization in abundance profiles? (not used in chemical equilibrium)
+dissociation: True
+
+# Which kind of TP profile you want? (guillot, modif, iso, akima)
+kind_temp: 'modif'
+
+
+# --- Walker chains ---
+
+# Name of the run (will be used to save the results)
+# For example, the walkers will be saved in base_dir/DataAnalysis/walker_steps/<pl_name>/walker_steps_<run_name>.h5
+# If null, the run_name will be define by joining with "_" all the following parameters
+# - kind_trans
+# - retrieval_type
+# - "WL" (if white_light is True)
+# - keys in spectrophotometric_data dictionary (ex: wfc3)
+# - keys in photometric_data dictionary (ex: spitzer)
+# - kind_temp
+# - "disso" (if dissociation is True)
+# - "chemEq" (if chemical equilibrium is True)
+# - the sbatch job ID if available
+# So for this example, the run_name will be: emission_HRR_modif_disso
+run_name: null
+
+# Name of the file where the walker steps will be saved
+# If null, the file will be named walker_steps_<run_name>.h5
+walker_file_out: null
+
+# Walker file used to init walkers
+# If set to null, the retrieval will use random initialisation from the prior
+# Possible values: null, 'file_name.h5'
+walker_file_in: null
+
+# How to init walkers
+# Options: "from_burnin", "continue" (not used if walker_file_in is null)
+# If "from_burnin", the walkers will be initialised from the last step of the burnin chain in walker_file_in
+# If "continue", the walkers will be initialised from the last step of the chain in walker_file_in.
+#    Note that this option allows to keep the walker_file_in as the output file, and append the new walkers to it.
+init_mode: 'continue'
+
+# - Number of cpu to use
+# If null, the code will use the number of cpus from
+# the slurm environment variable named SLURM_CPUS_PER_TASK
+# (null is recommended if using sbatch)
+n_cpu: null
+
+# - Number of walkers
+# If null, the number of walkers will be set to n_wlkr_per_cpu * n_cpu
+# (we recommend to set it to null and using n_wlkr_per_cpu instead)
+n_walkers: null
+
+# - Number of walkers per cpu
+n_walkers_per_cpu: 14
+
+
+# --- Input for model intialisation ---
+
+# - Name of the species that contribute to the line opacities
+# ** THIS IS NOT THE LINE LIST NAME **
+line_opacities: [CO, H2O, OH, Fe]
+
+# - Species that contribute to the continuum opacities.
+# By default, H2-H2 and H2-He are included.
+continuum_opacities: [H-]
+
+# - Other species to add to the model (ex: e- and H needed for H- opacity):
+other_species: [e-, H]
+
+# Which species lists will be include in the fit?
+# This will automatically add the species in the params_prior dictionnary,
+# with a log_uniform prior between 1e-12 and 1e-0.5.
+# You can leave the list empty if you want to set the priors manually.
+# For chemical equilibrium, all the species will be added to the fixed_params dictionnary.
+# The possible elements of the list are:
+# - one of the species list (like line_opacities, continuum_opacities, other_species)
+# - or species name. This is useful if you want to fit only some of the species in a list.
+species_in_prior: [line_opacities, continuum_opacities, e-]
+
+
+
+# -----------------------------------------------------------
+# --- Other parameters ---
+# -----------------------------------------------------------
+# Usually set only once for a given planet or system
+
 
 # Planet name 
 # This is used to fetch information in ExoFile, and alos
@@ -14,33 +152,7 @@ pl_name: WASP-33 b
 base_dir: null
 
 # Path to the high resolution data
-high_res_path: /home/adb/scratch/DataAnalysis/SPIRou/Reductions/WASP-33b_v07232
-
-# # Name of the reduction used to load the high resolution data
-# # Assuming the data is in a directory with the following structure:
-# # <high_res_path>/<reduc_name>
-# reduc_name: WASP-33b_v07232
-
-# List of the file stems for the high resolution data
-# The files are assumed to be in the high_res_path directory
-high_res_file_stem_list:
-  # - retrieval_input_2-pc_mask_wings90_day1
-  - retrieval_input_4-pc_mask_wings97_day2
-
-# Dictionary of path to spectrophotometric data (ex: JWST, HST)
-# If empty, no spectrophotometric data will be used
-spectrophotometric_data:
-  wfc3: 
-    file_path: /home/adb/projects/def-dlafre/adb/Observations/HST/WFC3
-    file_name: WASP-33_WFC3_full_res.ecsv
-
-
-# Dictionary of path to photometric data (ex: Spitzer)
-# If empty, no photometric data will be used
-photometric_data:
-  # spitzer:
-  #   file_path: /home/adb/projects/def-dlafre/adb/Observations/Spitzer
-  #   file_name: WASP-33_Spitzer.ecsv
+high_res_path: '~/scratch/DataAnalysis/SPIRou/Reductions/WASP-33b_v07232'
 
 
 # Stellar spectrum file.
@@ -50,37 +162,17 @@ photometric_data:
 # 'wave': wavelength grid is in microns.
 # 'flux': stellar flux in erg / cm**2 / s / cm.
 # 'sampling_res': sampling resolution of the spectrum (ex: 500000).
-star_spectrum: /home/adb/Models/RotationSpectra/phoenix_teff_07400_logg_4.50_Z0.0_RotKer_vsini50.npz
+star_spectrum: '~/Models/RotationSpectra/phoenix_teff_07400_logg_4.50_Z0.0_RotKer_vsini50.npz'
 
-# Type of retrieval : JR, HRR or LRR  (This should be removed eventually)
-retrieval_type: HRR
-
-# In HRR mode, use white light curve from spectrophotometric bandpass?
-white_light: false
-
-# Chemical equilibrium?
-# Note that C/O and Fe/H need to be included in the parameters if chemical equilibrium is True
-chemical_equilibrium: false
-
-# Include dissociation parametrization in abundance profiles? (not used in chemical equilibrium)
-dissociation: true
-
-# TODO: this should be removed. The spitzer points will be used
-#       if the data is specified in the photometric_data dictionary.
-# Will you add Spitzer data points?
-add_spitzer: false
-
-# Which kind of TP profile you want? (guillot, modif, iso, akima)
-kind_temp: modif
 
 # SLURM_ARRAY_TASK_ID behaviour
 # Tells how to use the SLURM_ARRAY_TASK_ID environment variable if detected.
 # Options:
-# null: the code will not use it directly.
+# null: the code will not use it.
 # 'burnin': the code will assume that multiple burnin chains are running in parallel.
 #           and will use the SLURM_ARRAY_TASK_ID to identify the different outputs (walker_file_out)
 #           Note that params_file_out will only be outputed for the first task (with ID = 1).
-slurm_array_behaviour: burnin
+slurm_array_behaviour: 'burnin'
 
 # How many steps for burnin phase
 n_steps_burnin: 300
@@ -88,40 +180,11 @@ n_steps_burnin: 300
 # How many steps for sampling phase
 n_steps_sampling: 3000
 
-# Name of the run (will be used to save the results)
-# For example, the walkers will be saved in base_dir/DataAnalysis/walker_steps/<pl_name>/walker_steps_<run_name>.h5
-# If null, the run_name will be define by joining with "_" all the following parameters
-# - kind_trans
-# - retrieval_type
-# - keys in spectrophotometric_data dictionary (ex: wfc3)
-# - keys in photometric_data dictionary (ex: spitzer)
-# - kind_temp
-# - "disso" (if dissociation is True)
-# - "chemEq" (if chemical equilibrium is True)
-# - the sbatch job ID if available
-# So for this example, the run_name will be: emission_HRR_modif_disso
-run_name: null
-
 # Path where the walker steps will be saved
 # If null, the path will be set to <base_dir>/DataAnalysis/walker_steps/<pl_name>
 # walker_path: null
-walker_path: /home/adb/scratch/DataAnalysis/SPIRou/walker_steps/WASP-33_b
+walker_path: '~/scratch/DataAnalysis/SPIRou/walker_steps/WASP-33_b'
 
-# Name of the file where the walker steps will be saved
-# If null, the file will be named walker_steps_<run_name>.h5
-walker_file_out: null
-
-# Walker file used to init walkers
-# If set to null, the retrieval will use random initialisation from the prior
-# Possible values: null, 'file_name.h5'
-walker_file_in: walker_steps_HRR_day2.h5
-
-# How to init walkers
-# Options: "from_burnin", "continue" (not used if walker_file_in is null)
-# If "from_burnin", the walkers will be initialised from the last step of the burnin chain in walker_file_in
-# If "continue", the walkers will be initialised from the last step of the chain in walker_file_in.
-#    Note that this option allows to keep the walker_file_in as the output file, and append the new walkers to it.
-init_mode: continue
 
 # Path where this yaml file will be copied
 # If null, the path will be set to base_dir/DataAnalysis/retrieval_params/<pl_name>
@@ -132,21 +195,7 @@ params_path: null
 params_file_out: null
 
 # Types of models : in emission or transmission
-kind_trans: emission
-
-# --- Number of cpu to use ---
-# If null, the code will use the number of cpus from
-# the slurm environment variable named SLURM_CPUS_PER_TASK
-# (null is recommended if using sbatch)
-n_cpu: null
-
-# --- Number of walkers ---
-# If null, the number of walkers will be set to n_wlkr_per_cpu * n_cpu
-# (we recommend to set it to null and using n_wlkr_per_cpu instead)
-n_walkers: null
-
-# --- Number of walkers per cpu ---
-n_walkers_per_cpu: 18
+kind_trans: 'emission'
 
 # Downsampling factor for the high resolution model
 # It will be used to downsample the high resolution model
@@ -158,16 +207,16 @@ opacity_sampling: 4
 # List of Orders to use (null will use all orders)
 orders: null
 
-# -----------------------------------------------------------
+
 
 # -----------------------------------------------------------
 # --- Data parameters ---
 # -----------------------------------------------------------
 
 # Dictionary of planet parameters that will replace the ones in ExoFile
-# --------------------------------------------------------------------------------------------------
-# units must be inputed in astropy string format (see table here https://docs.astropy.org/en/stable/units/ref_api.html#module-astropy.units.si)
-# (Set to null or comment if you want to use the default values from ExoFile)
+# units must be inputed in astropy string format
+# (see table here https://docs.astropy.org/en/stable/units/ref_api.html#module-astropy.units.si)
+# Set to null or comment if you want to use the default values from ExoFile
 pl_params:
   M_star: # Star mass
     value: 1.561
@@ -227,40 +276,11 @@ pl_params:
     value: 0.0259
     unit: au
 
-# -----------------------------------------------------------
-# --- High resolution data ---
-# -----------------------------------------------------------
 
-# - Name of the instrument (used to get the resolution and wavelength range)
-# This should be a list, matching the number of high resolution files
-# If a single element is given, it will be used for all observation files.
-instrum: 
-  - spirou
 
 # -----------------------------------------------------------
 # --- Input for model intialisation ---
 # -----------------------------------------------------------
-
-# - Name of the species that contribute to the line opacities
-# ** THIS IS NOT THE LINE LIST NAME **
-line_opacities: [CO, H2O]
-
-# - Species that contribute to the continuum opacities.
-# By default, H2-H2 and H2-He are included.
-continuum_opacities: [H-]
-
-# - Other species to add to the model (ex: e- and H needed for H- opacity):
-other_species: [e-, H]
-
-# Which species lists will be include in the fit?
-# This will automatically add the species in the params_prior dictionnary,
-# with a log_uniform prior between 1e-12 and 1e-0.5.
-# You can leave the list empty if you want to set the priors manually.
-# For chemical equilibrium, all the species will be added to the fixed_params dictionnary.
-# The possible elements of the list are:
-# - one of the species list (like line_opacities, continuum_opacities, other_species)
-# - or species name. This is useful if you want to fit only some of the species in a list.
-species_in_prior: [line_opacities, continuum_opacities, e-]
 
 # TODO: Not well implemented yet. ****
 # - Dictionnary of linelists to use for each species in line_opacities
@@ -275,6 +295,8 @@ linelist_names:
 # - Pressure grid for the model
 limP: [-10, 2]    # pressure log range, standard
 n_pts: 50         # pressure n_points, standard
+
+
 
 # -----------------------------------------------------------
 # --- Parameters and Priors ---
@@ -291,6 +313,11 @@ n_pts: 50         # pressure n_points, standard
 # you need to add it to the params_prior dictionnary. No need to remove it from the fixed parameters.
 # Note that you can have unused parameters (so you don't need to erase them if you don't use them)
 fixed_params:
+
+  # Gravity is used by both emission or transmission spectra.
+  # If null, it will be computed from the planet's mass and radius
+  # Note that it is also used by guillot TP profile.
+  gravity: null
 
   # Reference pressure (for transmission spectra)
   P0: 0.001
@@ -309,9 +336,9 @@ fixed_params:
 
   # Abundance ratios for chemical equilibrium
   # C/O
-  C/O: 0.54  # Solar value is 0.54
+  C/O: null #0.54  # Solar value is 0.54
   # Fe/H
-  Fe/H: 0.0  # Solar value is 0.0
+  Fe/H: null #0.0  # Solar value is 0.0
 
   # Cloud parameters (set to null if not used)
   p_cloud: null  # Cloud pressure (in bar)
@@ -330,8 +357,8 @@ fixed_params:
   # Guillot only parameters
   # IR opacity (for Guillot)
   kappa_IR: 0.01
-  # Gravity (for Guillot)
-  gravity: 23.0
+  
+  # Gravity is used by Guillot, but already defined above
 
   # Guillot_modif only parameters
   # Delta parameter (for Guillot_modif)
@@ -396,17 +423,23 @@ params_prior:
   # based on the species_in_prior list.
   # But if you want to manually add the species in the prior, you can add it here.
   # In this example, I want to fit the e- in other_species, but not H, so I add it here.
-  # CO: [log_uniform, -12.0, -0.5]
+  CO: [log_uniform, -12.0, -0.5]
+  H2O: [log_uniform, -12.0, -0.5]
+  OH: [log_uniform, -12.0, -0.5]
+  Fe: [log_uniform, -12.0, -0.5]
+  H-: [log_uniform, -12.0, -0.5]
+  e-: [log_uniform, -12.0, -0.5]
+
+  T_eq: [uniform, 100, 4500]  # For iso, guillot and modif
 
   # Orbital parameters
-  rv: [uniform, -40, 40]  # For RV
   kp: [uniform, 100, 250]  # For RV
+  rv: [uniform, -40, 40]  # For RV
 
   # TP-profile parameters
-  T_eq: [uniform, 100, 4500]  # For iso, guillot and modif
   tp_gamma: [log_uniform, -2, 6]  # For guillot and modif
   # kappa_IR: [log_uniform, -4, 0]  # For guillot
-  gravity: [uniform, 1000, 10000]  # For guillot
+#   gravity: [uniform, 1000, 10000]  # For guillot
   tp_delta: [log_uniform, -8, -3]  # For modif
   ptrans: [log_uniform, -8, 3]  # For modif
   tp_alpha: [uniform, -1.0, 1.0]  # For modif
