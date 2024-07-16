@@ -1,7 +1,8 @@
 import numpy as np
 from . import homemade as hm
 from . import analysis as a
-from .retrieval_utils import get_all_param_names
+from . import retrieval
+from . import retrieval_utils as ru
 from . import ttest_fcts as nf
 from .orbite import rv_theo_nu
 from .mask_tools import interp1d_masked
@@ -110,7 +111,7 @@ def get_plot_labels(params=None, retrieval_obj=None):
             raise ValueError('Either params or retrieval_obj must be specified.')
         else:
             # Get all params names from retrieval object
-            params = get_all_param_names(retrieval_obj)
+            params = ru.get_all_param_names(retrieval_obj)
 
     # Get corresponding labels (if not found, use param name)
     labels = list()
@@ -2175,4 +2176,117 @@ def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None):
     return fig, ax
     
     
+def plot_tp_profiles_combined(n_draw, chains=None, yaml_file_list=None, get_tp_from_param=None,
+                              prob_values=None, p_range=None, fig=None, ax=None,
+                              tight_range=None, colorsOrder=None, log_level='WARNING'):
+    """
+    Plot TP profile statistics from different walker chains.
+    Args:
+        n_draw: int
+            Number of draws to take from each chain.
+        chains: list of arrays
+            List of chains. Each chain is a 2D array with shape (n_steps * n_wakers, n_params).
+        yaml_file_list: list of str
+            List of yaml files to setup the retrieval object. They must match the walker chains.
+        get_tp_from_param: function
+            Function to get the TP profile from the parameters. It must take the parameters as input and return the
+            TP profile.
+        prob_values: list of floats
+             Percentiles to compute associated to `key_names`. Needs to have the same length as `key_names`.
+             Default is (0.68, 0.954, 0.997).
+        p_range: 2-tuple of floats
+            Pressure range to plot. If None, the full range is used.
+        fig: figure object
+            Figure object to use for the plot. If `ax` and `fig` are not specified, a new figure is created.
+        ax: axes object
+            Axes object to use for the plot. If `ax` and `fig` are not specified, a new figure is created.
+        tight_range: bool
+            If True, the y-axis is set to the minimum and maximum pressure of all chains.
+        colorsOrder: list of strings
+            List of colors sets (from pyGTC) to use for each chain. If None, the default color order
+            from pyGTC is used. Available colors are the same as pyGTC.
+
+    Returns:
+        fig, ax: figure and axes objects
+    """
     
+    # Set log levels
+    imported_libs = [retrieval, ru]
+    save_level = [im_lib.log.level for im_lib in imported_libs]
+    for im_lib in imported_libs:
+        im_lib.log.setLevel(log_level)
+
+    # Number of chains
+    n_chains = len(chains)
+
+    # Find confidence intervals for each chains
+    tp_stats_list = list()
+    pressure_list = list()
+    pressure_idx_list = list()
+    for ch, yaml_file in zip(chains, yaml_file_list):
+        retrieval.setup_retrieval(yaml_file)
+        n_draw_ch = np.min([n_draw, ch.shape[0]])
+        profile_sample, pressures = ru.draw_tp_profiles_from_sample(n_draw_ch, ch, retrieval_obj=retrieval)
+        tp_stats = ru.get_stats_from_profile(profile_sample, prob_values=prob_values)
+        # pressures idx for plot range
+        idx_p = _get_idx_in_range(pressures, p_range)
+        # Remove median from statistics
+        del tp_stats['median']
+        tp_stats_list.append(tp_stats)
+        pressure_list.append(pressures)
+        pressure_idx_list.append(idx_p)
+
+
+    # Plot starts here
+
+    # Init figure and axes if needed
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+
+    # Get colors and assign for each statistic in sample_stats (so each key)
+    color_region = [dict() for _ in range(n_chains)]
+    # and assign for each statistic in sample_stats (so each key)
+    for idx_ch, cs in enumerate(colorsOrder):
+        stats = tp_stats_list[idx_ch]
+        for idx_stat, key in enumerate(stats):
+            try:
+                color_region[idx_ch][key] = colorsDict[cs][idx_stat]
+            except IndexError:
+                raise IndexError(f"To many satistics to plot for available colors (length = {len(color_gradation)})")
+
+
+    for idx_ch in reversed(range(n_chains)):
+        stats = tp_stats_list[idx_ch]
+        color_ch = color_region[idx_ch]
+        pressures = pressure_list[idx_ch]
+        idx_p = pressure_idx_list[idx_ch]
+        for key, (x1, x2) in reversed(stats.items()):
+            ax.fill_betweenx(pressures[idx_p], x1[idx_p], x2[idx_p], color=color_ch[key])
+
+    for idx_ch in reversed(range(1, n_chains)):
+        stats = tp_stats_list[idx_ch]
+        color_ch = color_region[idx_ch]
+        pressures = pressure_list[idx_ch]
+        idx_p = pressure_idx_list[idx_ch]
+        for key, (x1, x2) in reversed(stats.items()):
+            ax.plot(x1[idx_p], pressures[idx_p], '-', color=color_ch[key])
+            ax.plot(x2[idx_p], pressures[idx_p], '-', color=color_ch[key])
+
+    if tight_range:
+        all_p = [pressures[idx_p] for pressures, idx_p in zip(pressure_list, pressure_idx_list)]
+        ax.set_ylim(np.min(all_p), np.max(all_p))
+
+    ax.set_yscale('log')    
+
+    ylim = ax.get_ylim()
+    if ylim[-1] > ylim[0]:
+        ax.invert_yaxis()
+
+
+    ax.set_xlabel('Temperature [K]', fontsize=16)
+    ax.set_ylabel('Pressure [bar]', fontsize=16)
+    
+    # set the log level to what it was
+    for im_lib, level in zip(imported_libs, save_level):
+        im_lib.log.setLevel(level)
+
+    return fig, ax
