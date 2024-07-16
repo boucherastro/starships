@@ -916,7 +916,7 @@ def single_max_dist(samp, bins='auto', start=0, end=-1, bin_size=6, plot=False):
 
 
 def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True, prob=0.68, print_gen_walkers=False,
-                   cut_sample=None, print_latex_style=False):
+                   cut_sample=None, print_latex_style=False, alpha_plot=0.3):
     """
     Compute the maximum values and errors for each parameter in the given sample.
     The maximum values are computed using a spline interpolation of the smoothed histogram
@@ -943,6 +943,10 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
         Whether to print the generated walkers initialization. Default is False.
     cut_sample : numpy.ndarray, optional
         A subset of the sample to be used for computation. If provided, the sample_all parameter will be ignored.
+    print_latex_style : bool, optional
+        Whether to print the maximum values and errors ready for latex tables. Default is False.
+    alpha_plot : float, optional
+        The transparency of the walker chains in the plot. Default is 0.3.
 
     Returns:
     --------
@@ -972,7 +976,7 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
             sample_i = cut_sample[:, i]
 
         if plot:
-            ax[i, 0].plot(sample_all[:, :, i], "k", alpha=0.3)
+            ax[i, 0].plot(sample_all[:, :, i], "k", alpha=alpha_plot)
             ax[i, 0].set_xlim(0, len(sample_all))
             ax[i, 0].set_ylabel(labels[i])
 
@@ -2981,6 +2985,64 @@ def normalize_spec_sample(spec_sample, wave=None, shift_fct=None, wv_norm=None, 
     out = out / y_scale
 
     return out
+
+
+def get_contribution(list_of_species, retrieval_obj, theta_regions, mode='low', atmo_obj=None):
+    """ Get the contribution by keeping only the species in `list_of_species`"""
+    
+    # Copy input dict (so you don't modify the input object)
+    theta_reg_single = [dict(theta_dict) for theta_dict in theta_regions]
+
+    # Init outputs
+    specie_contrib = dict()
+    out_spec = dict()
+    
+    # Spec with all species
+    wv, out_spec['All'] = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+
+    # Spec without any opacity (apart from CIA for H2-H2 and He-H2 which are always there)
+    all_species = retrieval_obj.line_opacities + retrieval_obj.continuum_opacities
+    for theta_dict in theta_reg_single:
+        for specie in all_species:
+            theta_dict[specie] = 1e-99
+            
+    _, out_spec['No Species'] = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+
+
+    # Iterate over input species
+    for specie_name in list_of_species:
+        
+        # Need to be a list
+        if not isinstance(specie_name, list):
+            specie_name = [specie_name]
+            
+        # Name in the output
+        specie_key = ' + '.join(specie_name)
+            
+        # ===========================================================
+        # Spec without the targetted species contribution
+        # ===========================================================
+        
+        # Resest param_specie to its original values
+        theta_reg_single = [dict(theta_dict) for theta_dict in theta_regions]
+        
+        # Set all other linelists to zero (10^-99 to avoid division by zero)
+        for theta_dict in theta_reg_single:
+            for specie in all_species:
+                if specie in specie_name:
+                    theta_dict[specie] = 1e-99
+        
+        _, spec_no_specie = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+    
+        # Contribution of the specie in the spectrum
+        spec_specie_diff = (out_spec['All'] - spec_no_specie)
+
+        # Save it in output
+        out_spec[f'Without {specie_key}'] = spec_no_specie
+        specie_contrib[specie_key] = spec_specie_diff
+
+    
+    return wv, specie_contrib, out_spec
 
 
 def get_all_param_names(retrieval_obj):
