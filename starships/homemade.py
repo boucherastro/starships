@@ -1375,16 +1375,16 @@ def unpack_kwargs_from_command_line(sys_argv):
     kwargs_in = dict([arg.split('=') for arg in sys_argv[1:]])
     if kwargs_in:
         for key, value in kwargs_in.items():
-            print(f"Keyword argument from command line: {key} = {value}")
+            log.info(f"Keyword argument from command line: {key} = {value}")
     return kwargs_in
 
 
-def get_kwargs_with_message(key, kwargs_from_cmd_line, default_val=None):
+def pop_kwargs_with_message(key, kwargs_from_cmd_line, default_val=None):
     """Function to access keywords from command line and print an message when using a default value."""
     try:
-        val = kwargs_from_cmd_line[key]
+        val = kwargs_from_cmd_line.pop(key)
     except KeyError:
-        print(f"{key} not provided, using default value of {default_val}")
+        log.warning(f"{key} not provided, using default value of {default_val}")
         val = default_val
     
     return val
