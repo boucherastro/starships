@@ -147,7 +147,7 @@ def create_internal_dict(config_dict, planet):
     int_dict['pressures'] = np.logspace(*limP, n_pts)
 
     # need to 
-    int_dict['temperatures'] = config_dict['T_eq']* np.ones_like(int_dict['pressures'])
+    int_dict['temperatures'] = planet.Tp[0].value* np.ones_like(int_dict['pressures'])
 
     int_dict['P0'] = config_dict['P0']
     int_dict['p_cloud'] = config_dict['p_cloud']
@@ -209,7 +209,11 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
     if config_model['chemical_equilibrium'] == True:
         wv_out, model_out, abundances, MMW, VMR = prt.retrieval_model_plain(atmo_obj, species, planet, save_abundances = True, *args, **kwargs)
 
-    else: wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, abundances = abundances, MMW = MMW, *args, **kwargs)
+    # update abundaces to be connected to the linelists assigned to the species
+    
+    else: 
+        abundances = {config_model['linelist_names'][mode][mol]: abundances[mol] for mol in abundances.keys()}
+        wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, abundances = abundances, MMW = MMW, *args, **kwargs)
 
     # saving wv_out, model_out
     if out_dir != None:
@@ -328,7 +332,10 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     out_spec = dict()
 
     # Spec with all molecules
-    wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict)
+    if abundances is None:
+        wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict)
+    else: 
+        wv, out_spec['All'] = make_model(theta_dict, planet, out_dir = None, abundances = abundances, MMW = MMW, config_dict=config_dict)
 
     if config_model['species_vmr'] == {}:
             for mol in config_model['line_opacities']:
@@ -374,8 +381,6 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
             if mol == mol_name[0]:
                 linelist = config_model['linelist_names'][config_model['mode']][mol]
                 abundances_subtracted[linelist] = abundances_subtracted[linelist] * 0 + 1e-99
-                
-    #             print(f'Abundances with {mol_name} removed: {abundances_subtracted}')
 
         theta_dict['chemical_equilibrium'] = False
         wv, spec_no_mol, _, _, _ = make_model(theta_dict, planet, out_dir = None, 
@@ -389,12 +394,12 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
         out_spec[f'Without {mol_name[0]}'] = spec_no_mol
         mol_contrib[mol_name[0]] = spec_mol_abs
 
-    
-    # plot contributions
-    fig = plt.figure(figsize=(7, 10), dpi=200)
 
     # Determine the number of subplots to create
     n_subplots = max(len(out_spec.items()), len(mol_contrib.items()) + 2)
+
+    # plot contributions
+    fig = plt.figure(figsize=(7, 3*n_subplots), dpi=200)
 
     # Create the first subplot separately without sharing y-axis
     ax = [fig.add_subplot(n_subplots, 1, 1)]
@@ -420,12 +425,13 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     for i, (key, spec) in enumerate(mol_contrib.items(), start=2):
         ax[i].plot(wv, spec, label=key, lw=0.3)
         ax[i].legend(loc='upper left')
-        ax[i].set_ylabel('$Model_{w/ molecule} - Model_{w/o molecule}$', fontsize = 16)
+        ax[i].set_ylabel('$Model_{w/} - Model_{w/o}$', fontsize = 14)
         ax[i].set_ylim(y_min, y_max) # Set the y-limits to be the same for all subplots
         
     ax[1].set_title('Contributions', fontsize = 18)
 
     plt.tight_layout()
+    fig.tight_layout(pad=3.0, h_pad=0.2, w_pad=0.5)
     if path_fig is not None:
-        filename = str(path_fig) + f'model_summary.pdf'
-        plt.savefig(filename)
+        filename = str(path_fig) + f'/model_summary.pdf'
+        plt.savefig(filename, bbox_inches='tight')
