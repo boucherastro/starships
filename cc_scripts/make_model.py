@@ -211,9 +211,7 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
 
     # update abundaces to be connected to the linelists assigned to the species
     
-    else: 
-        abundances = {config_model['linelist_names'][mode][mol]: abundances[mol] for mol in abundances.keys()}
-        wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, abundances = abundances, MMW = MMW, *args, **kwargs)
+    else: wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, abundances = abundances, MMW = MMW, *args, **kwargs)
 
     # saving wv_out, model_out
     if out_dir != None:
@@ -332,10 +330,7 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     out_spec = dict()
 
     # Spec with all molecules
-    if abundances is None:
-        wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict)
-    else: 
-        wv, out_spec['All'] = make_model(theta_dict, planet, out_dir = None, abundances = abundances, MMW = MMW, config_dict=config_dict)
+    wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict)
 
     if config_model['species_vmr'] == {}:
             for mol in config_model['line_opacities']:
