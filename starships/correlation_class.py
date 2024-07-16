@@ -15,6 +15,7 @@ import astropy.constants as const
 from scipy.interpolate import interp1d, interp2d
 from scipy.optimize import curve_fit, fsolve
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import matplotlib as mpl
 mpl.rc('pdf', fonttype = 42) 
@@ -157,7 +158,8 @@ class Correlations():
         
     def plot_multi_npca(self, logl=None, vlines=[0], kind='snr', kind_courbe='bic', ylim=None, 
                         no_signal=None, ground_type='mean',
-                        hlines=None, legend=True, title='', max_rv=None, force_max_rv=None, **kwargs):
+                        hlines=None, legend=True, title='', max_rv=None, force_max_rv=None, 
+                        path_fig = None, fig_name = None, param = 'pc', axs = None, **kwargs):
     
         lstyles = ['-','--','-.',':']
 
@@ -173,8 +175,16 @@ class Correlations():
         pos = []
         snr = []
         courbe = []
-        
-        fig,ax = plt.subplots(1,2, figsize=(10,4))
+
+        if axs is None:
+            fig,ax = plt.subplots(1,2, figsize=(10,4))
+        else:
+            fig = axs.figure
+            ax = []
+            ax[0] = inset_axes(axs, width="50%", height="50%", loc='upper left')
+            ax[1]= inset_axes(axs, width="50%", height="50%", loc='lower right')
+            
+
         for i in range(len(self.n_pcas)):
             couleur = (0.5,0.1,i/len(self.n_pcas))
             
@@ -270,8 +280,11 @@ class Correlations():
                 ax[0].plot(self.n_pcas, max_val,'o--')
             
         ax[0].set_ylabel(title)
+        ax[0].set_xlabel(param)
 
-   
+        # saving the plots
+        if path_fig is not None:
+            fig.savefig(path_fig+f'fig_multi_{param}_{fig_name}.pdf')
     
     def get_snr_2d(self, ccf2d=None, Kp_array=None, interp_grid=None, \
                    kp_limit=70, rv_limit=15, RV_sys=0, Kp0=151):
@@ -419,6 +432,9 @@ class Correlations():
             pos_max = (pos_max[2], -pos_max[1])
             self.pos_err = pos_err[2] 
             self.max_err = pos_err[1]
+        elif kind_max == 'grid':
+            arg_max = np.argmax(snr[~idx_bruit])
+            pos_max = (interp_grid[~idx_bruit][arg_max], snr[~idx_bruit][arg_max])
         
 #         plt.figure()
 #         plt.plot(self.interp_grid, self.snr.copy())
@@ -576,32 +592,49 @@ class Correlations():
         return up-self.pos_kp, self.pos_kp-down
     
 
-    def full_plot(self, tr, icorr, wind=None, fit_gauss=False, 
+    def full_plot(self, tr, icorr, wind=None, kind_max='spline',
                   fig_larg=8, fig_haut=3, cmap='plasma', path_fig='', fig_name='', tag_max=False,
                   Kp_slice=None, clim=None, get_logl=False, hline=None, save_fig='', show_legend=True):
-
+        
+        # Object attributes
+        interp_grid = self.interp_grid
+        rv_grid = self.rv_grid
+        ccf0 = self.ccf0
+        RV_shift = self.RV_shift
+        snr2d = self.snr2d
+        Kp_array = self.Kp_array
+        idx_bruit_kp = self.idx_bruit_kp
+        idx_max = self.idx_max
+        
+        # tr attributes
+        berv = tr.berv
+        try:
+            phase = tr.phase.value
+        except AttributeError:
+            phase = tr.phase
+        vrp = tr.vrp
+        mid_vrp = tr.mid_vrp
+        Kp = tr.Kp.to(u.km / u.s).value
+        
         figs, (ax1,ax0,ax2) = plt.subplots(3, 1, figsize=(fig_larg, 3 * fig_haut), sharex=False)
 
         axi = [ax0,ax2]
         
-        
-        ##### LIGNE VERTICALE À VSYS=0 EN POINTILLÉ
-                ###### LIGNE VERTICALE EN TRait plein avec un trou (comme la horizontale) 
-                
-                ######## + LIGNE HORIZONTALE EN POINTILLÉE POUR SÉPARER LES 2 TRANSITS
+        # LIGNE VERTICALE À VSYS=0 EN POINTILLÉ
+        # LIGNE VERTICALE EN TRait plein avec un trou (comme la horizontale) 
+        # LIGNE HORIZONTALE EN POINTILLÉE POUR SÉPARER LES 2 TRANSITS
 
         ### --- CCF --- 
         
         if get_logl is True:
-            yyy = a.remove_means(self.ccf0[:,None,:], 1).squeeze()
+            yyy = a.remove_means(ccf0[:,None,:], 1).squeeze()
         else:
-            yyy = self.ccf0
-        im1 = ax1.pcolormesh(self.rv_grid, tr.phase.value, yyy, cmap=cmap, rasterized=True)
+            yyy = ccf0
+        im1 = ax1.pcolormesh(rv_grid, phase, yyy, cmap=cmap, rasterized=True)
         if clim is not None:
             im1.set_clim(clim[0],clim[1])
             
-        ax1.plot((tr.berv-tr.planet.RV_sys.value), tr.phase.value, '--',color='darkred', alpha=0.8, label='BERV')
-#         ax1.set_xlim(self.interp_grid[0], self.interp_grid[-1])
+        ax1.plot((berv-tr.planet.RV_sys.value), phase, '--',color='darkred', alpha=0.8, label='BERV')
         ax1.set_ylabel(r'$\phi$', fontsize=14)
         if fig_name != '':
             ax1.set_title(fig_name, fontsize=16)
@@ -611,54 +644,49 @@ class Correlations():
         cbar = figs.colorbar(im1, ax=ax1, cax=cax)
         cbar.set_label('CCF', fontsize=14)
 
-        iout = np.delete(np.arange(tr.vrp.size), icorr)
-        ax1.plot(tr.vrp[iout]+self.RV_shift[iout]+tr.mid_vrp, tr.phase.value[iout],
+        iout = np.delete(np.arange(vrp.size), icorr)
+        ax1.plot(vrp[iout]+RV_shift[iout]+mid_vrp, phase[iout],
                  'k.', alpha=0.5, label=r'Expected $v_{\rm P}$')
-        ax1.plot(tr.vrp+self.RV_shift+tr.mid_vrp, tr.phase.value,
+        ax1.plot(vrp+RV_shift+mid_vrp, phase,
                  'k', alpha=0.35, label=r'Expected $v_{\rm P}$')
         if hline is not None:
             ax1.axhline(hline, color='white', linestyle='-')
 
         # --- SUM CCF 2D --- 
 
-#         imaxi2 = axi[0].imshow(self.snr2d, origin='lower', aspect='auto',
-#                                extent=(self.interp_grid.min(), self.interp_grid.max(),
-#                                self.Kp_array.min(), self.Kp_array.max()), cmap=cmap)
-        imaxi2 = axi[0].pcolormesh(self.interp_grid, self.Kp_array, self.snr2d, cmap=cmap, rasterized=True)
+        imaxi2 = axi[0].pcolormesh(interp_grid, Kp_array, snr2d, cmap=cmap, rasterized=True)
         axi[0].set_ylabel(r'$K_{\rm P}$ (km s$^{-1}$)', fontsize=14)
 
-        self.get_curve_at_slice(self.Kp_array[~self.idx_bruit_kp][self.idx_max[0]])
-        print('Highest SNR = {} // Kp = {} // RV = {} '.format(self.max, 
-                                                  self.Kp_array[~self.idx_bruit_kp][self.idx_max[0]],
-                                                               self.pos))
-        self.get_curve_at_slice(tr.Kp)
-        print(r'Max SNR = {:.2f}$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
+        self.get_curve_at_slice(Kp_array[~idx_bruit_kp][idx_max[0]], kind_max=kind_max)
+        max = self.max
+        pos = self.pos
+        print('Highest SNR = {} // Kp = {} // RV = {} '.format(max, 
+                                                  Kp_array[~idx_bruit_kp][idx_max[0]],
+                                                               pos))
+        self.get_curve_at_slice(Kp, kind_max=kind_max)
+        max = self.max
+        pos = self.pos
+        print(r'Max SNR = {:.2f}$\sigma$, Max position = {:.2f}'.format(max, pos))
         print('')
-#         hm.printmd(r'Max SNR = **{:.2f}**$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
-#         print('')
         
         if tag_max is True:
-            axi[0].plot(self.pos, tr.Kp.to(u.km / u.s).value,'k+', 
-                label='Pos = {:.2f} // Max = {:.2f}'.format(self.pos, self.max))
+            axi[0].plot(pos, Kp,'k+', 
+                label='Pos = {:.2f} // Max = {:.2f}'.format(pos, max))
             axi[0].legend(loc='best')
 
-        axi[0].axhline(tr.Kp.to(u.km / u.s).value, linestyle='-', alpha=0.7, color='indigo', 
-                      xmin=0,xmax=hm.nearest(self.interp_grid, self.pos-10)/self.interp_grid.size )
-        axi[0].axhline(tr.Kp.to(u.km / u.s).value, linestyle='-', alpha=0.7, color='indigo',
-                      xmin=hm.nearest(self.interp_grid, self.pos+10)/self.interp_grid.size ,xmax=1) 
+        axi[0].axhline(Kp, linestyle='-', alpha=0.7, color='indigo', 
+                      xmin=0,xmax=hm.nearest(interp_grid, pos-10)/interp_grid.size )
+        axi[0].axhline(Kp, linestyle='-', alpha=0.7, color='indigo',
+                      xmin=hm.nearest(interp_grid, pos+10)/interp_grid.size ,xmax=1) 
         
-#         axi[0].axvline(self.pos, linestyle='-', alpha=0.7, color='indigo', 
-#                           ymin=0, ymax=(self.Kp_array[~self.idx_bruit_kp][self.idx_max[0]]-50)/self.Kp_array[-1] )
-#         axi[0].axvline(self.pos, linestyle='-', alpha=0.7, color='indigo',
-#                           ymin=(self.Kp_array[~self.idx_bruit_kp][self.idx_max[0]]+50)/self.Kp_array[-1] , ymax=1) 
-        axi[0].axvline(self.pos, linestyle='-', alpha=0.7, color='indigo', 
-                          ymin=0, ymax=(tr.Kp.value - 60)/self.Kp_array[-1] )
-        axi[0].axvline(self.pos, linestyle='-', alpha=0.7, color='indigo',
-                          ymin=(tr.Kp.value + 60)/self.Kp_array[-1] , ymax=1) 
-    
+        axi[0].axvline(pos, linestyle='-', alpha=0.7, color='indigo', 
+                          ymin=0, ymax=(Kp - 60)/Kp_array[-1] )
+        axi[0].axvline(pos, linestyle='-', alpha=0.7, color='indigo',
+                          ymin=(Kp + 60)/Kp_array[-1] , ymax=1) 
+
 
         axi[0].axvline(0, color='indigo', linestyle=':')
-        axi[0].set_ylim(0, self.Kp_array[-1])
+        axi[0].set_ylim(0, Kp_array[-1])
 
         if wind is not None:
             if wind != 0 :
@@ -673,10 +701,9 @@ class Correlations():
         cbar.set_label('CCF SNR', fontsize=14)
 
         ### --- Sum CCF 1D --- 
-        axi[1].plot(self.interp_grid, self.snr.squeeze(), color='indigo', label='Expected Kp')
+        axi[1].plot(interp_grid, self.snr.squeeze(), color='indigo', label='Expected Kp')
 
         axi[1].axvline(0, color='indigo', alpha=0.5, linestyle=':', label=r"Planet Rest frame")
-#         axi[1].axvline(self.pos, color='indigo', alpha=0.5, linestyle='-')
         axi[1].axhline(0, color='indigo', linestyle=':', alpha=0.5)
 
 
@@ -705,24 +732,23 @@ class Correlations():
                     kpslice = (kpslice.to(u.km / u.s)).value
                 
                 if (kpslice < 0):
-                    axi[0].set_ylim(self.Kp_array[0], self.Kp_array[-1])   
+                    axi[0].set_ylim(Kp_array[0], Kp_array[-1])   
                 
                 vrp_orb_slice = o.rv_theo_nu(kpslice, tr.nu * u.rad, tr.planet.w, plnt=True)
-                ax1.plot(vrp_orb_slice[iout].value, tr.phase.value[iout], 
+                ax1.plot(vrp_orb_slice[iout].value, phase[iout], 
                  '.', color=(0.3,0, (k+1)/len(Kp_slice)), alpha=0.5, label=r'Kp = {:.2f}'.format(kpslice))
         
                 axi[0].axhline(kpslice, linestyle='--', color=(0.3,0, (k+1)/len(Kp_slice)), 
                                label='Kp = {:.2f}'.format(kpslice))
                 self.get_curve_at_slice(kpslice)
-                print('Kp Slice = {:.2f} // SNR = {} // RV = {} '.format(kpslice, self.max, self.pos))
+                max, pos = self.max, self.pos
+                print('Kp Slice = {:.2f} // SNR = {} // RV = {} '.format(kpslice, max, pos))
 
-                axi[1].plot(self.interp_grid, self.snr.squeeze(), color=(0.3,0, (k+1)/len(Kp_slice)), 
+                axi[1].plot(interp_grid, self.snr.squeeze(), color=(0.3,0, (k+1)/len(Kp_slice)), 
                             label='Kp = {:.2f}'.format(kpslice), linestyle='--')
                 
             
                 
-#         axi[0].legend(loc='lower left')
-#         axi[1].legend(loc='lower left')
         if show_legend is True:
             ax1.legend(loc='best')
         figs.tight_layout(pad=1.0)
@@ -734,7 +760,6 @@ class Correlations():
         if save_fig != '':
             figs.savefig(path_fig + 'CCF_'+save_fig+'.pdf')
             print('Saved file to : ', path_fig + 'CCF_'+save_fig+'.pdf')
-#             fig.savefig('/home/boucher/spirou/Figures/STEPS'+fig_name+'.pdf')
 
     def fit_gauss_1d(self, Kp=None):
         
@@ -1207,8 +1232,8 @@ class Correlations():
         # fig.tight_layout()
         
         if fig_name is not None:
-            fig.savefig(path_fig +'fig_CCF_2D_'+fig_name+'.pdf')#, rasterize=True)
-            print('Saved file to : ', path_fig + 'fig_CCF_2D_'+fig_name+'.pdf')
+            fig.savefig(path_fig +'fig_CCF_2D'+fig_name+'.pdf')#, rasterize=True)
+            print('Saved file to : ', path_fig + 'fig_CCF_2D'+fig_name+'.pdf')
 
         
         # --- overplot all CCF ---
@@ -1799,7 +1824,7 @@ def plot_ccf_timeseries(t, rv_star, correlation, plot_gauss=True, plot_spline=Tr
 def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                  swapaxes=None, orders=np.arange(49), map=False, id_pc0=None, RV_limit=None,
                  indexs=None, icorr=None, RV=0.0, split_fig=False, std_robust=True,
-                 fig_name=None, path_fig=None, vlines=[0], **kwargs):
+                 fig_name=None, path_fig=None, vlines=[0], param = 'pc', plot_prf = True, **kwargs):
 
     if split_fig is False:
         split_fig = []
@@ -1814,29 +1839,36 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
     if RV_limit is None:
         RV_limit = corrRV0.max()
 
+
+    fig, axs = plt.subplots(3, 1, figsize=(15, 5))
+
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
                                  n_pcas=n_pcas, kp_array=Kp_array)
     ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
-    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines)
+    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = axs[0])
 
     logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
                                   n_pcas=n_pcas, kp_array=Kp_array)
     logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
 
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines)
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = axs[1])
     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
-                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines)
+                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = axs[2])
+
+    plt.tight_layout()
+    plt.savefig(path_fig + f'fig_multi_{param}'+fig_name+'.pdf')
+
 
     print(ccf_obj.npc_val)
     print(logl_obj.npc_max_abs)
     print(logl_obj.npc_bic)
     print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
 
-    if id_pc0 is not None:
+    if id_pc0 is not None and plot_prf:
 
         if fig_name is not None:
             if len(fig_name) > 1:
-                label = fig_name[id_pc0]
+                label = fig_name + f'_pc{id_pc0}'
             else:
                 label = fig_name
         else:
@@ -1853,11 +1885,11 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                               kp0=0, RV_limit=corrRV0.max() - 20, kp_step=5, rv_step=2, RV=None, speed_limit=3,
                               icorr=tr.iIn,
                               equal_var=False,  fig_name=label, path_fig=path_fig)
-    else:
+    elif plot_prf:
         for id_pc in range(len(n_pcas)):
             if fig_name is not None:
                 if len(fig_name) > 1:
-                    label = fig_name[id_pc]
+                    label = fig_name + f'_pc{n_pcas[id_pc]}'
                 else:
                     label = fig_name
             else:
@@ -1881,8 +1913,8 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                 _,_ = pf.plot_ttest_map_hist(tr, ccf_obj.rv_grid, ccf.copy(),  ccf_obj.ttest_map_kp, ccf_obj.ttest_map_rv,
                                                     t_value * (-3) / t_value.min(), ccf_obj.ttest_map_params,
                                                     orders=orders, plot_trail=True, masked=True, ccf=ccf.copy(),
-                                                    vrp=np.zeros_like(vrp), RV=ccf_obj.pos, hist=True,)
-                                                    # fig_name=label, path_fig=path_fig)
+                                                    vrp=np.zeros_like(vrp), RV=ccf_obj.pos, hist=True,
+                                                    fig_name=label, path_fig=path_fig)
     return ccf_obj, logl_obj
 
 # def plot_ccflogl_test(t, ccf_map, logl_map, n_pcas, corrRV0, indexs, Kp_array, RV=0.0, orders=np.arange(49)):

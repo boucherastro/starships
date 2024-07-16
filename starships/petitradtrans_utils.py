@@ -142,6 +142,7 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
         'HCN': 'HCN_main_iso',
         'NH3': 'NH3_main_iso',
         'TiO': 'TiO_all_iso',
+        'SiO': 'SiO_main_iso',
         'VO': 'VO',
         'OH': 'OH',  # 'OH_SCARLET',
         'Na': 'Na',
@@ -368,6 +369,7 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
                    vmrh2he=[0.85, 0.15], dissociation=False, scale=1.0, plot=False):  # , MMW=2.33):
 
     log.debug(f'In gen_abundances: species_list = {species_list}')
+    log.debug(f'In gen_abundances: VMRs = {VMRs}')
     abundances = {}
     profile = {}
 
@@ -1009,7 +1011,8 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                           gravity, P0, cloud, R_pl, R_star, C_to_O=None, Fe_to_H=None,
                           kappa_factor=None, gamma_scat=None, vmrh2he=None, plot_abundance=False,
                           kind_trans='transmission', dissociation=False, fct_star=None,
-                          contribution=False, specie_2_lnlst=None, **kwargs):
+                          contribution=False, specie_2_lnlst=None, save_abundances = False, 
+                          abundances = None, MMW = None, VMR = None, **kwargs):
     if vmrh2he is None:
         vmrh2he = [0.85, 0.15]
     if kappa_factor is not None:
@@ -1032,10 +1035,17 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
     log.debug(f'Chemical equilibrium = {chemical_equilibrium}')
     
     # Compute the abundances (and add species that need to be included if not fitted)
-    abundances, MMW, VMR = gen_abundances([*species.keys()], [*species.values()],
+    if abundances is None: 
+        print('Calculating abundances')
+        abundances, MMW, VMR = gen_abundances([*species.keys()], [*species.values()],
                                      pressures, temperatures,
                                      verbose=False, vmrh2he=vmrh2he,
                                      dissociation=dissociation, plot=plot_abundance)
+
+    else: 
+        if chemical_equilibrium:
+            chemical_equilibrium = False
+            print('WARNING: Using inputted abundances, forcing chemical_equilibrium = False')
     
     if chemical_equilibrium:        
         # Same shape as T and P
@@ -1056,6 +1066,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                 log.debug(f'Updating {key} abundance with equilibrium value {mol} = {mass_frac_eq[mol]}')
                 
         MMW = mass_frac_eq['MMW']
+        # add function to convert this back to VMR
         
         # Compute VMR of Fe from Fe/H if chemical equilibrium is used
         if 'Fe' in abundances:
@@ -1078,7 +1089,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                                contribution=contribution,
                                **kwargs)
         wave = nc.c / atmos_object.freq / 1e-4
-        if fct_star is None:
+        if fct_star is None or fct_star == 'blackbody':
             # --- if no star spectrum function has been provided, it takes a black body model
             bb_mod = BB(planet.Teff)
             # -- Converting u.erg/u.cm**2/u.s/u.Hz to u.erg/u.cm**2/u.s/u.cm
@@ -1090,8 +1101,11 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
         out = ((atmos_object.flux * (u.erg / u.cm ** 2 / u.s / u.Hz) *
                 const.c / (wave * u.um) ** 2).to(u.erg / u.cm ** 2 / u.s / u.cm) *
                (R_pl ** 2 / R_star ** 2) / star_spectrum).decompose()
-
-    return nc.c / atmos_object.freq / 1e-4, out  # .decompose()#, MMW
+        
+    if save_abundances:
+        return nc.c / atmos_object.freq / 1e-4, out, abundances, MMW, VMR
+    
+    else: return nc.c / atmos_object.freq / 1e-4, out  # .decompose()#, MMW
 
 # def retrieval_model_plain_retrieval_version(atmos_object, species, planet, pressures, temperatures,
 #                           gravity, P0, cloud, \

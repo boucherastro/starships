@@ -1,8 +1,9 @@
 from setuptools import setup, find_packages
+from starships import __version__
 
 setup(
     name='starships',
-    version='0.1.1',
+    version=__version__,
     packages=find_packages(),
     install_requires=[
         'astropy==5.1',
@@ -23,6 +24,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
+            'run_starships_retrieval=starships.retrieval:main',
             'starships=starships.cli:main'
         ]
     },
