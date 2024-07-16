@@ -31,7 +31,7 @@
 # import starships.planet_obs as pl_obs
 # from starships.planet_obs import Observations, Planet
 # import starships.petitradtrans_utils as prt
-# from starships.homemade import unpack_kwargs_from_command_line, get_kwargs_with_message
+# from starships.homemade import unpack_kwargs_from_command_line, pop_kwargs_with_message
 # from starships import retrieval_utils as ru
 
 # from starships.instruments import load_instrum
@@ -1598,8 +1598,9 @@ from starships.analysis import bands, resamp_model
 import starships.planet_obs as pl_obs
 from starships.planet_obs import Observations, Planet
 import starships.petitradtrans_utils as prt
-from starships.homemade import unpack_kwargs_from_command_line, get_kwargs_with_message
+from starships.homemade import unpack_kwargs_from_command_line, pop_kwargs_with_message
 from starships import retrieval_utils as ru
+from starships.retrieval_inputs import convert_cmd_line_to_types
 
 from starships.instruments import load_instrum
 
@@ -1737,21 +1738,36 @@ def pl_param_units(config_dict):
     return pl_kwargs
 
 
+def get_slurm_id():
+
+    if 'SLURM_ARRAY_JOB_ID' in os.environ:
+        job_id_key_list = ['SLURM_ARRAY_JOB_ID', 'SLURM_ARRAY_TASK_ID']
+    else:
+        job_id_key_list = ['SLURM_JOB_ID']
+
+    # jobid is combining all ID 
+    jobid = '_'.join([os.environ[key] for key in job_id_key_list])
+    
+    return jobid
+
 def get_run_name(input_params):
     """Create a run name from the input parameters.
     For example, the walkers will be saved in base_dir/DataAnalysis/walker_steps/<pl_name>/walker_steps_<run_name>.h5
     The run_name will be define by joining with "_" all the following parameters
     - kind_trans
     - retrieval_type
+    - "WL" (if white_light is True)
     - keys in spectrophotometric_data dictionary (ex: wfc3)
     - keys in photometric_data dictionary (ex: spitzer)
     - kind_temp
     - "disso" (if dissociation is True)
     - "chemEq" (if chemical equilibrium is True)
-    - the sbatch job ID if available 
+    - the sbatch job ID if available
     """
     
     run_name_args = [input_params[key] for key in ['kind_trans', 'retrieval_type']]
+    if input_params['white_light']:
+        run_name_args.append('WL')    
     run_name_args += list(input_params['spectrophotometric_data'].keys())
     run_name_args += list(input_params['photometric_data'].keys())
     run_name_args.append(input_params['kind_temp'])
@@ -1762,7 +1778,8 @@ def get_run_name(input_params):
 
     # Take job ID from environment variable if available
     try:
-        jobid = os.environ['SLURM_JOB_ID']
+        # jobid is combining all ID 
+        jobid = get_slurm_id()
         run_name_args.append(jobid)
     except KeyError:
         pass
@@ -1770,11 +1787,9 @@ def get_run_name(input_params):
     run_name = '_'.join(run_name_args)
     
     return run_name
-    
 
 
-
-def unpack_input_parameters(input_parameters):
+def unpack_input_parameters(input_parameters, **kwargs):
     """ Read input parameters from a yaml file or a dictionary.
     And make sure they are in the right format for the retrieval code.
     For example, put default values if some parameters are None."""
@@ -1785,6 +1800,14 @@ def unpack_input_parameters(input_parameters):
     else:
         with open(input_parameters, 'r') as f:
             input_params = yaml.load(f, Loader=yaml.FullLoader)
+            
+    # Replace the keys in input_params with the kwargs if they are in kwargs
+    for key, val in kwargs.items():
+        if key in input_params:
+            input_params[key] = val
+            log.info(f'Replacing {key} using the kwargs with value = {val}')
+        else:
+            raise KeyError(f'{key} is not in the expected input parameters.')
     
     ########################################
     # --- Make some checks on the inputs ---
@@ -1985,14 +2008,8 @@ def setup_retrieval(input_parameters, **kwargs):
     """
     
     # Unpack the input parameters
-    input_params = unpack_input_parameters(input_parameters)
+    input_params = unpack_input_parameters(input_parameters, **kwargs)
 
-    # Replace the keys in input_params with the kwargs if they are in kwargs
-    for key, val in kwargs.items():
-        if key in input_params:
-            input_params[key] = val
-            log.info(f'Replacing {key} with {val} from the kwargs.')
-    
     # --- Update the global variables with the parameters from the yaml file
     for key, val in input_params.items():
         
@@ -2825,7 +2842,50 @@ def prepare_spectrophotometry(wv_mod, spec_mod, model_res, data_info, mod_sampli
     return wv_grid, mod
 
 
+def get_syntetic_data_low_res(wv_low, spec_low, wv_high, spec_high):
+    """Generate the synthetic data for all the low resolution instruments,
+    including spectrophotometry and photometry.
+    Args:
+    - wv_low: 1d array
+        Wavelengths of the low resolution model (c-k).
+    - spec_low: 1d array
+        Spectrum of the low resolution model (c-k).
+    - wv_high: 1d array
+        Wavelengths of the high resolution model (lbl).
+    - spec_high: 1d array
+        Spectrum of the high resolution model (lbl).
+        
+    """
+    global prt_res, res_instru
+    
+    synt_data_dict = dict()
+    for low_res_data_type in ['spectrophotometric', 'photometric']:
+        if low_res_data_type == 'photometric':
+            prepare_fct = prepare_photometry
+        else:
+            prepare_fct = prepare_spectrophotometry
+
+        low_res_data_dict = globals()[f'{low_res_data_type}_data']
+
+        for instru_name, infos in low_res_data_dict.items():
+            log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
+            model_type = infos.get('model_type', 'low')
+            log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
+            if model_type == 'low':
+                args = (wv_low, spec_low, prt_res['low'], infos)
+            else:
+                args = (wv_high, spec_high, res_instru, infos, prt_res['high'])
+            # Generate the synthetic data
+            _, synt_data = prepare_fct(*args)
+            synt_data_dict[instru_name] = synt_data
+
+    return synt_data_dict
+
+
 def lnprob(theta, ):
+    
+    global params_prior, retrieval_type, kind_trans, orders, white_light
+    global photometric_data, spectrophotometric_data
     
     log.debug(f"lnprob: {theta}")
     
@@ -2899,23 +2959,31 @@ def lnprob(theta, ):
                 return -np.inf
 
         # Iterate over all low-res spectrophotometric observations
-        for low_res_data_type in ['spectrophotometric', 'photometric']:
-            if low_res_data_type == 'photometric':
-                prepare_fct = prepare_photometry
-            else:
-                prepare_fct = prepare_spectrophotometry
+        # for low_res_data_type in ['spectrophotometric', 'photometric']:
+        #     if low_res_data_type == 'photometric':
+        #         prepare_fct = prepare_photometry
+        #     else:
+        #         prepare_fct = prepare_spectrophotometry
                 
+        #     low_res_data_dict = globals()[f'{low_res_data_type}_data']
+        #     for instru_name, infos in low_res_data_dict.items():
+        #         log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
+        #         model_type = infos.get('model_type', 'low')
+        #         log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
+        #         if model_type == 'low':
+        #             args = (wv_low, model_low, prt_res['low'], infos)
+        #         else:
+        #             args = (wv_high, model_high, res_instru, infos, prt_res['high'])
+        #         # Generate the synthetic data
+        #         _, synt_data = prepare_fct(*args)
+        synt_data_dict = get_syntetic_data_low_res(wv_low, model_low, wv_high, model_high)
+        
+        for low_res_data_type in ['spectrophotometric', 'photometric']:
             low_res_data_dict = globals()[f'{low_res_data_type}_data']
             for instru_name, infos in low_res_data_dict.items():
-                log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
-                model_type = infos.get('model_type', 'low')
-                log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
-                if model_type == 'low':
-                    args = (wv_low, model_low, prt_res['low'], infos)
-                else:
-                    args = (wv_high, model_high, res_instru, infos, prt_res['high'])
-                # Generate the synthetic data
-                _, synt_data = prepare_fct(*args)
+                
+                # Get synthetic data from model
+                synt_data = synt_data_dict[instru_name]
                 
                 # Get data measured by the instrument
                 data, uncert = infos['data'], infos['err']
@@ -2943,7 +3011,7 @@ def lnprob(theta, ):
     return total
 
 
-def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None):
+def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None, **kwargs):
 
     with open(yaml_file_in, 'r') as f:
             params_yaml = yaml.load(f, Loader=yaml.FullLoader)
@@ -2952,7 +3020,16 @@ def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None):
     params_yaml['starships_version'] = starships.__version__
     
     # Edit some values to make sure it is consistent with the current run
-    params_yaml['walker_file_out'] = globals()['walker_file_out']
+    params_yaml['walker_file_out'] = str(globals()['walker_file_out'])
+    
+    # Edit all other values that have been specify with kwargs
+    for key, val in kwargs.items():
+        # Make sure they are valid values for a yaml file
+        if isinstance(val, Path):
+            val = str(val)
+        elif isinstance(val, np.ndarray):
+            val = val.tolist()
+        params_yaml[key] = val
 
     if output_dir is None:
         output_dir = Path.cwd()
@@ -2966,20 +3043,26 @@ def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None):
     log.info(f'Saving the yaml file to: {yaml_file_out}')
 
     with open(yaml_file_out, 'w') as f:
-        yaml.dump(params_yaml, f)
+        yaml.dump(params_yaml, f, sort_keys=False)
 
     return yaml_file_out
 
 
-def prepare_run(yaml_file=None):
+def prepare_run(yaml_file=None, **kwargs):
 
     # walker_file_out needs to be specificaly defined as global
     # because a value can be assigned in the function (I think... anyway, it was raising an error if not)
     global walker_file_out
+    
+    # Other globals used in the function
+    global n_steps_burnin, n_steps_sampling, n_walkers, n_dim
+    global walker_path, n_cpu, slurm_array_behaviour
 
     if yaml_file is not None:
         # Unpack the yaml_file and add variables to the global space
-        setup_retrieval(yaml_file)
+        setup_retrieval(yaml_file, **kwargs)
+    elif kwargs:
+        raise NotImplementedError("kwargs passed without yaml_file. Not implemented yet.")
 
     # Read the data and add them to the global space
     _ = load_high_res_data()
@@ -3020,21 +3103,22 @@ def prepare_run(yaml_file=None):
         logl = lnprob(pos[i_walker])
         if np.isfinite(logl):
             good_to_go = True
-            log.info("Success!")
+            log.info("log likelihood function is indeed working! Success!")
             break
     else:
-        log.warning("test not successful")
+        log.warning("log likelihood function test was not successful... (sad face)")
 
-    # Add index to the file name if slurm array is used in sbatch
-    if 'SLURM_ARRAY_TASK_ID' in os.environ:
-        if slurm_array_behaviour == 'burnin':
-            idx_file = os.environ['SLURM_ARRAY_TASK_ID']
-            walker_file_out = walker_file_out.with_stem(f'{walker_file_out.stem}_{idx_file}')
-            log.info(f'Using SLURM_ARRAY_TASK_ID={idx_file} detected. This will be added to `walker_file_out`.')
-        elif slurm_array_behaviour is None:
-            log.info('SLURM_ARRAY_TASK_ID detected but not used. slurm_array_behaviour is None.')
-        else:
-            raise ValueError(f"slurm_array_behaviour = {slurm_array_behaviour} not valid.")
+    # # Add index to the file name if slurm array is used in sbatch
+    # if 'SLURM_ARRAY_TASK_ID' in os.environ:
+    #     if slurm_array_behaviour == 'burnin':
+    #         idx_file = os.environ['SLURM_ARRAY_TASK_ID']
+    #         walker_file_out = walker_file_out.with_stem(f'{walker_file_out.stem}_{idx_file}')
+    #         log.info(f'Using SLURM_ARRAY_TASK_ID={idx_file} detected. This will be added to `walker_file_out`.')
+    #     elif slurm_array_behaviour is None:
+    #         log.info('SLURM_ARRAY_TASK_ID detected but not used. slurm_array_behaviour is None.')
+    #     else:
+    #         raise ValueError(f"slurm_array_behaviour = {slurm_array_behaviour} not valid.")
+    
     # Make sure file does not already exist
     if init_mode != 'continue':
         file_stem = walker_file_out.stem
@@ -3052,16 +3136,36 @@ def prepare_run(yaml_file=None):
     return n_steps, pos, walker_file_out, yaml_file, good_to_go
 
 
+# NOTE: theses checks could be replaced by a schema validation
+def check_cmd_line_args(cmd_line_kw):
+
+    # Make sure some variables are converted to integers
+    int_keys = ['n_steps_burnin', 'n_steps_sampling', 'n_walkers', 'n_cpu',
+                'n_walkers_per_cpu']
+
 # Define the main function that will be called by the script
-def main(yaml_file=None):
+def main(yaml_file=None, **kwargs):
+    
+    global params_file_out, params_path
 
     # Read the input yaml file passed from command line
     if yaml_file is None:
-        kw_cmd_line = unpack_kwargs_from_command_line(sys.argv)
-        yaml_file = get_kwargs_with_message('yaml_file', kw_cmd_line)
+        log.info("`yaml_file` not specified. Assuming the code is run from command line.")
+        
+        # Read command line arguments (more importantly, the yaml_file)
+        log.info("Reading arguments from command line...")
+        log.debug("kwargs in main() are not used. Taking the command line kw instead.")
+        kwargs = unpack_kwargs_from_command_line(sys.argv)
+        yaml_file = pop_kwargs_with_message('yaml_file', kwargs)
 
+        # Now that yaml_file is removed from the kwargs from command line,
+        # print all the other kwargs passed (if there are any)
+        log.info(f"keys from command line will replace values in yaml file: {kwargs.keys()}")
+        log.info("Converting command line arguments tp expected type if needed...")
+        kwargs = convert_cmd_line_to_types(kwargs)
+    
     # Prepare the run
-    n_steps, pos, walker_file_out, yaml_file, good_to_go = prepare_run(yaml_file=yaml_file)
+    n_steps, pos, walker_file_out, yaml_file, good_to_go = prepare_run(yaml_file=yaml_file, **kwargs)
     n_walkers, ndim = pos.shape
     
     if not good_to_go:
@@ -3069,14 +3173,19 @@ def main(yaml_file=None):
 
     # Save the yaml file with the version of starships
     # Only if not in slurm array mode
-    if 'SLURM_ARRAY_TASK_ID' in os.environ and slurm_array_behaviour=='burnin':
-        # Save only if == 1
-        if os.environ['SLURM_ARRAY_TASK_ID'] == '1':
-            yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path)
+    if 'SLURM_ARRAY_TASK_ID' in os.environ:
+        if slurm_array_behaviour=='burnin':
+            # Save only if == 1
+            if os.environ['SLURM_ARRAY_TASK_ID'] == '1':
+                yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path)
+            else:
+                msg = f"SLURM_ARRAY_TASK_ID != 1 and 'slurm_array_behaviour'={slurm_array_behaviour}. "
+                msg += "Not saving the yaml file."
+                log.warning(msg)
         else:
-            log.warning('SLURM_ARRAY_TASK_ID != 1. Not saving the yaml file.')
+            raise ValueError(f"slurm_array_behaviour = '{slurm_array_behaviour}' not valid.")    
     else:
-        yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path)
+        yaml_file = save_yaml_file_with_version(yaml_file, params_file_out, output_dir=params_path, **kwargs)
 
     # --- backend to track evolution ---
     # Create output directory if it does not exist
@@ -3094,8 +3203,5 @@ def main(yaml_file=None):
 
     log.info('End of retrieval. It seems to be a success!')
     
-
-if __name__ == '__main__':
-    main()     
 
 # %%
