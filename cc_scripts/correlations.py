@@ -43,7 +43,7 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, nametag, cor
 
     corr_obj = Correlations(ccf, kind='BL', rv_grid=corrRV, kp_array=transit.Kp)
     corr_obj.calc_ccf(orders=None, N=transit.N_frac[None, :, None], alpha=np.ones_like(transit.alpha_frac), index=None, ccf0=None, rm_vert_mean=False,)
-    corr_obj.calc_correl_snr_2d(transit, plot=False)
+    corr_obj.calc_correl_snr_2d(transit, plot=False, counting = False)
     corr_obj.RV_shift = np.zeros_like(transit.alpha_frac)
 
     # Make the plots and save them
@@ -239,10 +239,18 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
 
     # do combined ccf
     out_filename = f'_combined_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+
+    # split_fig = [0, combined_obs[0].n_spec, combined_obs[0].n_spec + combined_obs[1].n_spec]
+    split_fig = [0]
+    for i in range(len(combined_obs)):
+        if i == 0:
+            split_fig.append(combined_obs[i].n_spec)
+        else:
+            split_fig.append(combined_obs[i-1].n_spec + combined_obs[i].n_spec)
     
     ccf_obj, logl_obj = cc.plot_ccflogl(all_visits, ccf_maps_in, logl_maps_in, corrRV,
-                                        Kp_array, config_dict['n_pc'], id_pc0=None, orders=order_indices, 
-                                        path_fig = path_fig, map = True, fig_name = out_filename)
+                                        Kp_array, config_dict['n_pc'], orders=order_indices, 
+                                        split_fig = split_fig, path_fig = path_fig, fig_name = out_filename, map = True)
 
     return ccf_obj, logl_obj
 
