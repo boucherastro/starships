@@ -194,6 +194,7 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
     # --- Prepare the abundances (with the correct name for species)
     # Note that if species is None (not specified), `linelist_names[mode]` will be used inside `prepare_abundances`.
     species = prepare_abundances(config_model, mode, species_dict)
+   
 
     # --- Generating the model
     args = [int_dict[key] for key in ['pressures', 'temperatures', 'gravity', 'P0', 'p_cloud', 'R_pl', 'R_star']]
@@ -205,11 +206,12 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
                     kind_trans=config_model['kind_trans'],
                     dissociation=config_model['dissociation'],
                     fct_star=fct_star)
+
+    # compute abundances
+
     
     if config_model['chemical_equilibrium'] == True:
         wv_out, model_out, abundances, MMW, VMR = prt.retrieval_model_plain(atmo_obj, species, planet, save_abundances = True, *args, **kwargs)
-
-    # update abundaces to be connected to the linelists assigned to the species
     
     else: wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, abundances = abundances, MMW = MMW, *args, **kwargs)
 
@@ -313,13 +315,30 @@ def make_model(config_model, planet, out_dir, config_dict = {}, abundances = Non
         return wave_mod, mod_spec, abundances, MMW, VMR
 
     else: 
+        # calculate the abundances if not already given 
+        # note: THIS IS A BANDAID SOLUTION, WILL BE PROPERLY INTEGRATED INTO STARSHIPS FUNCTIONS
+        if abundances == None:
+            species = prt.select_mol_list(config_model['line_opacities'], kind_res=config_model['mode'])
+            species_2_lnlst = {mol: lnlst for mol, lnlst in zip(config_model['line_opacities'], species)}
+            lnlst_vmr = {lnlst: config_model['species_vmr'][mol] for mol, lnlst in species_2_lnlst.items()}
+            
+            species = {mol : lnlst_vmr[mol] for mol in species_2_lnlst.values()}
+            pressures = np.logspace(*config_model['limP'], config_model['n_pts'])
+
+            temperatures = planet.Tp[0].value* np.ones_like(pressures)
+            abundances, MMW, VMR = prt.gen_abundances([*species.keys()], [*species.values()],
+                                        pressures, temperatures,
+                                        verbose=False, vmrh2he=[0.85, 0.15],
+                                        dissociation=config_model['dissociation'], plot=False)
+
         wave_mod, mod_spec = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, abundances=abundances, MMW = MMW)
         if config_model['instrument'] == None:
             wave_mod, mod_spec = add_instrum_model(config_dict, wave_mod, mod_spec)
         return wave_mod, mod_spec, None, None, None
     
-def plot_model_components(config_model, planet, path_fig = None, config_dict = {}, abundances = None, MMW = None):
-    """ Get the contribution by keeping only the molecules in  `list_of_molecules`"""
+
+def plot_model_components(config_model, planet, path_fig = None, fig_name = None, config_dict = {}, abundances = None, MMW = None):
+    """ Get the contribution by keeping only the molecules in `list_of_molecules`"""
     
     # Don't modify the input object
     # theta_dict = copy.deepcopy(config_model)
@@ -329,8 +348,43 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     mol_contrib = dict()
     out_spec = dict()
 
+    if abundances == None and not config_model['chemical_equilibrium']:
+        species = prt.select_mol_list(config_model['line_opacities'], kind_res='high')
+        species_2_lnlst = {mol: lnlst for mol, lnlst in zip(config_model['line_opacities'], species)}
+        lnlst_vmr = {lnlst: config_model['species_vmr'][mol] for mol, lnlst in species_2_lnlst.items()}
+        
+        species = {mol : lnlst_vmr[mol] for mol in species_2_lnlst.values()}
+        pressures = np.logspace(*config_model['limP'], config_model['n_pts'])
+
+        temperatures = planet.Tp[0].value* np.ones_like(pressures)
+        abundances, MMW, VMR = prt.gen_abundances([*species.keys()], [*species.values()],
+                                     pressures, temperatures,
+                                     verbose=False, vmrh2he=[0.85, 0.15],
+                                     dissociation=config_model['dissociation'], plot=False)
+        
+        # print(abundances)
+
     # Spec with all molecules
-    wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict)
+    if abundances == None: 
+        wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict, abundances = abundances, MMW = MMW)
+        # print(abundances)
+
+    else: 
+        species = prt.select_mol_list(config_model['line_opacities'], kind_res='high')
+        species_2_lnlst = {mol: lnlst for mol, lnlst in zip(config_model['line_opacities'], species)}
+        lnlst_vmr = {lnlst: config_model['species_vmr'][mol] for mol, lnlst in species_2_lnlst.items()}
+        
+        species = {mol : lnlst_vmr[mol] for mol in species_2_lnlst.values()}
+        pressures = np.logspace(*config_model['limP'], config_model['n_pts'])
+
+        temperatures = planet.Tp[0].value* np.ones_like(pressures)
+        abundances, MMW, VMR = prt.gen_abundances([*species.keys()], [*species.values()],
+                                     pressures, temperatures,
+                                     verbose=False, vmrh2he=[0.85, 0.15],
+                                     dissociation=config_model['dissociation'], plot=False)
+        wv, out_spec['All'], _, _, _ = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict, abundances = abundances, MMW = MMW)
+
+    print(abundances)
 
     if config_model['species_vmr'] == {}:
             for mol in config_model['line_opacities']:
@@ -428,5 +482,7 @@ def plot_model_components(config_model, planet, path_fig = None, config_dict = {
     plt.tight_layout()
     fig.tight_layout(pad=3.0, h_pad=0.2, w_pad=0.5)
     if path_fig is not None:
-        filename = str(path_fig) + f'/model_summary.pdf'
+        if fig_name is not None: filename = str(path_fig) + f'/{fig_name}.pdf'
+        else: filename = str(path_fig) + f'/model_summary.pdf'
         plt.savefig(filename, bbox_inches='tight')
+
