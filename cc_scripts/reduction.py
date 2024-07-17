@@ -169,7 +169,7 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
     }
 
     # Extract the planetary signal
-    list_tr = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, config_dict['iout_all'],
+    list_tr = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, config_dict['iout_all'], counting = False,
                                         **kwargs_gen_tr, **kwargs_build_ts)
 
     return list_tr
