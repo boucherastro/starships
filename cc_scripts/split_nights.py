@@ -125,8 +125,9 @@ def split_night(obs_dir, path_fig):
 
     plt.tight_layout()
     # plt.show()
-    plt.savefig(path_fig + '/night_split.pdf', bbox_inches='tight') # CHANGE THIS
-    print('Saved figure')
+    if path_fig is not None:
+        plt.savefig(path_fig + '/night_split.pdf', bbox_inches='tight') 
+        print('Saved figure')
 
     """****************************************************"""
     """ creating list of files for each observing sequence """
