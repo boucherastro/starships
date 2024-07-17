@@ -993,10 +993,10 @@ def quick_calc_logl_injred_class_parts(tr, Kp_array, corrRV, n_pcas, modelWave0,
     
     return [R_sig, logl_BL_sig, s2f_val_sig, s2g_val_sig]
 
-def calc_split_correl(trb1, trb2, corrRV, Wave0, Model0, tr_merged=None, **kwargs):
+def calc_split_correl(trb1, trb2, corrRV, Wave0, Model0, tr_merged=None, counting = True, **kwargs):
     
-    trb1.calc_correl(corrRV, Wave0, Model0, kind="BL", **kwargs)
-    trb2.calc_correl(corrRV, Wave0, Model0, kind="BL", **kwargs)
+    trb1.calc_correl(corrRV, Wave0, Model0, kind="BL", counting = True, **kwargs)
+    trb2.calc_correl(corrRV, Wave0, Model0, kind="BL", counting = True, **kwargs)
 
     tr_new_correl = np.concatenate((trb1.correl, trb2.correl), axis=0)
     tr_new_logl = np.concatenate((trb1.logl, trb2.logl), axis=0)
