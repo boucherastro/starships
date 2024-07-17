@@ -155,7 +155,9 @@ def run_pipe(config_filepath, run_name):
 # --------------------------------------------------------------------------------------------------------------------------------
                 iterables = product(config_dict['mask_tellu'], config_dict['mask_wings'], config_dict['n_pc'])
 
-                with Pool() as pool:
+                # Input n_processes to see how many iterables to run in parallel
+                n_processes = 4
+                with Pool(n_processes) as pool:
                     args = {
                         'mol': single_mol[0],
                         'config_dict': config_dict,
