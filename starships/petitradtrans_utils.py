@@ -1036,7 +1036,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
     
     # Compute the abundances (and add species that need to be included if not fitted)
     if abundances is None: 
-        print('Calculating abundances')
+        log.debug('Calculating abundances')
         abundances, MMW, VMR = gen_abundances([*species.keys()], [*species.values()],
                                      pressures, temperatures,
                                      verbose=False, vmrh2he=vmrh2he,
@@ -1045,7 +1045,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
     else: 
         if chemical_equilibrium:
             chemical_equilibrium = False
-            print('WARNING: Using inputted abundances, forcing chemical_equilibrium = False')
+            log.warning('Using inputted abundances, forcing chemical_equilibrium = False')
     
     if chemical_equilibrium:        
         # Same shape as T and P
