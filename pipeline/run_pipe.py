@@ -6,14 +6,11 @@ import argparse
 
 from multiprocessing import Pool
 from itertools import product
-import functools
 
-path.append("opereira/starships/cc_scripts/")
-
-import cc_scripts.reduction as red
-import cc_scripts.make_model as mod
-import cc_scripts.correlations as corr
-import cc_scripts.split_nights as split
+import pipeline.reduction as red
+import pipeline.make_model as mod
+import pipeline.correlations as corr
+import pipeline.split_nights as split
 
 def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, scratch_dir, out_dir, path_fig, visit_name, wave_mod, mod_spec):
     

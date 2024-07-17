@@ -384,7 +384,7 @@ def plot_model_components(config_model, planet, path_fig = None, fig_name = None
                                      dissociation=config_model['dissociation'], plot=False)
         wv, out_spec['All'], _, _, _ = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict, abundances = abundances, MMW = MMW)
 
-    print(abundances)
+    # print(abundances)
 
     if config_model['species_vmr'] == {}:
             for mol in config_model['line_opacities']:
