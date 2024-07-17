@@ -12,7 +12,7 @@
 run_name="14072024"
 
 # Define the directory where run_pipe.py is located, should be where you cloned starships
-PIPE_DIR=/home/opereira/starships/cc_scripts
+PIPE_DIR=/home/opereira/starships/pipeline
 
 echo "Starting run_sbatch with ID $SLURM_JOB_ID"
 
