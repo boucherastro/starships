@@ -107,6 +107,12 @@ instruments_drs = {
     }
 }
 
+# Add some aliases (old codes use that)
+instruments_drs['spirou'] = instruments_drs['SPIRou-APERO']
+instruments_drs['nirps_he'] = instruments_drs['NIRPS-APERO']
+instruments_drs['nirps_hr'] = instruments_drs['NIRPS-GENEVA']
+instruments_drs['igrins'] = instruments_drs['IGRINS']
+
 # instrum = {}
 
 # instrum['spirou'] = {
