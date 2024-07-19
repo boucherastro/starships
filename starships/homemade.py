@@ -1388,3 +1388,16 @@ def pop_kwargs_with_message(key, kwargs_from_cmd_line, default_val=None):
         val = default_val
     
     return val
+
+
+# ==============================================================================
+# Function to import a module from a file path
+# ==============================================================================
+
+import importlib.util
+
+def import_module_by_path(module_name, file_path):
+    module_spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module

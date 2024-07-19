@@ -38,35 +38,34 @@ log.setLevel(logging.INFO)
 rng = np.random.default_rng()
 
 
-# def guillot_global(P,kappa_IR,gamma,grav,T_int,T_equ):
-#     ''' Returns a temperature array, in units of K,
-#     of the same dimensions as the pressure P
-#     (in bar). For this the temperature model of Guillot (2010)
-#     is used (his Equation 29).
+# ==================================
+# Functions for abundance ratios
+# ==================================
 
-#     Args:
-#         P:
-#             numpy array of floats, containing the input pressure in bars.
-#         kappa_IR (float):
-#             The infrared opacity in units of :math:`\\rm cm^2/s`.
-#         gamma (float):
-#             The ratio between the visual and infrated opacity.
-#         grav (float):
-#             The planetary surface gravity in units of :math:`\\rm cm/s^2`.
-#         T_int (float):
-#             The planetary internal temperature (in units of K).
-#         T_equ (float):
-#             The planetary equilibrium temperature (in units of K).
-#     '''
-#     tau = P*1e6*kappa_IR/grav
-#     T_irr = T_equ*np.sqrt(2.)
-#     T = (0.75 * T_int**4. * (2. / 3. + tau) + \
-#       0.75 * T_irr**4. / 4. * (2. / 3. + 1. / gamma / 3.**0.5 + \
-#       (gamma / 3.**0.5 - 1. / 3.**0.5 / gamma)* \
-#       np.exp(-gamma * tau *3.**0.5)))**0.25
-#     return T
+def get_atom_abundance(atom, abundances, list_species, abund0=0):
+    
+    atom_abund = np.zeros_like(abundances[0]) + abund0
+
+    for idx_specie, specie in enumerate(list_species):
+        if atom in specie:
+            idx = specie.index(atom) + len(specie) + 1
+            if idx < len(specie):
+                num = specie[idx]
+                try:
+                    num = float(num)
+                except ValueError:
+                    if num.islower():
+                        num = 0.
+                    else:
+                        num = 1.
+            else:
+                num = 1.
+            atom_abund += num * abundances[idx_specie]
+
+    return atom_abund
 
 
+# --------- Old functions -----------
 def add_contrib_mol(atom, nb_mols, list_mols, abunds, abund0=0., samples=None):
     abund = 0. + abund0
 
@@ -2609,6 +2608,8 @@ def ordered_prior(theta_dict, key, prior_inputs):
         return -np.inf
         
     # Then apply the correct prior
+    
+    # Work in progress...
 
     
     return out
@@ -2620,6 +2621,16 @@ default_prior_init_func = {'gaussian': init_gaussian_prior,
 default_prior_func = {'gaussian': gaussian_prior,
                       'uniform': uniform_prior,
                       'log_uniform': uniform_prior}
+
+
+def load_custom_prior(custom_prior_file):
+    
+    # Custom prior file is a python script that contains the 2 dictionaries
+    
+    # First load the python script
+    cstm_p = hm.import_module_by_path('dummy', custom_prior_file)
+    
+    return cstm_p.custom_prior_func, cstm_p.custom_prior_init_func
 
 
 def log_prior(theta, params_prior, prior_func_dict=None):
@@ -2800,7 +2811,11 @@ def draw_profiles_form_sample(n_draw, flat_samples, list_mols=None, retrieval_ob
         dictionnary with 'temperature' and all molecules profiles.
     """
     if list_mols is None:
-        list_mols = retrieval_obj.list_mols + retrieval_obj.continuum_opacities
+        try:
+            list_mols = retrieval_obj.line_opacities + retrieval_obj.continuum_opacities + retrieval_obj.other_species
+        except AttributeError:
+            # TODO: remove this in an eventual version 1.0
+            list_mols = retrieval_obj.list_mols + retrieval_obj.continuum_opacities
     else:
         list_mols = list_mols.copy()
 
@@ -2994,7 +3009,6 @@ def get_contribution(list_of_species, retrieval_obj, theta_regions, mode='low', 
     theta_reg_single = [dict(theta_dict) for theta_dict in theta_regions]
 
     # Init outputs
-    specie_contrib = dict()
     out_spec = dict()
     
     # Spec with all species
@@ -3033,16 +3047,139 @@ def get_contribution(list_of_species, retrieval_obj, theta_regions, mode='low', 
                     theta_dict[specie] = 1e-99
         
         _, spec_no_specie = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
-    
-        # Contribution of the specie in the spectrum
-        spec_specie_diff = (out_spec['All'] - spec_no_specie)
+        
+        # Resest param_specie to its original values
+        theta_reg_single = [dict(theta_dict) for theta_dict in theta_regions]
+        
+        # Set all other linelists to zero (10^-99 to avoid division by zero)
+        for theta_dict in theta_reg_single:
+            for specie in all_species:
+                if specie not in specie_name:
+                    theta_dict[specie] = 1e-99
+                    
+        _, spec_specie_only = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
 
         # Save it in output
         out_spec[f'Without {specie_key}'] = spec_no_specie
-        specie_contrib[specie_key] = spec_specie_diff
+        out_spec[f'{specie_key} only'] = spec_specie_only
 
+    return wv, out_spec
+
+
+def draw_spectra_from_samples(n_draw, flat_samples, species_list=None, retrieval_obj=None,
+                              kind_res='low', atmo_obj=None):
+    """
+    Draw spectra from a set of samples.
+
+    Parameters
+    ----------
+    n_draw : int
+        The number of spectra to draw.
+    flat_samples : numpy.ndarray
+        The flattened array of samples.
+    species_list : list, optional
+        The list of species if you want the species specific contribution.
+    retrieval_obj : object, optional
+        The retrieval object containing the necessary information for retrieval.
+    kind_res : str, optional
+        The kind of resolution to use. Default is 'low'.
+    atmo_obj : object, optional
+        The atmospheric object containing the necessary information for the atmosphere.
+
+    Returns
+    -------
+    wv : numpy.ndarray
+        The wavelength array.
+    spec_samples : dict
+        A dictionary containing the sampled spectra.
+
+    Notes
+    -----
+    kind_res='high' takes much longer to run. But it can be useful for debugging.
+    For example, to compare the opacities used in both cases ('low' VS 'high')
+    if the spectra are not fitting well the data at low resolution.
+    Sometimes the opacity from low (c-k) does not match the opacity at high resolution (lbl).
     
-    return wv, specie_contrib, out_spec
+    """
+    if species_list is None:
+        species_list = []
+
+    rng = np.random.default_rng()
+
+    # Take random integers (no repeated value)
+    random_idx = rng.permutation(range(flat_samples.shape[0]))[:n_draw]
+
+    spec_samples = dict()
+
+    for param_i in flat_samples[random_idx]:
+
+        param_i = param_i.copy()
+        theta_regions = retrieval_obj.unpack_theta(param_i)
+
+        wv, spec_and_contrib = get_contribution(species_list, retrieval_obj, theta_regions,
+                                                   mode=kind_res, atmo_obj=atmo_obj)
+
+        for key, val in spec_and_contrib.items():
+            try:
+                spec_samples[key]
+            except KeyError:
+                spec_samples[key] = list()
+            spec_samples[key].append(val)
+            
+    # Convert to array
+    for key, value in spec_samples.items():
+        spec_samples[key] = np.array(value)
+            
+    return wv, spec_samples
+
+
+def get_syntetic_data_low_res(wv_low=None, spec_low=None, wv_high=None, spec_high=None,
+                              force_model_type=None, retrieval_obj=None):
+    """Generate the synthetic data for all the low resolution instruments,
+    including spectrophotometry and photometry.
+    Args:
+    - wv_low: 1d array
+        Wavelengths of the low resolution model (c-k).
+    - spec_low: 1d array
+        Spectrum of the low resolution model (c-k).
+    - wv_high: 1d array
+        Wavelengths of the high resolution model (lbl).
+    - spec_high: 1d array
+        Spectrum of the high resolution model (lbl).
+    - force_model_type: str, optional
+        If not None, force the model type to be 'low' or 'high'.
+        
+    """
+    prt_res = retrieval_obj.prt_res
+    res_instru = retrieval_obj.res_instru
+    
+    synt_data_dict = dict()
+    for low_res_data_type in ['spectrophotometric', 'photometric']:
+        if low_res_data_type == 'photometric':
+            prepare_fct = retrieval_obj.prepare_photometry
+        else:
+            prepare_fct = retrieval_obj.prepare_spectrophotometry
+
+        low_res_data_dict = getattr(retrieval_obj, f'{low_res_data_type}_data')
+
+        for instru_name, infos in low_res_data_dict.items():
+            log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
+            if force_model_type is None:
+                model_type = infos.get('model_type', 'low')
+            else:
+                model_type = force_model_type
+            log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
+            if model_type == 'low':
+                args = (wv_low, spec_low, prt_res['low'], infos)
+            elif model_type == 'high':
+                args = (wv_high, spec_high, res_instru, infos, prt_res['high'])
+            else:
+                raise ValueError(f"Model type {model_type} not valid. Choose between 'low' or 'high'.")
+            # Generate the synthetic data
+            _, synt_data = prepare_fct(*args)
+            synt_data_dict[instru_name] = synt_data
+
+    return synt_data_dict
 
 
 def get_all_param_names(retrieval_obj):

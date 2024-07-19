@@ -2153,10 +2153,14 @@ def setup_retrieval(input_parameters, **kwargs):
             params_prior.pop(param)
 
     # Prior functions
-    global prior_init_func, prior_func_dict
-    prior_init_func = ru.default_prior_init_func
-    prior_func_dict = ru.default_prior_func
-    # TODO make sure to import the custom prior functions
+    global prior_init_func, prior_func_dict, custom_prior_file
+    if custom_prior_file is None:
+        prior_func_dict = ru.default_prior_func
+        prior_init_func = ru.default_prior_init_func
+    else:
+        c_prior_func, c_prior_init = ru.load_custom_prior(custom_prior_file)
+        prior_func_dict = {**ru.default_prior_func, **c_prior_func}
+        prior_init_func = {**ru.default_prior_init_func, **c_prior_init}
 
     # Get the initialisation from prior
     global walker_init
@@ -2842,46 +2846,6 @@ def prepare_spectrophotometry(wv_mod, spec_mod, model_res, data_info, mod_sampli
     return wv_grid, mod
 
 
-def get_syntetic_data_low_res(wv_low, spec_low, wv_high, spec_high):
-    """Generate the synthetic data for all the low resolution instruments,
-    including spectrophotometry and photometry.
-    Args:
-    - wv_low: 1d array
-        Wavelengths of the low resolution model (c-k).
-    - spec_low: 1d array
-        Spectrum of the low resolution model (c-k).
-    - wv_high: 1d array
-        Wavelengths of the high resolution model (lbl).
-    - spec_high: 1d array
-        Spectrum of the high resolution model (lbl).
-        
-    """
-    global prt_res, res_instru
-    
-    synt_data_dict = dict()
-    for low_res_data_type in ['spectrophotometric', 'photometric']:
-        if low_res_data_type == 'photometric':
-            prepare_fct = prepare_photometry
-        else:
-            prepare_fct = prepare_spectrophotometry
-
-        low_res_data_dict = globals()[f'{low_res_data_type}_data']
-
-        for instru_name, infos in low_res_data_dict.items():
-            log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
-            model_type = infos.get('model_type', 'low')
-            log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
-            if model_type == 'low':
-                args = (wv_low, spec_low, prt_res['low'], infos)
-            else:
-                args = (wv_high, spec_high, res_instru, infos, prt_res['high'])
-            # Generate the synthetic data
-            _, synt_data = prepare_fct(*args)
-            synt_data_dict[instru_name] = synt_data
-
-    return synt_data_dict
-
-
 def lnprob(theta, ):
     
     global params_prior, retrieval_type, kind_trans, orders, white_light
@@ -2959,31 +2923,26 @@ def lnprob(theta, ):
                 return -np.inf
 
         # Iterate over all low-res spectrophotometric observations
-        # for low_res_data_type in ['spectrophotometric', 'photometric']:
-        #     if low_res_data_type == 'photometric':
-        #         prepare_fct = prepare_photometry
-        #     else:
-        #         prepare_fct = prepare_spectrophotometry
-                
-        #     low_res_data_dict = globals()[f'{low_res_data_type}_data']
-        #     for instru_name, infos in low_res_data_dict.items():
-        #         log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
-        #         model_type = infos.get('model_type', 'low')
-        #         log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
-        #         if model_type == 'low':
-        #             args = (wv_low, model_low, prt_res['low'], infos)
-        #         else:
-        #             args = (wv_high, model_high, res_instru, infos, prt_res['high'])
-        #         # Generate the synthetic data
-        #         _, synt_data = prepare_fct(*args)
-        synt_data_dict = get_syntetic_data_low_res(wv_low, model_low, wv_high, model_high)
-        
+        # NOTE: You may think that you can use the function to clean the following loop,
+        #       but the problem is that passing the spectra (especially the high res one)
+        #       will slow down the multiprocessing considerably.
         for low_res_data_type in ['spectrophotometric', 'photometric']:
+            if low_res_data_type == 'photometric':
+                prepare_fct = prepare_photometry
+            else:
+                prepare_fct = prepare_spectrophotometry
+                
             low_res_data_dict = globals()[f'{low_res_data_type}_data']
             for instru_name, infos in low_res_data_dict.items():
-                
-                # Get synthetic data from model
-                synt_data = synt_data_dict[instru_name]
+                log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
+                model_type = infos.get('model_type', 'low')
+                log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
+                if model_type == 'low':
+                    args = (wv_low, model_low, prt_res['low'], infos)
+                else:
+                    args = (wv_high, model_high, res_instru, infos, prt_res['high'])
+                # Generate the synthetic data
+                _, synt_data = prepare_fct(*args)        
                 
                 # Get data measured by the instrument
                 data, uncert = infos['data'], infos['err']
