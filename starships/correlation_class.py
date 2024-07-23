@@ -159,7 +159,7 @@ class Correlations():
     def plot_multi_npca(self, logl=None, vlines=[0], kind='snr', kind_courbe='bic', ylim=None, 
                         no_signal=None, ground_type='mean',
                         hlines=None, legend=True, title='', max_rv=None, force_max_rv=None, 
-                        path_fig = None, fig_name = None, param = 'pc', axs = None, **kwargs):
+                        path_fig = None, fig_name = None, param = 'pc', axs = [], **kwargs):
     
         lstyles = ['-','--','-.',':']
 
@@ -176,14 +176,11 @@ class Correlations():
         snr = []
         courbe = []
 
-        if axs is None:
-            fig,ax = plt.subplots(1,2, figsize=(10,4))
+        if axs is []:
+            fig, ax = plt.subplots(1,2, figsize=(10,4))
         else:
-            fig = axs.figure
-            ax = []
-            ax[0] = inset_axes(axs, width="50%", height="50%", loc='upper left')
-            ax[1]= inset_axes(axs, width="50%", height="50%", loc='lower right')
-            
+            fig = axs[0].figure
+            ax = axs
 
         for i in range(len(self.n_pcas)):
             couleur = (0.5,0.1,i/len(self.n_pcas))
@@ -319,7 +316,7 @@ class Correlations():
     def calc_correl_snr_2d(self, tr, icorr=None, limit_shift=100, interp_size=201, RV_sys=0, Kp0=None,
                            kp0=0, kp1=2, rv_limit=15, kp_limit=70, RV_shift=0,
                            vr_orb=None, vrp_kind='t',
-                           kind='', orders=np.arange(49), plot=True):
+                           kind='', orders=np.arange(49), plot=True, counting = True):
     
         if isinstance(RV_sys, u.Quantity):
             RV_sys = (RV_sys.to(u.km / u.s)).value
@@ -342,7 +339,8 @@ class Correlations():
 
         sum_ccf = np.zeros((Kp_array.size, interp_grid.size))
         for i, Kpi in enumerate(Kp_array):
-            hm.print_static(i)
+            if counting:
+                hm.print_static(i)
 
             # if vrp_orb is None:
             if vrp_kind == 'nu':
@@ -1839,24 +1837,23 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
     if RV_limit is None:
         RV_limit = corrRV0.max()
 
-
-    fig, axs = plt.subplots(3, 1, figsize=(15, 5))
+    fig, axs = plt.subplots(3, 2, figsize=(15, 15))
 
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
-                                 n_pcas=n_pcas, kp_array=Kp_array)
+                                n_pcas=n_pcas, kp_array=Kp_array)
     ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
-    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = axs[0])
+    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = [axs[0,0], axs[0,1]])
 
     logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
-                                  n_pcas=n_pcas, kp_array=Kp_array)
+                                n_pcas=n_pcas, kp_array=Kp_array)
     logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
 
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = axs[1])
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = [axs[1,0], axs[1,1]])
     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
-                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = axs[2])
+                                title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = [axs[2,0], axs[2,1]])
 
     plt.tight_layout()
-    plt.savefig(path_fig + f'fig_multi_{param}'+fig_name+'.pdf')
+    plt.savefig(str(path_fig) + f'fig_multi_{param}'+fig_name+'.pdf')
 
 
     print(ccf_obj.npc_val)

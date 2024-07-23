@@ -226,7 +226,7 @@ def get_t_test_values(index, corrRV, ccf, vrp, \
 
 def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None, wind=0, RV_array=None,
               kp0=0, kp1=2, RV_limit=20, logl=False, plot=False, masked=False, RV=0, prf=False, Kp_array=None,
-              speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False):
+              speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False, counting = True):
     if icorr is None:  
         icorr= tr.iIn
         
@@ -256,7 +256,8 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
     
     id_kp=hm.nearest(Kp_array, tr.Kp.value)
     for i, Kpi in enumerate(Kp_array):
-        hm.print_static(i)
+        if counting:
+            hm.print_static(i)
 #         if i == id_kp:
 #             print(Kp_array[i])
 #         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
@@ -303,7 +304,7 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
 
 def ttest_map_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None,
               kp0=0, kp1=2, RV_limit=20, logl=False, plot=False, masked=False, RV=0, prf=False, Kp_array=None,
-              speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False):
+              speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False, counting = True):
 
     if ccf is None:
         if logl is True:
@@ -330,7 +331,8 @@ def ttest_map_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=
     
     id_kp=hm.nearest(Kp_array, tr.Kp.value)
     for i, Kpi in enumerate(Kp_array):
-        hm.print_static(i)
+        if counting: 
+            hm.print_static(i)
         if i == id_kp:
             print(Kp_array[i])
 #         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
@@ -369,7 +371,7 @@ def ttest_map_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=
 
 def ttest_fullmap_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None,
               kp0=0, kp1=2, RV_limit=20, logl=False, plot=False, masked=False, RV=0, prf=False, Kp_array=None,
-              speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False):
+              speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False, counting = True):
 
     if ccf is None:
         if logl is True:
@@ -396,7 +398,8 @@ def ttest_fullmap_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), ic
     
     id_kp=hm.nearest(Kp_array, tr.Kp.value)
     for i, Kpi in enumerate(Kp_array):
-        hm.print_static(i)
+        if counting:
+            hm.print_static(i)
         if i == id_kp:
             print(Kp_array[i])
 #         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
@@ -507,7 +510,7 @@ def mo_fit(xy0, shift, scale):
     return y
     
 
-def plot_mo_fit_params(n_orders, tr, params, **kwargs):
+def plot_mo_fit_params(n_orders, tr, params, counting = True, **kwargs):
     fig = plt.figure()
     n_spec=tr.n_spec
     # fig.suptitle("Controlling subplot sizes with width_ratios and height_ratios")
@@ -548,7 +551,8 @@ def master_out_fit(tr, n_orders=49, plot_shift=True, plot_scale=False,
         fit_params_ord = []
         fit_err_ord = []
         for iord in range(n_orders):
-            hm.print_static(n, iord, '  ')
+            if counting:
+                hm.print_static(n, iord, '  ')
             x = tr.wv[iord]
             if master_out.ndim == 2:
                 y0 = master_out[iord]
@@ -583,7 +587,7 @@ def master_out_fit(tr, n_orders=49, plot_shift=True, plot_scale=False,
     
     return fit_params, fit_err
 
-def build_template_mo(tr, wave_temp, template, dv=None, norm=True):
+def build_template_mo(tr, wave_temp, template, dv=None, norm=True, counting = True):
     
     if dv is None:
         dv = tr.mid_berv+tr.mid_vr.value
@@ -611,7 +615,8 @@ def build_template_mo(tr, wave_temp, template, dv=None, norm=True):
     elif template.ndim == 2:
         master_out = np.ones((tr.n_spec, tr.nord, tr.npix))*np.nan
         for n in range(template.shape[0]):
-            hm.print_static(n)
+            if counting:
+                hm.print_static(n)
             fct = interp1d_masked(wave_temp, template[n], kind='cubic', fill_value='extrapolate')
             if dv.ndim == 0:
                 if dv != 0:

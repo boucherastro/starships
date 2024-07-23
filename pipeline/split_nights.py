@@ -119,14 +119,15 @@ def split_night(obs_dir, path_fig):
     y_pos = -0.1
     for idx, tr_tag in enumerate(transit_tags):
         hdu = fits.open(obs_dir / filenames[tr_tag[0]])
-        text = f"{filenames[tr_tag[0]]}\n{hdu[0].header['PI-COI']}, {hdu[0].header['DATE']}"
+        text = f"{filenames[tr_tag[0]]}\n{hdu[0].header['HIERARCH ESO OBS PROG ID']}, {hdu[0].header['DATE']}"
         fig.text(0, y_pos, text, ha='left', va='bottom', fontsize=9)
         y_pos -= 0.1
 
     plt.tight_layout()
     # plt.show()
-    plt.savefig(path_fig + '/night_split.pdf', bbox_inches='tight') # CHANGE THIS
-    print('Saved figure')
+    if path_fig is not None:
+        plt.savefig(path_fig + '/night_split.pdf', bbox_inches='tight') 
+        print('Saved figure')
 
     """****************************************************"""
     """ creating list of files for each observing sequence """

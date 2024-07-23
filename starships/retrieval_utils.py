@@ -1733,7 +1733,7 @@ def gen_ret_dict(ret_params, ret_name, files, labels, discard=0, tol=8, plot=Tru
 def plot_TP_profile_samples(ret_params, ret_names,  # nb_mols,
                             title='', labels=None, colors=None, dark_colors=None, kind=['best'], xlim=None, slim=False,
                             n_samp=100, samples=None, confid_interv=False, show_2sig=True, linestyle=['-', '--', ':'],
-                            params=None, **kwargs):
+                            params=None, counting = True, **kwargs):
     if slim:
         fig = plt.figure(figsize=(3, 5))
     else:
@@ -1761,7 +1761,8 @@ def plot_TP_profile_samples(ret_params, ret_names,  # nb_mols,
                     sample = samples[ret_i]
 
             for i in range(n_samp):
-                hm.print_static(i)
+                if counting: 
+                    hm.print_static(i)
                 params_i = sample[random.randint(0, sample.shape[0] - 1)]  # [random.randint(0, sample.shape[1] - 1)]
                 #                 print(params_i)
                 #                 print(ret_params[ret_name_i]['nb_mols'])
