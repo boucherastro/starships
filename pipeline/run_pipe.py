@@ -69,7 +69,7 @@ def run_pipe(config_filepath, run_name):
         else: mol = 'all'
 
         if visit_name == config_dict['visit_name'][0]:
-            mod.plot_model_components(config_model, planet, out_dir.parent, path_fig)
+            mod.plot_model_components(config_model, planet, path_fig = path_fig)
 
 # --------------------------------------------------------------------------------------------------------------------------------
         iterables = product(config_dict['mask_tellu'], config_dict['mask_wings'], config_dict['n_pc'])
@@ -181,7 +181,7 @@ def run_pipe(config_filepath, run_name):
                 # plots for each pc
                 for mask_tellu in config_dict['mask_tellu']:
                     for mask_wings in config_dict['mask_wings']:
-                        corr.plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, scratch_dir, 
+                        corr.plot_all_ccf(config_dict, single_mol, mask_tellu, mask_wings, scratch_dir, 
                                         visit_name, planet, id_pc0=None, order_indices=np.arange(75), 
                                         path_fig = path_fig)
 
