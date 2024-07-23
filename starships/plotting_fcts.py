@@ -1,12 +1,12 @@
 import numpy as np
 from . import homemade as hm
 from . import analysis as a
-from . import retrieval
 from . import retrieval_utils as ru
 from . import ttest_fcts as nf
 from .orbite import rv_theo_nu
 from .mask_tools import interp1d_masked
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import matplotlib.transforms as transforms
 
 # import scipy.constants as cst
 import scipy as sp
@@ -18,6 +18,9 @@ import matplotlib.pyplot as plt
 from astropy.table import Table, Column
 
 from pathlib import Path
+
+# Initiate random number generator
+rng = np.random.default_rng()
 
 
 retrieval_plot_labels = { 'H2O': r"$\log_{10}$ H$_2$O",
@@ -2269,7 +2272,7 @@ def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None):
     
 def plot_tp_profiles_combined(n_draw, chains=None, yaml_file_list=None, get_tp_from_param=None,
                               prob_values=None, p_range=None, fig=None, ax=None,
-                              tight_range=None, colorsOrder=None, log_level='WARNING'):
+                              tight_range=None, colorsOrder=None, log_level='WARNING', retrieval_obj=None):
     """
     Plot TP profile statistics from different walker chains.
     Args:
@@ -2300,6 +2303,10 @@ def plot_tp_profiles_combined(n_draw, chains=None, yaml_file_list=None, get_tp_f
     Returns:
         fig, ax: figure and axes objects
     """
+    
+    # Import retrieval.py if no retrieval object given
+    if retrieval_obj is None:
+        import retrieval as retrieval_obj
     
     # Set log levels
     imported_libs = [retrieval, ru]
@@ -2380,4 +2387,159 @@ def plot_tp_profiles_combined(n_draw, chains=None, yaml_file_list=None, get_tp_f
     for im_lib, level in zip(imported_libs, save_level):
         im_lib.log.setLevel(level)
 
+    return fig, ax
+
+
+def plot_mol_features_labels(mol_name, feature_list, y_feat, color=None,
+                             dy_feat=0.02, txt_shift=None,
+                             fig=None, ax=None,
+                             plot_kwargs=None, text_kwargs=None):
+    """Plot position of molecular bands.
+    All values in y (`y_feat`, `dy_feat`, `txt_shift`) are in Axes coordinates,
+    i.e. from 0 (bottom of axes) to 1 (top of axes)."""
+    
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+    
+    if plot_kwargs is None:
+        plot_kwargs = dict()
+        
+    if text_kwargs is None:
+        text_kwargs = dict()  
+        
+    if txt_shift is None:
+        txt_shift = 0.5 * dy_feat
+        
+    # Convert values in Axes scale to Data scale
+    ylim = ax.get_ylim()
+    dylim = ylim[-1] - ylim[0]
+    txt_shift_y = dylim * txt_shift
+    
+    xlim = ax.get_xlim()
+    dx = np.diff(xlim)
+    txt_shift_x = dx * txt_shift
+
+    # Consider y in  axes coordinates and x in Data coordinates 
+    trans = ax.transAxes
+    
+    # Inverse transormation (puts display coordinates back to Data coordinates)
+    inv = ax.transData.inverted()
+    
+    # y values for the plot (in Axes coordinates)
+    y_axes_coords = np.full(3, y_feat)
+    y_axes_coords[0] += dy_feat
+    
+    # Convert in Data coord
+    y_plot = ylim[0] + y_axes_coords * dylim
+    
+    # Iterate over the feature list
+    for x_feat in feature_list:
+
+        x_plot = np.append(x_feat[0], x_feat)  # 3 points instead of 2
+        
+        # Plot
+        ax.plot(x_plot, y_plot, color=color, **plot_kwargs)
+        if color is None:
+            color = ax.get_lines()[-1].get_color()
+        
+        x_in_plot = (xlim[0] <= x_plot[1]) & (x_plot[1] < xlim[-1])
+        if x_in_plot:
+            ax.text(x_plot[1] + txt_shift_x, y_plot[1] + txt_shift_y, mol_name, **text_kwargs)
+            
+    # Reset x and y limits
+    ax.set_ylim(*ylim)
+    ax.set_xlim(*xlim)
+        
+    return fig, ax
+
+
+def scatterplot_logl(flatten_sample, flatten_logl, n_max_pts=10000, tight_ylim=True, alpha=0.1,
+                     color=None, fig=None, ax=None, ylabels=None, **kwargs):
+    """
+    Generate scatter plots of samples against their log-likelihood values.
+
+    This function creates scatter plots for each parameter in the `flatten_sample` array against the corresponding
+    log-likelihood values in `flatten_logl`. It supports plotting a maximum number of points to avoid overplotting.
+
+    Parameters
+    ----------
+    flatten_sample : ndarray
+        A 2D array of shape (n_samples, n_params) containing the sample values for each parameter.
+    flatten_logl : ndarray
+        A 1D array of length n_samples containing the log-likelihood values corresponding to each sample.
+    n_max_pts : int, optional
+        The maximum number of points to display in the scatter plot. If the number of samples exceeds this value,
+        a random subset of `n_max_pts` samples will be selected for plotting. Default is 10000.
+    tight_ylim : bool, optional
+        If True, the y-axis limits are set to tightly encompass the range of log-likelihood values, with a small
+        margin added. If False, the y-axis limits are determined automatically. Default is True.
+    alpha : float, optional
+        The alpha blending value, between 0 (transparent) and 1 (opaque), for the points in the scatter plot.
+        Default is 0.1.
+    color : str or None, optional
+        The color of the points in the scatter plot. If None, the default color cycle is used. Default is None.
+    fig : Figure or None, optional
+        An existing matplotlib Figure object to plot on. If None, a new figure is created. Default is None.
+    ax : Axes or None, optional
+        An array of matplotlib Axes objects to plot on. If None, new axes are created. Default is None.
+    ylabels : list of str or None, optional
+        A list of labels for the y-axis, one for each parameter. If None, parameter indices are used as labels.
+        Default is None.
+    **kwargs
+        Additional keyword arguments are passed to the `plot` function.
+
+    Returns
+    -------
+    fig : Figure
+        The matplotlib Figure object containing the plot.
+    ax : Axes
+        An array of matplotlib Axes objects containing the scatter plots, one for each parameter.
+
+    Notes
+    -----
+    This function is designed to visualize the distribution of samples and their corresponding log-likelihood values
+    in parameter space. It is particularly useful for examining the results of sampling algorithms in the context
+    of Bayesian inference or optimization problems.
+    """
+
+    # Init figure and ax if not given
+    n_param = flatten_sample.shape[-1]
+    fig, ax =  _get_fig_and_ax_inputs(fig, ax, n_param, 1, figsize=(6, 3 * n_param))
+    
+    # ylabels
+    if ylabels is None:
+        ylabels = list(range(n_param))
+
+    # Make sure the inputs are sorted with respect to logl
+    sort_idx = np.argsort(flatten_logl)
+    flatten_sample = flatten_sample[sort_idx]
+    flatten_logl = flatten_logl[sort_idx]
+
+    # Take random integers (no repeated value)
+    rand_idx = rng.permutation(range(flatten_logl.shape[-1]))[:n_max_pts]
+
+    # ylimits
+    if tight_ylim:
+        ymin, ymax = (np.quantile(flatten_logl, 0.1), np.max(flatten_logl))
+        dy = ymax - ymin
+        ylim = (ymin - 0.1 * dy, ymax + 0.1 * dy)
+    else:
+        ylim = (None, None)
+
+    for i_param, ax_i in enumerate(ax):
+        (lines,) = ax_i.plot(flatten_sample[rand_idx, i_param], flatten_logl[rand_idx], '.', 
+                  color=color, alpha=alpha, **kwargs)
+        color = lines.get_color()
+
+        ax_i.set_ylim(*ylim)
+        ax_i.set_xlabel(ylabels[i_param])
+
+        # Add vertical lines for best logl and median
+        ax_i.axvline(flatten_sample[-1, i_param], linestyle="-", color=color, label='best')
+        ax_i.axvline(flatten_sample[len(flatten_sample)//2, i_param], linestyle="-.",
+                     color=color, label='median')
+        ax_i.axhline(flatten_logl[len(flatten_sample)//2], linestyle="-.", color=color)
+        ax_i.legend()
+
+    plt.tight_layout()
+    
     return fig, ax
