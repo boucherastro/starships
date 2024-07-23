@@ -2630,7 +2630,49 @@ def load_custom_prior(custom_prior_file):
     # First load the python script
     cstm_p = hm.import_module_by_path('dummy', custom_prior_file)
     
-    return cstm_p.custom_prior_func, cstm_p.custom_prior_init_func
+    return cstm_p.prior_func, cstm_p.prior_init_func
+
+
+def rejection_sampling(spl_func, x_bounds, envelope_func=None, n_samples=1000):
+    """
+    Perform rejection sampling to generate samples from a distribution.
+
+    This function generates samples from a distribution defined by `spl_func` within the bounds specified by `x_bounds`. 
+    An optional envelope function can be provided to optimize the sampling process. If no envelope function is provided, 
+    a simple heuristic based on the maximum value of `spl_func` over the specified bounds is used.
+
+    Parameters:
+    - spl_func (callable): The target distribution function from which to sample. This function should take a single argument (x) and return the value of the distribution at x.
+    - x_bounds (tuple): A tuple of two elements specifying the lower and upper bounds of the domain from which to sample.
+    - envelope_func (callable, optional): An optional envelope function that bounds `spl_func` from above. This function should take a single argument (x) and return the value of the envelope at x. If not provided, a default envelope is calculated.
+    - n_samples (int): The number of samples to generate.
+
+    Returns:
+    - list: A list of sampled values from the target distribution.
+
+    Note:
+    The default envelope function, if not provided, is computed as 1.1 times the maximum value of `spl_func` over a linear space of 1000 points within `x_bounds`. This heuristic aims to ensure that the envelope function reliably bounds `spl_func` from above, improving the efficiency of the sampling process.
+    """
+    samples = []
+    
+    # If envelope_func is not provided, compute a simple envelope
+    if envelope_func is None:
+        x_vals = np.linspace(x_bounds[0], x_bounds[1], 1000)  # Sample 1000 points within bounds
+        y_vals = spl_func(x_vals)
+        max_y_val = np.max(y_vals)
+        envelope_func = lambda x: max_y_val * 1.1  # 10% padding above max value
+    
+    while len(samples) < n_samples:
+        # Sample from the envelope function
+        x_sample = np.random.uniform(x_bounds[0], x_bounds[1])
+        y_envelope = envelope_func(x_sample)
+        y_uniform = np.random.uniform(0, y_envelope)
+        
+        # Accept or reject the sample
+        if y_uniform < spl_func(x_sample):
+            samples.append(x_sample)
+    
+    return np.array(samples)
 
 
 def log_prior(theta, params_prior, prior_func_dict=None):
@@ -2695,6 +2737,9 @@ def init_from_prior(n_wlkrs, prior_init_func, prior_dict, n_mol=1, special_treat
         else:
             # Run init function
             sample = init_func(prior_args, n_wlkrs)
+            # Make sure it has the right dimension to be used with hstack
+            if sample.ndim == 1:
+                sample = sample[:, np.newaxis]
             walkers_init.append(sample)
 
     # Stack all parameters
