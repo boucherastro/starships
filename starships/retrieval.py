@@ -1629,8 +1629,9 @@ except ModuleNotFoundError:
 
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
-logging.basicConfig()
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
 
 # Here is a list of all the global parameters that are used in the code
 # This is done to optimize the multiprocessing for two main reasons:
@@ -1745,9 +1746,13 @@ def get_slurm_id():
     else:
         job_id_key_list = ['SLURM_JOB_ID']
 
-    # jobid is combining all ID 
-    jobid = '_'.join([os.environ[key] for key in job_id_key_list])
-    
+    try:
+        # jobid is combining all ID
+        jobid = '_'.join([os.environ[key] for key in job_id_key_list])
+    except KeyError:
+        jobid = None
+        log.info('slurm job ID not found.')
+            
     return jobid
 
 def get_run_name(input_params):
@@ -1777,12 +1782,10 @@ def get_run_name(input_params):
         run_name_args.append('chemEq')
 
     # Take job ID from environment variable if available
-    try:
-        # jobid is combining all ID 
-        jobid = get_slurm_id()
+    # jobid is combining all ID 
+    jobid = get_slurm_id()
+    if jobid is not None:
         run_name_args.append(jobid)
-    except KeyError:
-        pass
     
     run_name = '_'.join(run_name_args)
     
@@ -1879,7 +1882,8 @@ def unpack_input_parameters(input_parameters, **kwargs):
         
     # Make sure all the file paths are Path objects
     all_file_keys = ['base_dir', 'high_res_path', 'walker_path', 'walker_file_out',
-                     'walker_file_in', 'params_path', 'params_file_out', 'star_spectrum']
+                     'walker_file_in', 'params_path', 'params_file_out', 'star_spectrum',
+                     'custom_prior_file']
     for key in all_file_keys:
         if input_params[key] is not None:
             # expanduser() to make sure to replace the '~' in the paths
@@ -2250,28 +2254,27 @@ def load_high_res_data():
     data_info = {'trall_alpha_frac': [], 'trall_icorr': [], 'trall_N': [], 'bad_indexs': []}
     data_trs = []
 
-    if retrieval_type == 'JR' or retrieval_type == 'HRR':
-        for high_res_file_stem in high_res_file_stem_list:
-            log.debug(f'Hires files stem: {high_res_path / high_res_file_stem}')
-            log.info('Loading Hires files.')
-            data_info_i, data_trs_i = pl_obs.load_sequences(high_res_file_stem, do_tr, path=high_res_path)
-            # Add index of the exposures where we expect to see the planet signal (to be used in kernel function)
-            # trall_alpha_frac is the fraction of the total planet signal received during the exposure.
-            data_trs_i['0']['i_pl_signal'] = data_info_i['trall_alpha_frac'] > 0.5
-            for data_tr in data_trs_i.values():
-                data_trs.append(data_tr)
-            # Patch for now data_info. Need to modify how the logl is computed to make it more clean.
-            # Would not work with different instruments
-            for key in ['trall_alpha_frac', 'trall_N', 'bad_indexs']:
-                data_info[key].append(data_info_i[key])
-            try:
-                data_info['trall_icorr'].append(data_info_i['trall_icorr'] + data_info['trall_icorr'][-1][-1] + 1)
-            except IndexError:
-                data_info['trall_icorr'].append(data_info_i['trall_icorr'])
-        for key in data_info.keys():
-            data_info[key] = np.concatenate(data_info[key], axis=0)
-        
-        data_info['bad_indexs'] = None  # Leave it to None. Not implemented yet.
+    for high_res_file_stem in high_res_file_stem_list:
+        log.debug(f'Hires files stem: {high_res_path / high_res_file_stem}')
+        log.info('Loading Hires files.')
+        data_info_i, data_trs_i = pl_obs.load_sequences(high_res_file_stem, do_tr, path=high_res_path)
+        # Add index of the exposures where we expect to see the planet signal (to be used in kernel function)
+        # trall_alpha_frac is the fraction of the total planet signal received during the exposure.
+        data_trs_i['0']['i_pl_signal'] = data_info_i['trall_alpha_frac'] > 0.5
+        for data_tr in data_trs_i.values():
+            data_trs.append(data_tr)
+        # Patch for now data_info. Need to modify how the logl is computed to make it more clean.
+        # Would not work with different instruments
+        for key in ['trall_alpha_frac', 'trall_N', 'bad_indexs']:
+            data_info[key].append(data_info_i[key])
+        try:
+            data_info['trall_icorr'].append(data_info_i['trall_icorr'] + data_info['trall_icorr'][-1][-1] + 1)
+        except IndexError:
+            data_info['trall_icorr'].append(data_info_i['trall_icorr'])
+    for key in data_info.keys():
+        data_info[key] = np.concatenate(data_info[key], axis=0)
+    
+    data_info['bad_indexs'] = None  # Leave it to None. Not implemented yet.
 
     return data_info, data_trs
 
@@ -2623,7 +2626,10 @@ def unpack_theta(theta):
     
     # Convert from log to linear scale if needed.
     for key, prior_info in params_prior.items():
-        if prior_info[0] == 'log_uniform':
+        # Check the last parameter, which tells if the parameter is in log scale
+        convert_from_log10 = (prior_info[-1] == 'log10')
+        if prior_info[0] == 'log_uniform' or convert_from_log10:
+            log.debug(f'Converting {key} to 10**({key}).')
             theta_dict[key] = 10 ** theta_dict[key]
     
     # Make a dictionnary for each region if needed.
@@ -2851,7 +2857,7 @@ def lnprob(theta, ):
     global params_prior, retrieval_type, kind_trans, orders, white_light
     global photometric_data, spectrophotometric_data
     
-    log.debug(f"lnprob: {theta}")
+    log.debug(f"In `lnprob`, input array = {theta}")
     
     # --- Prior ---
     log.debug('Commpute Prior')
@@ -2869,7 +2875,7 @@ def lnprob(theta, ):
     # High res is needed in joint retrievals or High-res retrievals
     if (retrieval_type == 'JR') or (retrieval_type == 'HRR'):
 
-        # For the rest, just use the first region
+        # For the rest, just use the first region (we only need general informations)
         theta_dict = theta_regions[0]
 
         logl_i = []
@@ -2970,6 +2976,15 @@ def lnprob(theta, ):
     return total
 
 
+def find_max_lnprob(param_init):
+    """Find the maximum likelihood value using scipy.optimize.minimize
+    param_init is the initial position. It has a shape (n_try, n_params)
+    """
+    
+    
+    
+
+
 def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None, **kwargs):
 
     with open(yaml_file_in, 'r') as f:
@@ -2980,6 +2995,9 @@ def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None, **
     
     # Edit some values to make sure it is consistent with the current run
     params_yaml['walker_file_out'] = str(globals()['walker_file_out'])
+    
+    # Add the JOB ID
+    params_yaml['slurm_id'] = get_slurm_id()
     
     # Edit all other values that have been specify with kwargs
     for key, val in kwargs.items():
@@ -3015,7 +3033,7 @@ def prepare_run(yaml_file=None, **kwargs):
     
     # Other globals used in the function
     global n_steps_burnin, n_steps_sampling, n_walkers, n_dim
-    global walker_path, n_cpu, slurm_array_behaviour
+    global walker_path, n_cpu, slurm_array_behaviour, retrieval_type
 
     if yaml_file is not None:
         # Unpack the yaml_file and add variables to the global space
@@ -3024,7 +3042,10 @@ def prepare_run(yaml_file=None, **kwargs):
         raise NotImplementedError("kwargs passed without yaml_file. Not implemented yet.")
 
     # Read the data and add them to the global space
-    _ = load_high_res_data()
+    if retrieval_type == 'JR' or retrieval_type == 'HRR':
+        _ = load_high_res_data()
+    else:
+        log.info(f"Retrieval type = {retrieval_type}. High res data is not needed.")
 
     ############################
     # Define additional parameters that are not in the yaml file
@@ -3119,9 +3140,10 @@ def main(yaml_file=None, **kwargs):
 
         # Now that yaml_file is removed from the kwargs from command line,
         # print all the other kwargs passed (if there are any)
-        log.info(f"keys from command line will replace values in yaml file: {kwargs.keys()}")
-        log.info("Converting command line arguments tp expected type if needed...")
-        kwargs = convert_cmd_line_to_types(kwargs)
+        if kwargs:
+            log.info(f"keys from command line will replace values in yaml file: {kwargs.keys()}")
+            log.info("Converting command line arguments to expected type if needed...")
+            kwargs = convert_cmd_line_to_types(kwargs)
     
     # Prepare the run
     n_steps, pos, walker_file_out, yaml_file, good_to_go = prepare_run(yaml_file=yaml_file, **kwargs)
