@@ -1359,7 +1359,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
     '''
     Plot Kp/Vrad map, T-test and Trail.
     
-    In the Kp/Vrad map, the dotted lines indicate the known Kp/Vrad values of the planet. A signal at their intersection signifies a detection.
+    In the Kp/Vrad map, the horizontal dotted line indicates the known Kp value of the planet. The vertical dotted line centers at the highest signal at the known Kp that is close to Vrad = 0. A signal at the intersection of these lines signifies a detection.
     
     The T-test plot tells us if the in-trail and out-of-trail distributions (both randomly selected values, respectively close to and far from the Vrad of the planet) are drawn from the same parent distribution.
     
