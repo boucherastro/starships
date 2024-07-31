@@ -2868,6 +2868,12 @@ def lnprob(theta, ):
         return -np.inf
 
     theta_regions = unpack_theta(theta)
+    
+    # First check if the TP profile gives negative temperatures. Discard if so.
+    for theta_dict in theta_regions:
+        if np.any(theta_dict['temperatures'] < 0):
+            log.debug('Negative temperatures in TP profile. >>> return -np.inf')
+            return -np.inf
 
     ####################
     # --- HIGH RES --- #
