@@ -129,7 +129,7 @@ def get_plot_labels(params=None, retrieval_obj=None):
 
 def get_plot_limits_from_data(data, pad=0.1):
     plt_limits = [np.min(data), np.max(data)]
-    d_lim = np.diff(plt_limits)
+    d_lim = plt_limits[1] - plt_limits[0]
     plt_limits[0] -= pad * d_lim
     plt_limits[-1] += pad * d_lim
 
@@ -2247,7 +2247,8 @@ def plot_spectra_sample_GTC(wave, spectra_stats_list, colorsOrder=None, wv_range
     return fig, ax
 
 
-def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None):
+def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None,
+                      vlines=True, hlines=True, linestyle='--', color='grey', **kwargs):
     """Plot horizontal and vertical line at a given position.
     Leave a hole at this position so the lines don't overplot at the wanted position."""
     
@@ -2262,10 +2263,14 @@ def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None):
     y_hole = y_hole * (y_max - y_min)
     
     # Plot vertical and horizontal lines around the hole.
-    ax.vlines(x, y_min, y - y_hole,  color='grey', linestyle='--')
-    ax.vlines(x, y + y_hole, y_max, color='grey', linestyle='--')
-    ax.hlines(y, x_min, x - x_hole,  color='grey', linestyle='--')
-    ax.hlines(y, x + x_hole, x_max, color='grey', linestyle='--')
+    kwargs['linestyle'] = linestyle
+    kwargs['color'] = color
+    if vlines:
+        ax.vlines(x, y_min, y - y_hole, **kwargs)
+        ax.vlines(x, y + y_hole, y_max, **kwargs)
+    if hlines:
+        ax.hlines(y, x_min, x - x_hole, **kwargs)
+        ax.hlines(y, x + x_hole, x_max, **kwargs)
     
     return fig, ax
     
@@ -2309,7 +2314,7 @@ def plot_tp_profiles_combined(n_draw, chains=None, yaml_file_list=None, get_tp_f
         import retrieval as retrieval_obj
     
     # Set log levels
-    imported_libs = [retrieval, ru]
+    imported_libs = [retrieval_obj, ru]
     save_level = [im_lib.log.level for im_lib in imported_libs]
     for im_lib in imported_libs:
         im_lib.log.setLevel(log_level)
@@ -2322,9 +2327,9 @@ def plot_tp_profiles_combined(n_draw, chains=None, yaml_file_list=None, get_tp_f
     pressure_list = list()
     pressure_idx_list = list()
     for ch, yaml_file in zip(chains, yaml_file_list):
-        retrieval.setup_retrieval(yaml_file)
+        retrieval_obj.setup_retrieval(yaml_file)
         n_draw_ch = np.min([n_draw, ch.shape[0]])
-        profile_sample, pressures = ru.draw_tp_profiles_from_sample(n_draw_ch, ch, retrieval_obj=retrieval)
+        profile_sample, pressures = ru.draw_tp_profiles_from_sample(n_draw_ch, ch, retrieval_obj=retrieval_obj)
         tp_stats = ru.get_stats_from_profile(profile_sample, prob_values=prob_values)
         # pressures idx for plot range
         idx_p = _get_idx_in_range(pressures, p_range)
@@ -2349,7 +2354,7 @@ def plot_tp_profiles_combined(n_draw, chains=None, yaml_file_list=None, get_tp_f
             try:
                 color_region[idx_ch][key] = colorsDict[cs][idx_stat]
             except IndexError:
-                raise IndexError(f"To many satistics to plot for available colors (length = {len(color_gradation)})")
+                raise IndexError(f"To many satistics to plot for available colors (length = {len(defaultColorsOrder)})")
 
 
     for idx_ch in reversed(range(n_chains)):
