@@ -1453,3 +1453,15 @@ class LogUnivariatSpline:
             out = out[0]
         
         return out
+
+
+# Function to quantiles and sigmas in relation
+spl = interp1d(np.arange(1, 6,),
+                         np.log(1-np.array([0.3935, 0.8647, 0.9889, 0.9997, 0.9999994])),
+                         kind='cubic', bounds_error=False, fill_value='extrapolate')
+sigma2percent = lambda sig: 1 - np.exp(spl(sig))
+
+spl2 = interp1d(np.log(1-np.array([0.3935, 0.8647, 0.9889, 0.9997, 0.9999994])),
+               np.arange(1, 6,),
+               kind='cubic', bounds_error=False, fill_value='extrapolate')
+percent2sigma = lambda p: spl2(np.log(1-p))
