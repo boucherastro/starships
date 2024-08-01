@@ -103,7 +103,11 @@ instruments_drs = {
         'adc2': 'NADCS',
         'bjd': 'JD-OBS',
         'mjd': 'MJD-OBS',
-        'exptime': 'EXPTIMET'
+        'exptime': 'EXPTIMET',
+        'high_res_wv_lim': [1.45, 2.45],
+        'nord': 54,
+        'npix': 2048,
+        'resol': 45000
     }
 }
 
