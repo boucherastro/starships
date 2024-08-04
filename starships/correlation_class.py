@@ -1081,7 +1081,7 @@ class Correlations():
                 height.append(np.sum(tr.dt[id_range[i][0]:id_range[i][1]]).to(u.h).value)
             height.append(height[0]/2)
 
-            fig = plt.figure(constrained_layout=True, figsize=(figwidth,8))
+            fig = plt.figure(constrained_layout=True, figsize=(figwidth, 2 * len(split_fig)))
             gs = fig.add_gridspec(len(split_fig), 3, width_ratios=[3, 3, 1.3], height_ratios=height)
 
             ax_map = []
