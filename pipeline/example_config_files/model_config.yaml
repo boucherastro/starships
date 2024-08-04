@@ -1,0 +1,75 @@
+# Example config file for generating a model using starships
+
+# -----------------------------------------------------------
+# --- Model parameters ---
+# -----------------------------------------------------------
+
+# Parameters for generating the pressure array
+# limP: [min, max] - pressure log range
+# n_pts: int - number of points in the pressure array
+limP: [-10, 2]    
+n_pts: 50         
+
+# Resolution mode, low or high
+mode: 'high'
+
+# Instrument parameters
+# If included, will automatically convolve the model with the instrument 
+# Model will be saved at both native and instrumental resolution
+# If not included, must specify wl_range and Raf of model
+instrument: 'NIRPS-APERO'
+kind_trans: 'transmission'
+wl_range: null
+Raf: null
+
+# Chemical equilibrium
+# If True, will use chemical equilibrium to generate abundances for each molecule
+# If False, must provide volume mixing ratios for each molecule
+chemical_equilibrium: True
+
+# Molecules to include in the model 
+# If multiple species given, the pipeline will generate a model for each species and one will all species
+line_opacities: ['OH', 'FeH', 'CH4', 'H2O']
+
+# Other species to include in the model
+continuum_opacities: []
+other_species: []
+
+# Names of linelists for each molecule
+# If null, will find corresponding linelists in the database
+linelist_names: {'high': null, 'low': null}
+
+# Volume mixing ratios
+# Must be specified in dictionary format if chemical_equilibrium is false
+# Ex: species_vmr: {H2O: 1e-4, CH4: 1e-5}
+species_vmr: {}
+
+# Dissociation, True or False to be included in the model
+dissociation: False
+
+# Opacity sampling
+opacity_sampling: 1
+
+# Other model parameters
+star_wv: null
+star_flux: null
+fct_star_global: {'high': null, 'low': null}
+atmo_high: null
+atmo_low: null
+
+# Cloud deck pressure (bar)
+p_cloud: 0.1  
+
+# Reference pressure (bar)
+P0: 0.1
+
+# Scattering parameters, will affect haze
+gamma_scat: -4 
+scat_factor: 0 
+
+# Stellar parameters, leave as solar-like by default
+C/O: 0.54
+Fe/H: 0
+
+# Wind parameters, null by default
+wind: null

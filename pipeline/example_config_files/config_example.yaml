@@ -1,0 +1,176 @@
+# Example config file for running the automated starships pipeline
+
+# -----------------------------------------------------------
+# --- Main parameters ---
+# -----------------------------------------------------------
+
+# Planet name 
+# This is used to fetch information in ExoFile, and also to save the results, 
+# with the spaces replaced by '_'
+pl_name: WASP-127 b
+
+# Observation directory
+# Path to where observations are stored. Home will be added when running the pipeline
+obs_dir: 'projects/def-rdoyon/shared/NIRPS-APERO/Observations/WASP80' 
+
+# Output directory
+# If null, will save to projects/def-rdoyon/shared/INSTRUMENT/REDUCTION_NAME/PLANET_NAME
+out_dir: null
+
+# Instrument name
+# Options: NIRPS-APERO, SPIRou-APERO, NIRPS-GENEVA, IGRINS, 
+instrument: NIRPS-APERO
+
+# Visit names
+# Names of the visits to be reduced, in the form YYYY-MM-DD-HH. If observations are not yet split by 
+# visit, leave as [] and split_nights.py will be run to generate a list of visits
+# ex: ['2021-06-01-01', '2021-06-01-02']
+visit_name: []
+
+# Type of data: transmission or emission
+kind_trans: 'transmission'
+
+# Type of resolution: low or high
+kind_res: 'high'
+
+# Limb darkening model parameters
+# Must specify coefficients and type of model being used, 
+# ex: coeffs: [0.22352194, 0.27873135], ld_model: 'quadratic'
+# Coefficients for quadratic can be calculated here: https://astroutils.astronomy.osu.edu/exofast/limbdark.shtml
+coeffs: [0.02703969,  1.10037972, -0.96372403,  0.28750393]
+ld_model: 'nonlinear'
+
+
+# -----------------------------------------------------------
+# --- Reduction parameters ---
+# -----------------------------------------------------------
+
+# Parameters for telluric masking and number of principle components to remove when reducing observations
+# For exploratory purposes, each night will be reduced with each combination of these parameters
+mask_tellu: [0.2, 0.5]
+mask_wings: [0.9, 0.95, 0.97]
+n_pc: [0, 1, 2, 3, 4] 
+
+# Other reduction parameters
+iout_all: ['all']
+clip_ratio: 6
+clip_ts: 6
+unberv_it: True
+
+# Orders to plot reduction steps for
+# By default, will plot for orders 15, 33 and 41 in the Y, J and H bands
+idx_ord: [15, 33, 41]
+
+# Exposures to remove for each night , leave blank if none to remove
+bad_indexs: {
+  # 'night1': [],
+  # 'night2': [],
+  # 'night3': [],
+}
+
+# -----------------------------------------------------------
+# --- Analysis parameters ---
+# -----------------------------------------------------------
+
+# Model input file
+# If a yaml file is given, will generate a model with the parameters outlined in that file
+# If an npz file is given, will use that file as the model
+input_model_file: 'model_config.yaml'
+
+# Parameters for CCF analysis
+
+# Radial Velocity range and sampling step size
+RV_range: [-150, 151]
+RV_step: 1
+
+# Parameters for ttest maps
+RV_lim: 100
+Kp_step: 5
+
+
+# -----------------------------------------------------------
+# --- Planetary parameters ---
+# -----------------------------------------------------------
+
+# You can input parameters here to override the exofile value from being used
+# If not given here, it will take the value in the exofile by default
+# Values can be given with any astropy unit, and will be converted to the correct units in the pipeline
+# Leave parameters commented out if you want to use the exofile values
+
+pl_params:
+
+  # NOTE: a bug exists within starships for calculating the orbits which are non-circular
+  # These values should be left by default for now 
+  excent: 
+    value: 0.0
+    unit: null
+
+  w: # LEAVE AS DEFAULT
+    value: -90
+    unit: deg
+
+  # Other planetary parameters
+
+  M_star: 
+    value: 0.950 
+    unit: M_sun
+
+  R_star: 
+    value: 1.333
+    unit: R_sun
+  
+  M_pl: 
+    value: 0.165
+    unit: M_jup
+  
+  R_pl: 
+    value: 1.311
+    unit: R_jup
+  
+  RV_sys: 
+    value: -8.86
+    unit: km/s
+  
+  mid_tr: 
+    value: 2459575.9239004
+    unit: d
+  
+  t_peri: 
+    value: 2459575.9239004
+    unit: d
+  
+  trandur: 
+    value: 4.3529
+    unit: h
+  
+  period: 
+    value: 4.1780625
+    unit: d
+  
+  incl: 
+    value: 87.84
+    unit: deg
+  
+  Teff: 
+    value: 5842
+    unit: null
+  
+  # A_star: null
+
+  # surf_grav: null
+
+  # logg: null
+
+  # gp: null
+  
+  Tp: 
+    value: 1400 
+    unit: K
+
+  ap: 
+    value: 0.04840
+    unit: au
+  
+  # H: null
+
+  # sync_equat_rot_speed: null

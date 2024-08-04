@@ -17,7 +17,7 @@ from .transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, 
 
 
 def quick_correl(wave, flux, corrRV, mod_x, mod_y, wave_ref=None, 
-                     get_logl=False, kind='BL', mod2d=False, expand_mask=0, noise=None, somme=False):
+                     get_logl=False, kind='BL', mod2d=False, expand_mask=0, noise=None, somme=False, counting = True):
     
     n_spec, nord, npix = flux.shape
     correl = np.ma.zeros((n_spec, nord, corrRV.size))
@@ -43,7 +43,8 @@ def quick_correl(wave, flux, corrRV, mod_x, mod_y, wave_ref=None,
         sig, flux_norm, s2f, cst = calc_logl_OG_cst(flux, axis=2, sig=noise)
     
     for iOrd in range(nord):
-        hm.print_static('{} / {}'.format(iOrd+1,nord))
+        if counting:
+            hm.print_static('{} / {}'.format(iOrd+1,nord))
 
         if flux[:,iOrd].mask.all():
             continue
@@ -995,10 +996,10 @@ def quick_calc_logl_injred_class_parts(tr, Kp_array, corrRV, n_pcas, modelWave0,
     
     return [R_sig, logl_BL_sig, s2f_val_sig, s2g_val_sig]
 
-def calc_split_correl(trb1, trb2, corrRV, Wave0, Model0, tr_merged=None, **kwargs):
+def calc_split_correl(trb1, trb2, corrRV, Wave0, Model0, tr_merged=None, counting = True, **kwargs):
     
-    trb1.calc_correl(corrRV, Wave0, Model0, kind="BL", **kwargs)
-    trb2.calc_correl(corrRV, Wave0, Model0, kind="BL", **kwargs)
+    trb1.calc_correl(corrRV, Wave0, Model0, kind="BL", counting = True, **kwargs)
+    trb2.calc_correl(corrRV, Wave0, Model0, kind="BL", counting = True, **kwargs)
 
     tr_new_correl = np.concatenate((trb1.correl, trb2.correl), axis=0)
     tr_new_logl = np.concatenate((trb1.logl, trb2.logl), axis=0)

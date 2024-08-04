@@ -27,7 +27,9 @@ from astropy.stats import sigma_clip
 import astropy.units as u
 import astropy.constants as const
 from astropy.units import cds
-cds.enable() 
+
+# Enabling this results in unit errors when using multiprocessing
+# cds.enable() 
 
 # from datetime import date, datetime
 # from .config import *
