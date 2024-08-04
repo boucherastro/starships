@@ -362,12 +362,12 @@ def plot_model_components(config_model, planet, path_fig = None, fig_name = None
                                      verbose=False, vmrh2he=[0.85, 0.15],
                                      dissociation=config_model['dissociation'], plot=False)
         
-        # print(abundances)
+        print('non-chem eq: ', abundances)
 
     # Spec with all molecules
     if abundances == None: 
         wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict, abundances = abundances, MMW = MMW)
-        # print(abundances)
+        print('chem eq: ', abundances)
 
     else: 
         species = prt.select_mol_list(config_model['line_opacities'], kind_res='high')
@@ -442,6 +442,8 @@ def plot_model_components(config_model, planet, path_fig = None, fig_name = None
         # Save it in output
         out_spec[f'Without {mol_name[0]}'] = spec_no_mol
         mol_contrib[mol_name[0]] = spec_mol_abs
+
+        print(spec_mol_abs)
 
 
     # Determine the number of subplots to create
