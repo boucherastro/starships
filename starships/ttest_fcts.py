@@ -75,9 +75,12 @@ def t_test_hist(sample1, sample2, label1, label2, title, ax=None, nb_x_gauss=101
     mids = 0.5*(bins[1:] + bins[:-1])
     x = np.linspace(mids.min(), mids.max(), nb_x_gauss)
     
-    param, pcov = curve_fit(gauss, ydata=n, xdata=mids, p0=p0_estim)
+    try:
+        param, pcov = curve_fit(gauss, ydata=n, xdata=mids, p0=p0_estim)
+    except RuntimeError:
+        print('No gaussian fit found')
+        ax.plot(x, gauss(x,*param), color='darkblue')#, label='Best-fit Gaussian')
 #     print(param)
-    ax.plot(x, gauss(x,*param), color='darkblue')#, label='Best-fit Gaussian')
 
 #     print(sample2.size, sample1.size)
     x = np.linspace(np.nanmin(sample2), np.nanmax(sample2),101)
@@ -87,12 +90,11 @@ def t_test_hist(sample1, sample2, label1, label2, title, ax=None, nb_x_gauss=101
     mids = 0.5*(bins[1:] + bins[:-1])
     try:
         param, pcov = curve_fit(gauss, ydata=n, xdata=mids, p0=p0_estim)
+        ax.plot(x, gauss(x,*param), color='darkgreen')#, label='Best-fit Gaussian')
     except RuntimeError:
-        print('No gauss found')
+        print('No gaussian fit found')
 
 #     print(param)
-    ax.plot(x, gauss(x,*param), color='darkgreen')#, label='Best-fit Gaussian')
-
 
     ax.yaxis.set_major_formatter(PercentFormatter(1))
     ax.set_title(title)
@@ -434,10 +436,13 @@ def calc_ttest_snr(ttest_vals, t0val):
     n, bins, patches = plt.hist(x=tval)
     mids = 0.5*(bins[1:] + bins[:-1])
     plt.axvline(t0val, color='k', linestyle=':')
-    
-    param, pcov = curve_fit(gauss, ydata=n, xdata=mids, p0=np.array([std,n.max(),0]))  # y[n]
-    
-    plt.plot(mids, gauss(mids, *param))
+
+    try:
+        param, pcov = curve_fit(gauss, ydata=n, xdata=mids, p0=np.array([std,n.max(),0]))  # y[n]
+        plt.plot(mids, gauss(mids, *param))
+    except RuntimeError:
+        print('No gaussian fit found')
+        
     return t0val/std
 
 
