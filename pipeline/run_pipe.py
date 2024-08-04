@@ -23,6 +23,11 @@ def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, scrat
     # performing correlations
     corr.perform_ccf(config_dict, reduc, mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig, visit_name)
 
+    if len(config_dict['visit_name']) > 1:
+        if ([mask_tellu, mask_wings, n_pc] == config_dict['night_params']) and (visit_name == config_dict['visit_name'][-1]):
+            comb_scratch_dir, comb_out_dir, comb_path_fig = red.set_save_location(config_dict['pl_name'], 'combined', config_dict['reduction'], config_dict['instrument'])
+            corr.combined_visits_ccf(planet, mol, wave_mod, mod_spec, comb_scratch_dir, comb_path_fig, comb_out_dir, config_dict)
+
 def main_loop_wrapper(*args):
     *iterable_args, kwargs = args
     return main_loop(*iterable_args, **kwargs)
@@ -98,7 +103,6 @@ def run_pipe(config_filepath, run_name):
             pool.starmap(main_loop_wrapper, all_args)
         
         # include injection step here, need to change the dictionaries everything is saved to
-
 # --------------------------------------------------------------------------------------------------------------------------------
 
         # plots for each pc
@@ -123,10 +127,6 @@ def run_pipe(config_filepath, run_name):
                                                             scratch_dir, visit_name, id_pc0=None, 
                                                             order_indices=np.arange(75), path_fig = path_fig)
         
-
-        if ([mask_tellu, mask_wings, n_pc] == config_dict['night_params']) and (visit_name == config_dict['visit_name'][-1]):
-            comb_scratch_dir, comb_out_dir, comb_path_fig = red.set_save_location(config_dict['pl_name'], 'combined', config_dict['reduction'], config_dict['instrument'])
-            corr.combined_visits_ccf(planet, mol, wave_mod, mod_spec, comb_scratch_dir, comb_path_fig, comb_out_dir, config_dict)
 
         # iterate over individual molecules if there are more than 1
         if len(config_model['line_opacities']) > 1:
@@ -181,7 +181,7 @@ def run_pipe(config_filepath, run_name):
                 # plots for each pc
                 for mask_tellu in config_dict['mask_tellu']:
                     for mask_wings in config_dict['mask_wings']:
-                        corr.plot_all_ccf(config_dict, single_mol, mask_tellu, mask_wings, scratch_dir, 
+                        corr.plot_all_ccf(config_dict, single_mol[0], mask_tellu, mask_wings, scratch_dir, 
                                         visit_name, planet, id_pc0=None, order_indices=np.arange(75), 
                                         path_fig = path_fig)
 
@@ -189,20 +189,21 @@ def run_pipe(config_filepath, run_name):
                 for mask_tellu in config_dict['mask_tellu']:
                     for n_pc in config_dict['n_pc']:
                         # load all ccf map and reductions for (mask_tellu, n_pc) at each mask_wings
-                        corr.plot_all_maskwings(config_dict, planet, single_mol, mask_tellu, n_pc, 
+                        corr.plot_all_maskwings(config_dict, planet, single_mol[0], mask_tellu, n_pc, 
                                                                     scratch_dir, visit_name, id_pc0=None, 
                                                                     order_indices=np.arange(75), path_fig = path_fig)
 
                 # plots for each mask_tellu
                 for n_pc in config_dict['n_pc']:
                     for mask_wings in config_dict['mask_wings']:
-                        corr.plot_all_masktellu(config_dict, planet, single_mol, mask_wings, n_pc, 
+                        corr.plot_all_masktellu(config_dict, planet, single_mol[0], mask_wings, n_pc, 
                                                                     scratch_dir, visit_name, id_pc0=None, 
                                                                     order_indices=np.arange(75), path_fig = path_fig)
-                         
-                if ([mask_tellu, mask_wings, n_pc] == config_dict['night_params']) and (visit_name == config_dict['visit_name'][-1]):
-                    comb_scratch_dir, comb_out_dir, comb_path_fig = red.set_save_location(config_dict['pl_name'], 'combined', config_dict['reduction'], config_dict['instrument'])
-                    corr.combined_visits_ccf(planet, single_mol, wave_mod, mod_spec, comb_scratch_dir, comb_path_fig, comb_out_dir, config_dict)                            
+
+                # if len(config_dict['visit_name']) > 1:
+                #     if ([mask_tellu, mask_wings, n_pc] == config_dict['night_params']) and (visit_name == config_dict['visit_name'][-1]):
+                #         comb_scratch_dir, comb_out_dir, comb_path_fig = red.set_save_location(config_dict['pl_name'], 'combined', config_dict['reduction'], config_dict['instrument'])
+                #         corr.combined_visits_ccf(planet, single_mol, wave_mod, mod_spec, comb_scratch_dir, comb_path_fig, comb_out_dir, config_dict)                            
                                             
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run the pipeline with the given config files.')
