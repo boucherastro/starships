@@ -240,13 +240,12 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
     # do combined ccf
     out_filename = f'_combined_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
 
-    # split_fig = [0, combined_obs[0].n_spec, combined_obs[0].n_spec + combined_obs[1].n_spec]
-    split_fig = [0]
-    for i in range(len(combined_obs)):
-        if i == 0:
-            split_fig.append(combined_obs[i].n_spec)
-        else:
-            split_fig.append(combined_obs[i-1].n_spec + combined_obs[i].n_spec)
+    split_fig = []
+    height = 0
+    for o in combined_obs:
+        split_fig.append(height)
+        height += o.n_spec
+    split_fig.append(height)
     
     ccf_obj, logl_obj = cc.plot_ccflogl(all_visits, ccf_maps_in, logl_maps_in, corrRV,
                                         Kp_array, config_dict['n_pc'], orders=order_indices, 
