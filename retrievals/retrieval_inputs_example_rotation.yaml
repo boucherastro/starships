@@ -1,0 +1,773 @@
+
+# # --- List of parameters for the retrieval ---
+# # Set the number of cpu and walkers
+# n_cpu = None # if None Use the cpu available from the sbatch script
+# n_walkers = None # If NOne, n_walkers = n_cpu * n_wlkr_per_cpu
+# n_wlkr_per_cpu = 18  # (Main parameter)
+
+# base_dir = None # Path to the main directory where outputs are saved, if None, use home or scratch
+
+# pl_name = 'KELT-20 b'  # planet name (main parameter)
+
+# # --- Data path ---
+# reduc_name = 'KELT-20b_oct2022'  # (Main parameter)
+# high_res_path = base_dir / Path(f'DataAnalysis/SPIRou/Reductions/{reduc_name}')  # (Main parameter)
+# high_res_file_stem_list = [
+#     'retrieval_input_6-pc_mask_wings90_day1',
+#     'retrieval_input_6-pc_mask_wings90_day2',
+#     ] # (Main parameter)
+
+# wfc3_path = Path('/home/adb/projects/def-dlafre/adb/Observations/HST/WFC3')  # Spectrophotometric data (ex: JWST, HST) (Main parameter)
+# # wfc3_file = Path('WASP-33_WFC3_subsample.ecsv')
+# wfc3_file = Path('WASP-33_WFC3_full_res.ecsv')  # (Main parameter)
+
+# spitzer_path = Path('/home/adb/projects/def-dlafre/adb/Observations/Spitzer')  # Photometric data (ex: Spitzer) (Main parameter)
+# spitzer_file = Path('WASP-33_Spitzer.ecsv') # (Main parameter)
+
+# # - Type of retrieval : JR, HRR or LRR
+# retrieval_type = 'HRR'  # (Main parameter)
+
+# # In HRR mode, use white light curve from spectrophotometric bandpass?
+# white_light = False  # (Main parameter)
+
+# # - Chemical equilibrium?
+# chemical_equilibrium = False  # (Main parameter)
+# # - Include dissociation in abundance profiles? (not used in chemical equilibrium)
+# dissociation = True  # (Main parameter)
+# # - Will you add Spitzer data points?
+# add_spitzer = False  (Should be removed)
+# # -- which kind of TP profile you want? (guillot, modif, iso)
+# kind_temp = 'modif'  # (Main parameter)
+
+# # -- How many steps
+# n_steps = 3000  # (Main parameter)
+
+# # -- Name of the run (will be used to save the results)
+# run_name = 'citrus_day1-2_pc6_modif_H2O'  # (Main parameter)  If set to None, the job id from the sbatch script will be used
+
+# # --- Save walker steps here :
+# walker_path = base_dir / Path(f'DataAnalysis/SPIRou/walker_steps/{pl_name_fname}')  # If set to None, defined based on pl_name
+# walker_file_out = Path(f'walker_steps_{run_name}.h5')  # If set to None, defined based on run_name
+
+# # Walker file used to init walkers (set to None if not used)
+# # either None, Path('file_name.h5') or walker_file_out
+# walker_file_in = Path('walker_steps_citrus_day1-2_pc6_modif_H2O_burnin.h5')  # (Main parameter) if None, use random initialisation from prior
+# init_mode = 'burnin'  # Options: "burnin", "continue" (not used if walker_file_in is None)
+
+    
+# # Parameter file to save the parameters of each retrival run
+# params_path = base_dir / Path(f'DataAnalysis/SPIRou/retrieval_params/{pl_name_fname}')  # A copy of the input parameters will be saved here if the code is run as main.
+# params_file_out = Path(f'params_{run_name}.yaml')  # If set to None, defined based on run_name
+
+# # - Types of models : in emission or transmission
+# kind_trans = 'emission'  # (Main parameter)
+
+# # %%
+
+# # --- Data parameters
+# # dictionnary of planet parameters that will replace the ones in ExoFile
+# pl_kwargs = {'M_star': 1.89 *u.M_sun,
+#             'R_star': 1.60 *u.R_sun,
+#             'M_pl' : 3.38 * u.M_jup,
+#             'R_pl' : 1.83 * u.R_jup,
+#              }
+# obs = Observations(name=pl_name, pl_kwargs=pl_kwargs)
+
+# p = obs.planet
+
+# # --- the planet gravity and H must be changed if you change Rp and/or Tp
+# p.gp = const.G * p.M_pl / p.R_pl**2
+# p.H = (const.k_B * p.Tp / (p.mu * p.gp)).decompose()
+
+# planet = p
+
+# Kp_scale = (planet.M_pl / planet.M_star).decompose().value
+
+
+# # --- For emission spectra, you need a star spectrum
+# # spec_star = spectrum.PHOENIXspectrum(Teff=7400, logg=4.5)
+# # spec_star = np.load('/home/adb/Models/RotationSpectra/phoenix_teff_07400_logg_4.50_Z0.0_RotKer_vsini50.npz')  # (Main parameter)
+# # spec_star is a npz file with 'wave' and 'flux' keys. `wave` is in um and `flux` in erg/s/cm^2/cm. If set to None, a blackbody will be used.
+# star_wv = None  # spec_star['grid']
+# # star_wv = (spec_star['wave']).to(u.um).value
+# star_flux = None   #spec_star['flux']  # .to(u.erg / u.cm**2 /u.s /u.cm).value
+# # --------------
+
+# # - Selecting the wanted species contributing to the opacities:
+# line_opacities = ['CO', 'H2O']  # (Main parameter)
+
+# # - Adding continuum opacities:
+# continuum_opacities = []  # (Main parameter)
+
+# # - Other species to add to the model (ex: e- and H needed for H- opacity)):
+# other_species = []    # (Main parameter)
+
+# # all_species = line_opacities + continuum_opacities + other_species  # was not used
+
+# # Associate each species to a linelist name
+# # if set to None, prt.select_mol_list will use the default name for each type (high or low res)
+# linelist_names = {'high': None, 'low': None}
+
+# ## --- HIGH RES DATA ---
+
+# # --- IF HRR OR JR, YOU NEED TO INCLUDE HIGH RES DATA -----
+# # - Data resolution and wavelength limit for the instrument
+# instrum = load_instrum('spirou')  # (Main parameter)
+# high_res_wv_lim = instrum['high_res_wv_lim']  # Optional parameter. If None, the limits will be set based on the instrument
+
+# # - Selecting bad exposures if wanted/needed  (not implemented yet)
+# # bad_indexs = None
+
+# ## --- Additionnal global variables
+# plot = False
+# nolog = True
+# inj_alpha = 'ones'
+# orders = np.arange(49) #np.array([14,15,30,31,46,47])  # (Main parameter) is set to None, all orders will be used
+# opacity_sampling = 4  # downsampling of the petitradtrans R = 1e6, ex.: o_s = 4 -> R=250000 (Main parameter)
+# lbl_res = 1e6 / opacity_sampling  # Resolution of the lbl model
+
+
+# # -----------------------------------------------------------
+# ## LOAD HIGHRES DATA
+# data_info = {'trall_alpha_frac': [], 'trall_icorr': [], 'trall_N': [], 'bad_indexs': []}
+# data_trs = []
+
+# if retrieval_type == 'JR' or retrieval_type == 'HRR':
+#     for high_res_file_stem in high_res_file_stem_list:
+#         log.debug(f'Hires files stem: {high_res_path / high_res_file_stem}')
+#         log.info('Loading Hires files.')
+#         data_info_i, data_trs_i = pl_obs.load_sequences(high_res_file_stem, do_tr, path=high_res_path)
+#         # Add index of the exposures where we expect to see the planet signal (to be used in kernel function)
+#         # trall_alpha_frac is the fraction of the total planet signal received during the exposure.
+#         data_trs_i['0']['i_pl_signal'] = data_info_i['trall_alpha_frac'] > 0.5
+#         for data_tr in data_trs_i.values():
+#             data_trs.append(data_tr)
+#         # Patch for now data_info. Need to modify how the logl is computed to make it more clean.
+#         # Would not work with different instruments
+#         for key in ['trall_alpha_frac', 'trall_N', 'bad_indexs']:
+#             data_info[key].append(data_info_i[key])
+#         try:
+#             data_info['trall_icorr'].append(data_info_i['trall_icorr'] + data_info['trall_icorr'][-1][-1] + 1)
+#         except IndexError:
+#             data_info['trall_icorr'].append(data_info_i['trall_icorr'])
+#     for key in data_info.keys():
+#         data_info[key] = np.concatenate(data_info[key], axis=0)
+    
+#     data_info['bad_indexs'] = None  # Leave it to None. Not implemented yet.
+
+
+# ## --- LOW RES DATA ---
+
+
+
+# #################
+# # Parameters and Priors
+# #################
+
+# # --- Default parameters needed for the retrieval, but not necessarily fitted
+# fixed_params = dict()
+# fixed_params['M_pl'] = p.M_pl.to(u.M_jup).value  # In jupiter mass
+# fixed_params['R_pl'] = planet.R_pl[0].to(u.R_jup).value  # In jupiter radius
+# fixed_params['R_star'] = p.R_star.to(u.R_sun).value  # In solar radius
+# fixed_params['P0'] = 1e-3  # -- reference pressure fixed (for transmission spectra)
+# fixed_params['log_f'] = 0.0  # -- scaling factor for WFC3
+# fixed_params['spec_scale'] = 1.0  # -- scaling factor for the Fp/Fs spectrum
+
+# # --- For the abundances
+# fixed_params['e-'] = 10 ** (-6.0)
+# fixed_params['H'] = 10 ** (-99.0)
+# # Add species used for opacities if chemical equilibrium
+# if chemical_equilibrium:
+#     for mol in (line_opacities + continuum_opacities):
+#         fixed_params[mol] = 10 ** (-99.0)
+
+# # --- For both guillot profiles
+# fixed_params['T_eq'] = 2500.  # Use for isothermal profile as well
+# fixed_params['tp_gamma'] = 10 ** (1)  # 0.01
+# fixed_params['T_int'] = 500.
+# # --- For the basic guillot profile (guillot)
+# fixed_params['kappa_IR'] = 10 ** (-2)
+# fixed_params['gravity'] = p.gp.cgs.value
+# # --- For the modified guillot profile (guillot_modif)
+# fixed_params['tp_delta'] = 10 ** (-7.0)
+# fixed_params['ptrans'] = 10 ** (-3)
+# fixed_params['tp_alpha'] = 0.3
+# # --- For the Akima Spline TP profile
+# for iP in range(1, 4):
+#     # The pressure nodes values can be fitted or fixed
+#     fixed_params[f'P{iP}'] = 10 ** (-iP)  # bar
+#     # Same for the temperature nodes
+#     fixed_params[f'T{iP}'] = 1000.  # K
+
+# # - Generating the basis of the temperature profile
+# limP=(-10, 2)  # pressure log range
+# n_pts=50  # pressure n_points
+
+# # --- Define rotation kernel
+# # Define a function that takes as input a list of dictionnaries of
+# # fixed_params and params_prior combined (theta_dict)
+# # and output a list of rotation kernels (a 1D array) at the right sampling
+# # and resolution as the data (so uses instrum['resol'] and lbl_res).
+
+# from starships.spectrum import CitrusRotationKernel
+
+# def get_ker(theta_regions, tr_i=0):
+#     all_phases = (data_trs[tr_i]['t_start'] - planet.mid_tr.value) / planet.period.to('d').value % 1
+#     mean_phase = np.mean(all_phases[data_trs[tr_i]['i_pl_signal']])  # Only  where there is planet signal
+#     theta_dict = theta_regions[0]
+#     longitudes = [theta_dict['phase1'], 0.99]
+#     R_pl = theta_dict['R_pl'] * 0.01  # cgs to SI  (cm to m)
+#     angular_freq = 2 * np.pi / planet.period[0].to('s').value
+#     rot_factor = theta_dict['rot_factor']
+    
+#     ker_obj = CitrusRotationKernel(longitudes, R_pl, rot_factor * angular_freq, instrum['resol'])
+    
+#     rot_ker = ker_obj.resample(lbl_res, phase=mean_phase, n_os=1000)
+    
+#     return rot_ker
+
+# # get_ker can also be imported. It should be found in a file named in the yaml file.
+# # The full or relative path to the file can also be include in the yaml file.
+# # The code the import the rotation kernel would look like
+# # from importlib.machinery import SourceFileLoader
+# # get_ker = SourceFileLoader('get_ker', '/path/to/get_ker.py').load_module().get_ker
+    
+    
+
+
+# #####################################################
+# # --- Define priors ---
+# #####################################################
+# # Default priors are uniform, log_unigform or gaussian.
+# # Other prior types can be added in the prior function dictionnary.
+# # NOTE: The difference between uniform and log_uniform is that the values are
+# # converted to log scale inside the logl call for log_uniform.
+# # Ex:
+# # >>> params_prior['CO'] = ['log_uniform', -12.0, -0.5]
+# # will give in the logl function:
+# # >>> theta_dict['CO'] = 10 ** theta_dict['CO']
+
+# params_prior = {}
+# # - Abundances priors - #
+# # By default, if chemical equilibrium is True, the molecular abundances depend on C/O and Fe/H
+# if chemical_equilibrium:
+#     # Valid range for PRT: C/O = [0.1, 1.6] and [Fe/H] = [-2, 3]
+#     params_prior['C/O'] = ['uniform', 0.1, 1.6]
+#     params_prior['Fe/H'] = ['uniform', -2, 3]
+# else:
+#     # Same prior for all molecules in the list of opacity species
+#     for mol in line_opacities:
+#         params_prior[mol] = ['log_uniform', -12.0, -0.5]
+# # NOTE: Some molecules are not in the list of opacities, but need to be include in the fit (ex: 'e-')
+# # You can add a prior for a specific molecule by adding a line like this:
+# # params_prior['e-'] = ['log_uniform', -12.0, -0.5]
+
+# # - Other parameters priors - #
+# params_prior['T_eq'] = ['uniform', 100, 4500]
+# # params_prior['p_cloud'] = ['log_uniform', -5.0, 2]
+# # params_prior['R_pl'] = ['uniform', 1.0, 1.6]  # In jupiter radius
+# params_prior['kp'] = ['uniform',100, 250]
+# params_prior['rv'] = ['uniform', -40, 40]
+# # params_prior['wind'] = ['uniform', 0, 20]
+# # params_prior['kappa_IR'] = ['log_uniform', -3, 3]  # Guillot
+# params_prior['tp_gamma'] = ['log_uniform', -2, 6]  # Guillot & Guillot_modif
+# params_prior['tp_delta'] = ['log_uniform', -8, -3]  # Guillot_modif
+# params_prior['ptrans'] = ['log_uniform', -8, 3]  # Guillot_modif
+# params_prior['tp_alpha'] = ['uniform', -1.0, 1.0]  # Guillot_modif
+# # params_prior['gamma_scat'] = ['uniform', -6, 0]
+# # params_prior['scat_factor'] = ['uniform', 0, 10]   # * (5.31e-31*u.m**2/u.u).cgs.value
+# # params_prior['log_f'] = ['uniform', -2, 3]  # yes, it is a uniform prior, not a log_uniform
+# params_prior['phase1'] = ['uniform', 0.2 , 0.8]
+# # params_prior['phase2'] = ['uniform', 0.67, 1.0]
+# params_prior['rot_factor'] = ['uniform', 0.5, 4]
+# # params_prior['spec_scale'] = ['log_uniform', -2, 3]
+
+# # If the planet is splitted in multiiple regions,
+# # specify which paremeters are specific to each region.
+# # Each  region is identified with an ID starting at 1 (not 0).
+# region_id = [1, 2]  # list of region ids (usefull if not all regions are contributing to the planet flux) 
+# n_regions = len(region_id)
+# reg_params = ['T_eq', 'tp_gamma', 'tp_delta', 'ptrans', 'tp_alpha']
+# # global parameters are all other parameters not in reg_params
+# global_params = [param for param in params_prior.keys() if param not in reg_params]
+
+# # It is possible to fix some parameters in specific regions.
+# reg_fixed_params = {}
+# # reg_fixed_params['H2O_2'] = 1e-12  # Force water abundance to ~zero in region 2
+
+# # Assign  specific index to each regional parameter (if not already done manually)
+# if n_regions > 1:
+#     for param in reg_params:
+#         # Add the parameter for each region if not already specified
+#         for i_reg in region_id:
+#             key = f'{param}_{i_reg}'
+#             if (key not in params_prior) and (key not in reg_fixed_params):
+#                 params_prior[f'{param}_{i_reg}'] = params_prior[param]
+#             else:
+#                 log.debug(f'Parameter {key} already in params_prior or reg_fixed_params. Skipping.')
+#         # Remove the global parameter
+#         params_prior.pop(param)
+
+
+# # --- Assign the prior names to a log_prior function using a dictionnary ---
+# # The functions take the value from theta and return the log of the prior.
+# prior_func_dict = ru.default_prior_func
+# # You can add or replace with custom prior functions in the dictionnary.
+# # Ex: prior_func_dict['your_prior'] = your_prior_func
+
+# # --- Initialize walkers using the prior ---
+# # Define the initialisation function for each type of prior.
+# # If you create your own prior function, you need to add it here.
+# prior_init_func = ru.default_prior_init_func
+# # You can add or replace with custom prior functions in the dictionnary.
+# # Ex: prior_init_func['your_prior'] = your_prior_init_func
+# # Special treatment for some paramters
+# special_treatment = {'kp': ['uniform', 150, 190],
+#                      'rv': ['uniform', -20, 20],
+#                      'phase1': ['uniform', 0.2, 0.6],
+#                      'H2O_1': ['log_uniform', -6.0, -0.5],
+#                      }
+
+
+# Below is the yaml file that would be read by the script above. It contains all the parameters needed for the retrieval.
+
+# -----------------------------------------------------------
+# --- Main parameters ---
+# -----------------------------------------------------------
+
+# Planet name (used to save the results, with the spaces replaced by '_')
+pl_name: KELT-20 b
+
+# Path to the main directory where outputs are saved
+# If None, use scratch (if available) or home otherwise
+base_dir: null
+
+# Name of the reduction used to load the high resolution data
+# Assuming the data is in a directory with the following structure:
+# base_dir/DataAnalysis/SPIRou/Reductions/<reduc_name>
+reduc_name: KELT-20b_oct2022
+
+# Path to the high resolution data
+# If null, the path will be set to base_dir/DataAnalysis/SPIRou/Reductions/<reduc_name>
+high_res_path: null
+
+# List of the file stems for the high resolution data
+# The files are assumed to be in the high_res_path directory
+high_res_file_stem_list:
+  - retrieval_input_6-pc_mask_wings90_day1
+  - retrieval_input_6-pc_mask_wings90_day2
+
+# Dictionary of path to spectrophotometric data (ex: JWST, HST)
+# If empty, no spectrophotometric data will be used
+spectrophotometric_data:
+  wfc3: 
+    file_path: /home/adb/projects/def-dlafre/adb/Observations/HST/WFC3
+    file_name: WASP-33_WFC3_full_res.ecsv
+
+# Dictionary of path to photometric data (ex: Spitzer)
+# If empty, no photometric data will be used
+photometric_data:
+  # spitzer:
+  #   file_path: /home/adb/projects/def-dlafre/adb/Observations/Spitzer
+  #   file_name: WASP-33_Spitzer.ecsv
+
+# Type of retrieval : JR, HRR or LRR  (This should be removed eventually)
+retrieval_type: HRR
+
+# In HRR mode, use white light curve from spectrophotometric bandpass?
+white_light: false
+
+# Chemical equilibrium?
+# Note that C/O and Fe/H need to be included in the parameters if chemical equilibrium is True
+chemical_equilibrium: false
+
+# Include dissociation parametrization in abundance profiles? (not used in chemical equilibrium)
+dissociation: true
+
+# Will you add Spitzer data points?
+add_spitzer: false
+
+# Which kind of TP profile you want? (guillot, modif, iso)
+kind_temp: modif
+
+# How many steps
+n_steps: 3000
+
+# Name of the run (will be used to save the results)
+run_name: citrus_day1-2_pc6_modif_H2O
+
+# Path where the walker steps will be saved
+# If null, the path will be set to base_dir/DataAnalysis/<instrument>/walker_steps/<pl_name>
+walker_path: null
+
+# Walker file used to init walkers
+# If set to null, the retrieval will use random initialisation from the prior
+# Possible values: null, 'file_name.h5'
+walker_file_in: null
+
+# How to init walkers
+# Options: "burnin", "continue" (not used if walker_file_in is null)
+# If "burnin", the walkers will be initialised from the last step of the burnin chain in walker_file_in
+# If "continue", the walkers will be initialised from the last step of the chain in walker_file_in.
+#    Note that this option allows to keep the walker_file_in as the output file, and append the new walkers to it.
+init_mode: burnin
+
+# Path where this yaml file will be copied
+# If null, the path will be set to base_dir/DataAnalysis/<instrument>/retrieval_params/<pl_name>
+params_path: null
+
+# Name of the file where this yaml file will be copied
+# If null, the file will be named params_<run_name>.yaml
+params_file_out: null
+
+# Types of models : in emission or transmission
+kind_trans: emission
+
+# --- Number of cpu to use ---
+# If null, the code will use the number of cpus from
+# the slurm environment variable named SLURM_CPUS_PER_TASK
+# (null is recommended if using sbatch)
+n_cpu: null
+
+# --- Number of walkers ---
+# If null, the number of walkers will be set to n_wlkr_per_cpu * n_cpu
+# (we recommend to set it to null and using n_wlkr_per_cpu instead)
+n_walkers: null
+
+# --- Number of walkers per cpu ---
+n_walkers_per_cpu: 18
+
+# Opacity sampling
+opacity_sampling: 4
+
+# Orders to use
+orders: null
+
+# -----------------------------------------------------------
+
+# -----------------------------------------------------------
+# --- Data parameters ---
+# -----------------------------------------------------------
+
+# Dictionary of planet parameters that will replace the ones in ExoFile
+# --------------------------------------------------------------------------------------------------
+# units must be inputed in astropy string format (see table here https://docs.astropy.org/en/stable/units/ref_api.html#module-astropy.units.si)
+# (Set to null or comment if you want to use the default values from ExoFile)
+pl_params:
+  M_star: # Star mass
+    value: 1.561
+    unit: M_sun
+
+  R_star: # Star radius
+    value: 1.5093043  # Computed from planet.ap / 3.69
+    unit: R_sun
+  
+  M_pl: # Planet mass
+    value: null
+    unit: M_jup
+  
+  R_pl: # Planet radius
+    value: 1.6787561
+    unit: R_jup
+  
+  RV_sys: # Systemic radial velocity
+    value: null
+    unit: km/s
+  
+  mid_tr: # Mid-transit time
+    value: null
+    unit: d
+  
+  t_peri: # Time of periastron passage
+    value: null
+    unit: d
+  
+  trandur: # Transit duration
+    value: null
+    unit: h
+  
+  period: # Orbital period
+    value: null
+    unit: d
+  
+  excent: # Eccentricity
+    value: 0.0
+    unit: null
+  
+  incl: # Inclination
+    value: 86.63
+    unit: deg
+  
+  Teff: # Star effective temperature
+    value: 7300
+    unit: K
+  
+  Tp: # Planet temperature
+    value: null 
+    unit: K
+  w: # Longitude of periastron?
+    value: -90
+    unit: deg
+  ap: # Semi-major axis
+    value: 0.0259
+    unit: au
+
+# - Species that contribute to the line opacities:
+line_opacities: [CO, H2O]
+
+# - Species that contribute to the continuum opacities.
+# By default, H2-H2 and H2-He are included.
+continuum_opacities: [H-]
+
+# - Other species to add to the model (ex: e- and H needed for H- opacity):
+other_species: []
+
+# -----------------------------------------------------------
+# --- High resolution data ---
+# -----------------------------------------------------------
+
+# - Data resolution and wavelength limit for the instrument
+instrum: spirou
+
+# -----------------------------------------------------------
+# --- Parameters and Priors ---
+# -----------------------------------------------------------
+
+# Note: All the parameters used for modeling will be put in a dictionnary
+# named theta_dict, which is a combination of the keys in fixed_params and params_prior.
+# The parameters in params_prior will overwrite the fixed_params if they have the same key.
+# For multi-region models, there will be a list of dictionnaries
+# named theta_regions, which includes a theta_dict for each region.
+# If there is only one region, theta_regions will be a list with one element.
+
+# - Default parameters needed for the retrieval. If you want to fit one of them,
+# you need to add it to the params_prior dictionnary. No need to remove it from the fixed parameters.
+# Note that you can have unused parameters (so you don't need to erase them if you don't use them)
+fixed_params:
+
+  # Reference pressure (for transmission spectra)
+  P0: 0.001
+
+  ###### Fudge factors ######
+  # Scaling factor for WFC3
+  log_f: 0.0
+  # Scaling factor for the Fp/Fs spectrum
+  spec_scale: 1.0
+
+  ###### Abundances ######
+  # Electron abundance
+  e-: 1e-06
+  # H abundance
+  H: 1e-99  # Some values are computed later in the code, so this is just a placeholder.
+
+  # Abundance ratios for chemical equilibrium
+  # C/O
+  C/O: 0.54  # Solar value is 0.54
+  # Fe/H
+  Fe/H: 0.0  # Solar value is 0.0
+
+  ###### TP profile parameters ######
+  # Equilibrium temperature (for all TP profiles)
+  T_eq: 2500.0
+
+  # Guillot and Guillot_modif parameters
+  # gamma parameter (for Guillot and Guillot_modif)
+  tp_gamma: 10.0
+  # Internal temperature (for Guillot and Guillot_modif)
+  T_int: 500.0
+  
+  # Guillot only parameters
+  # IR opacity (for Guillot)
+  kappa_IR: 0.01
+  # Gravity (for Guillot)
+  gravity: 23.0
+
+  # Guillot_modif only parameters
+  # Delta parameter (for Guillot_modif)
+  tp_delta: 1e-07
+  # Transition pressure (for Guillot_modif)
+  ptrans: 1e-03
+  # Alpha parameter (for Guillot_modif)
+  tp_alpha: 0.3
+
+  # Akima Spline TP profile parameters
+  # These lists will appear as P1, P2, ..., Pn and T1, T2, ..., Tn in the theta_dict.
+  # List of pressure nodes
+  akima_P: [1e-10, 1e-05, 1e-02, 1e+01]
+  # List of temperature nodes
+  akima_T: [1000.0, 1500.0, 2000.0, 2500.0]
+
+  ###### Orbital parameters ######
+  # Semi amplitude of the planet's radial velocity (in km/s)
+  kp: 150.0
+  # Radial velocity of the system (in km/s)
+  rv: 0.0
+
+  ###### Rotation kernel parameters ######
+  # Wind speed (in km/s)  (Old parameter, not used anymore)
+  wind: 0.0
+  # Phase of the first longitude in Citrus kernel
+  phase1: 0.5
+  # Phase of the second longitude in Citrus kernel
+  phase2: 0.75
+  # Rotation factor in Citrus kernel
+  rot_factor: 1.0
+
+
+##### Priors #####
+
+# Here, we define the priors for the parameters.
+# The priors are defined as a list with the following format:
+# [prior_type, prior_arg_1, prior_arg_2, ...]
+# The prior_type is a string that defines the type of prior.
+# It can be one of the default priors found in retrieval_utils.default_prior_func.
+# or a custom prior function (see explanation below).
+# The prior_args are the arguments needed for the prior function.
+
+# - Note about Abundances priors -
+# In the current example, we don't use chemical equilibrium, so the priors are set for each molecule.
+# Note that if you want to fit only a subset of the molecules in line_opacities, continuum_opacities and other_species,
+# you need to assign a value to the species that are not fitted in fixed_params.
+# Here is an example of a possible set of priors:
+params_prior:
+  CO: [log_uniform, -12.0, -0.5]
+  H2O: [log_uniform, -12.0, -0.5]
+  T_eq: [uniform, 100, 4500]  # For TP profile
+  kp: [uniform, 100, 250]  # For RV
+  rv: [uniform, -40, 40]  # For RV
+  tp_gamma: [log_uniform, -2, 6]  # For TP profile
+  tp_delta: [log_uniform, -8, -3]  # For TP profile
+  ptrans: [log_uniform, -8, 3]  # For TP profile
+  tp_alpha: [uniform, -1.0, 1.0]  # For TP profile
+  phase1: [uniform, 0.2, 0.8]  # For rotation kernel
+  rot_factor: [uniform, 0.5, 4]  # For rotation kernel
+
+# If the planet is splitted in multiple regions,
+# specify which parameters are specific to each region.
+# Each region is identified with an ID starting at 1 (not 0).
+region_id: [1, 2] 
+
+# List of parameters that are specific to each region (some parameters are shared by all regions)
+# In this example, we only vary the H2O abundance and
+# the TP profile parameters in each region.
+reg_params: [H2O, T_eq, tp_gamma, tp_delta, ptrans, tp_alpha]
+
+
+# Dictionary of fixed parameters for each region.
+# It may be useful to fix some parameters in specific regions.
+# In this example, we force a low water abundance in region 2.
+reg_fixed_params:
+  H2O_2: 1e-12  # Force water abundance to ~zero in region 2
+
+
+#### Note about theta_dict ####
+
+# Apart from all the parameters in the fixed_params and params_prior dictionnaries,
+# the theta_dict will also contain the following parameters:
+# - pressure: The pressure grid used for the model
+# - temperatures: The temperature grid used for the model, computed based on the TP profile parameters
+
+# The custom functions (like the rotation kernel function or custom priors)
+# are expected to receive the full theta_dict as an argument.
+# This way, they can access all the parameters needed for the model.
+
+
+#####################################################
+# --- Custom prior functions ---
+#####################################################
+# The default prior functions are defined in the retrieval_utils module.
+# If you want to add your own prior function, you can put the function in a file
+# which will be imported in the script.
+# The prior function should take `theta_dict`, `param` and `prior_args` as arguments
+# Where `param` is the key of the parameter in `theta_dict`
+# and `prior_args` is a list regrouping all arguments defined
+# in `params_prior`, after the prior type.
+# NOTE: Some prior functions may use other parameters (fitted or not). That's why
+# the function is taking the full `theta_dict` as an argument.
+# Here is an example of the uniform prior function in retrieval_utils:
+# 
+# def uniform_prior(theta_dict, key, prior_inputs):
+#     """Uniform prior"""
+#     x = theta_dict[key]
+#     low, high = prior_inputs
+#     if x < low:
+#         out = -np.inf
+#     elif x > high:
+#         out = -np.inf
+#     else:
+#         out = 0.
+# 
+#     return out
+# 
+#####################################################
+# --- Custom prior initialisation functions ---
+#####################################################
+# Each prior type should have an initialisation function, which is used to
+# initialise the walkers (to start the burnin phase for example).
+# If a custom prior function is defined, it should also have an initialisation function in the same file.
+# The initialisation function should take `prior_inputs` and `n_wlkr` (the number of walker) as arguments.
+# It should return a sample of the prior distribution with the shape (n_wlkr, 1).
+# (The empty dimension is important to combine the samples with the other parameters in the theta_dict.)
+# Here is an example of the uniform prior initialisation function in retrieval_utils:
+#
+# def init_uniform_prior(prior_inputs, n_wlkr):
+#     """Initialize from uniform prior"""
+#     low, high = prior_inputs
+#     sample = np.random.uniform(low, high, size=(n_wlkr, 1))
+
+#     return sample
+#
+# Now, in the file with the custom prior function, you also need 2 dictionaries named
+# prior_init_func and prior_func, that assign a name (a string) to the initialisation
+# function and the prior function.
+# Here is an example of the dictionary for the uniform prior:
+# prior_init_func = {'custom_uniform': init_uniform_prior}
+# prior_func = {'custom_uniform': uniform_prior}
+
+# Put here the full adress to the file containing the custom prior function
+# Set to null if not used
+custom_prior_file: null
+
+# --- Special treatment for the initialisation of some parameters ---
+# Some parameters may need a special treatment for the initialisation from the prior.
+# For instance, I recommend to start initialise the retrieval with a kp value
+# and a rv value close to the expected values, since we have a good idea of what they should be.
+# This will improve the convergence of the retrieval.
+special_init:
+  kp: [uniform, 150, 190]
+  rv: [uniform, -20, 20]
+
+# --- Rotation kernel function ---
+# It is possible to use a custom function to generate the rotation kernel.
+# The function should take as input `theta_regions` and `tr_i`.
+# `theta_regions` is a list of `theta_dict` for each region, where `theta_dict` is a dictionnary
+# with all the parameters needed for the model of region.
+# `tr_i` is the index of the high resolution data sequence.
+# The function should return a list of rotation kernels (a 1D array) at the same sampling
+# and resolution as the data (so uses instrum['resol'] and lbl_res).
+# The function should be named `get_ker`.
+# Here is an example of a function that generates a Citrus rotation kernel:
+#
+# def get_ker(theta_regions, tr_i=0):
+#     all_phases = (data_trs[tr_i]['t_start'] - planet.mid_tr.value) / planet.period.to('d').value % 1
+#     mean_phase = np.mean(all_phases[data_trs[tr_i]['i_pl_signal']])  # Only  where there is planet signal
+#     theta_dict = theta_regions[0]
+#     longitudes = [theta_dict['phase1'], 0.99]
+#     R_pl = theta_dict['R_pl'] * 0.01  # cgs to SI  (cm to m)
+#     angular_freq = 2 * np.pi / planet.period[0].to('s').value
+#     rot_factor = theta_dict['rot_factor']
+#
+#     ker_obj = CitrusRotationKernel(longitudes, R_pl, rot_factor * angular_freq, instrum['resol'])
+#
+#     rot_ker = ker_obj.resample(lbl_res, phase=mean_phase, n_os=1000)
+#
+#     return rot_ker
+#
+# The full or relative path to the file is the input here.
+# If set to null, only the instrumental profile will be used to convolve the model.
+get_ker_file: null
+
+
+
+
+

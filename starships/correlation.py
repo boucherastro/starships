@@ -165,6 +165,9 @@ def sum_logl(loglbl, icorr, orders, N, alpha=None, axis=0, del_idx=None,
     When `nolog`=True, the Bro.
     """
 
+    if orders is None:
+        orders = slice(None)
+
     if del_idx is not None:
         correlation = loglbl.copy()
         correlation[del_idx] = np.nan
