@@ -14,7 +14,7 @@ from astropy.table import Table
 from astropy import constants as const
 from astropy import units as u
 import scipy.constants as cst
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, UnivariateSpline
 from scipy.ndimage import convolve1d
 from scipy.sparse import find, diags, csr_matrix
 import matplotlib.pyplot as plt
@@ -1388,3 +1388,80 @@ def pop_kwargs_with_message(key, kwargs_from_cmd_line, default_val=None):
         val = default_val
     
     return val
+
+
+# ==============================================================================
+# Function to import a module from a file path
+# ==============================================================================
+
+import importlib.util
+
+def import_module_by_path(module_name, file_path):
+    module_spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module
+
+# ==============================================================================
+# Interpolation functions
+# ==============================================================================
+
+class LogUnivariatSpline:
+    
+    def __init__(self, x_val, y_val, pad_log_value=-5, smoothing_factor=None, **kwargs):
+        
+        # Make sure the inputs are arrays
+        x_val, y_val = np.array(x_val), np.array(y_val)
+
+        self.smoothing_factor = smoothing_factor
+        self.xbounds = x_val[[0, -1]]
+        
+        # Only keep values > 0. and convert to log
+        idx_valid = y_val > 0.
+        x_spl, y_spl = x_val[idx_valid], np.log(y_val[idx_valid])
+
+        if smoothing_factor is not None:
+            if 's' in kwargs:
+                raise ValueError('`s` and `smoothing_factor` cannot both be specified.')
+            else:
+                kwargs['s'] = smoothing_factor * idx_valid.sum()
+
+        # Make the spline
+        spl = UnivariateSpline(x_spl, y_spl, **kwargs)
+        
+        self.spl = spl
+        self.pad_log_value = np.min([pad_log_value, y_spl.min() + pad_log_value])
+        
+    def __call__(self, x_val):
+        
+        if np.isscalar(x_val):
+            scalar_input = True
+            x_val = np.array([x_val])
+        else:
+            scalar_input = False
+        
+        if self.pad_log_value is None:
+            out = self.spl(x_val)
+        else:
+            out = np.full_like(x_val, np.nan)
+            x_a, x_b = self.xbounds
+            is_in = (x_a <= x_val) & (x_val <= x_b)
+            out[is_in] = self.spl(x_val[is_in])
+            out[~is_in] = self.pad_log_value
+        
+        if scalar_input:
+            out = out[0]
+        
+        return out
+
+
+# Function to quantiles and sigmas in relation
+spl = interp1d(np.arange(1, 6,),
+                         np.log(1-np.array([0.3935, 0.8647, 0.9889, 0.9997, 0.9999994])),
+                         kind='cubic', bounds_error=False, fill_value='extrapolate')
+sigma2percent = lambda sig: 1 - np.exp(spl(sig))
+
+spl2 = interp1d(np.log(1-np.array([0.3935, 0.8647, 0.9889, 0.9997, 0.9999994])),
+               np.arange(1, 6,),
+               kind='cubic', bounds_error=False, fill_value='extrapolate')
+percent2sigma = lambda p: spl2(np.log(1-p))
