@@ -77,9 +77,9 @@ def t_test_hist(sample1, sample2, label1, label2, title, ax=None, nb_x_gauss=101
     
     try:
         param, pcov = curve_fit(gauss, ydata=n, xdata=mids, p0=p0_estim)
+        ax.plot(x, gauss(x,*param), color='darkblue')#, label='Best-fit Gaussian')
     except RuntimeError:
         print('No gaussian fit found')
-        ax.plot(x, gauss(x,*param), color='darkblue')#, label='Best-fit Gaussian')
 #     print(param)
 
 #     print(sample2.size, sample1.size)
