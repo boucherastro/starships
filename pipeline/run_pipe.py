@@ -2,6 +2,7 @@ import numpy as np
 import yaml
 from pathlib import Path
 import argparse
+import os
 
 from multiprocessing import Pool
 from itertools import product
@@ -49,15 +50,14 @@ def run_pipe(config_filepath, run_name):
 
     config_dict['reduction'] = run_name
 
-    # unpack the model input parameters
-    # eventually change this so that it can also open model files OR yaml files
-    with open(config_dict['input_model_file'], 'r') as file:
-        config_model = yaml.safe_load(file)
+    # unpack the model input parameters, or load the existing model file
+    # with open(config_dict['input_model_file'], 'r') as file:
+    #     config_model = yaml.safe_load(file)
 
-    # initialize all molecule abundances
-    if config_model['species_vmr'] == {}:
-        for mol in config_model['line_opacities']:
-            config_model['species_vmr'][mol] = -99.0
+    # # initialize all molecule abundances
+    # if config_model['species_vmr'] == {}:
+    #     for mol in config_model['line_opacities']:
+    #         config_model['species_vmr'][mol] = -99.0
 
     config_dict['obs_dir'] = Path.home() / Path(config_dict['obs_dir'])
 
@@ -74,15 +74,32 @@ def run_pipe(config_filepath, run_name):
         if visit_name != 'combined':
             planet, obs = red.load_planet(config_dict, visit_name)
 
-        # Start with model with all molecules
-        wave_mod, mod_spec, abundances, MMW, VMR = mod.make_model(config_model, planet, dirs_dict['out_dir'], config_dict)
+        # check if input is an existing file or the config file for a new model
+        if config_dict['input_model_file'].endswith('.yaml'):
+            with open(config_dict['input_model_file'], 'r') as file:
+                config_model = yaml.safe_load(file)
 
-        if len(config_model['line_opacities']) == 1:
-            mol = config_model['line_opacities'][0]
-        else: mol = 'all'
+            # initialize all molecule abundances
+            if config_model['species_vmr'] == {}:
+                for mol in config_model['line_opacities']:
+                    config_model['species_vmr'][mol] = -99.0
 
-        if visit_name == config_dict['visit_name'][0]:
-            mod.plot_model_components(config_model, planet, path_fig = str(dirs_dict['out_dir']))
+            # Start with model with all molecules
+            wave_mod, mod_spec, abundances, MMW, VMR = mod.make_model(config_model, planet, dirs_dict['out_dir'], config_dict)
+
+            if len(config_model['line_opacities']) == 1:
+                mol = config_model['line_opacities'][0]
+            else: mol = 'all'
+
+            if visit_name == config_dict['visit_name'][0]:
+                mod.plot_model_components(config_model, planet, path_fig = str(dirs_dict['out_dir']))
+
+        # else, open the existing model file and save a plot of it
+        elif config_dict['input_model_file'].endswith('.npz'):
+            model = np.load(config_dict['input_model_file'])
+            wave_mod = model['wave_mod']
+            mod_spec = model['mod_spec']
+            mol = 'imported_model'
 
 # --------------------------------------------------------------------------------------------------------------------------------
         iterables = product(config_dict['mask_tellu'], config_dict['mask_wings'], config_dict['n_pc'])
@@ -134,7 +151,7 @@ def run_pipe(config_filepath, run_name):
         
 
         # iterate over individual molecules if there are more than 1
-        if len(config_model['line_opacities']) > 1:
+        if config_dict['input_model_file'].endswith('.yaml') and len(config_model['line_opacities']) > 1:
             for single_mol in config_model['line_opacities']:
                 
                 # Copy input dict
