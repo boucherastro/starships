@@ -361,13 +361,13 @@ def plot_model_components(config_model, planet, path_fig = None, fig_name = None
                                      pressures, temperatures,
                                      verbose=False, vmrh2he=[0.85, 0.15],
                                      dissociation=config_model['dissociation'], plot=False)
-        
-        print('non-chem eq: ', abundances)
+        # 
+        # print('non-chem eq: ', abundances)
 
     # Spec with all molecules
     if abundances == None: 
         wv, out_spec['All'], abundances, MMW, VMR = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict, abundances = abundances, MMW = MMW)
-        print('chem eq: ', abundances)
+        # print('chem eq: ', abundances)
 
     else: 
         species = prt.select_mol_list(config_model['line_opacities'], kind_res='high')
@@ -384,7 +384,8 @@ def plot_model_components(config_model, planet, path_fig = None, fig_name = None
                                      dissociation=config_model['dissociation'], plot=False)
         wv, out_spec['All'], _, _, _ = make_model(theta_dict, planet, out_dir = None, config_dict=config_dict, abundances = abundances, MMW = MMW)
 
-    # print(abundances)
+    print('abundances: ', abundances)
+    print('spectrum: ', out_spec['All'])
 
     if config_model['species_vmr'] == {}:
             for mol in config_model['line_opacities']:
@@ -477,7 +478,10 @@ def plot_model_components(config_model, planet, path_fig = None, fig_name = None
         ax[i].plot(wv, spec, label=key, lw=0.3)
         ax[i].legend(loc='upper left')
         ax[i].set_ylabel('$Model_{w/} - Model_{w/o}$', fontsize = 14)
-        ax[i].set_ylim(y_min, y_max) # Set the y-limits to be the same for all subplots
+        try: 
+            ax[i].set_ylim(y_min, y_max) # Set the y-limits to be the same for all subplots
+        except ValueError:
+            pass
         
     ax[1].set_title('Contributions', fontsize = 18)
 

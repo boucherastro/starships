@@ -1,6 +1,5 @@
 import numpy as np
 import yaml
-from sys import path
 from pathlib import Path
 import argparse
 
@@ -12,21 +11,30 @@ import pipeline.make_model as mod
 import pipeline.correlations as corr
 import pipeline.split_nights as split
 
-def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, scratch_dir, out_dir, path_fig, visit_name, wave_mod, mod_spec):
+def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, scratch_dir, out_dir, visit_name, wave_mod, mod_spec):
     
     naming_params = {'molecule': mol, 'n_pc': n_pc, 'mask_tellu': mask_tellu, 'mask_wings': mask_wings}
     print('CURRENT PARAMETERS:', naming_params)
 
     # reducing the data
-    reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings, visit_name)
+    red_steps_dir = out_dir / Path('Results') / Path('Reduction_steps')
+    reduc = red.reduce_data(config_dict, planet, obs, scratch_dir, red_steps_dir, n_pc, mask_tellu, mask_wings, visit_name)
 
-    # performing correlations
-    corr.perform_ccf(config_dict, reduc, mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, path_fig, visit_name)
+    # perfoming classic ccf (translates model)
+    classic_ccf_dir = out_dir / Path('Results') / Path('CCF_classic')
+    classic_ccf_dir.mkdir(parents=True, exist_ok=True)
+    nametag = f'_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+    corr.classic_ccf(config_dict, reduc, wave_mod, mod_spec, classic_ccf_dir, nametag) 
 
+    # performing injected ccf 
+    injected_ccf_dir = out_dir / Path('Results') / Path('CCF_injected')
+    corr.perform_ccf(config_dict, reduc, mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, scratch_dir, injected_ccf_dir, visit_name)
+
+    # combining visits
     if len(config_dict['visit_name']) > 1:
         if ([mask_tellu, mask_wings, n_pc] == config_dict['night_params']) and (visit_name == config_dict['visit_name'][-1]):
-            comb_scratch_dir, comb_out_dir, comb_path_fig = red.set_save_location(config_dict['pl_name'], 'combined', config_dict['reduction'], config_dict['instrument'])
-            corr.combined_visits_ccf(planet, mol, wave_mod, mod_spec, comb_scratch_dir, comb_path_fig, comb_out_dir, config_dict)
+            comb_dir_dict = red.set_save_location(config_dict['pl_name'], 'combined', config_dict['reduction'], config_dict['instrument'])
+            corr.combined_visits_ccf(planet, mol, wave_mod, mod_spec, comb_dir_dict, config_dict)
 
 def main_loop_wrapper(*args):
     *iterable_args, kwargs = args
@@ -60,21 +68,21 @@ def run_pipe(config_filepath, run_name):
     # loop over all visits
     for visit_name in config_dict['visit_name']:
 
-        scratch_dir, out_dir, path_fig = red.set_save_location(config_dict['pl_name'], visit_name, config_dict['reduction'], config_dict['instrument'])
+        dirs_dict = red.set_save_location(config_dict['pl_name'], visit_name, config_dict['reduction'], config_dict['instrument'])
 
         # creating the planet and observation objects
         if visit_name != 'combined':
             planet, obs = red.load_planet(config_dict, visit_name)
 
         # Start with model with all molecules
-        wave_mod, mod_spec, abundances, MMW, VMR = mod.make_model(config_model, planet, out_dir, config_dict)
+        wave_mod, mod_spec, abundances, MMW, VMR = mod.make_model(config_model, planet, dirs_dict['out_dir'], config_dict)
 
         if len(config_model['line_opacities']) == 1:
             mol = config_model['line_opacities'][0]
         else: mol = 'all'
 
         if visit_name == config_dict['visit_name'][0]:
-            mod.plot_model_components(config_model, planet, path_fig = path_fig)
+            mod.plot_model_components(config_model, planet, path_fig = str(dirs_dict['out_dir']))
 
 # --------------------------------------------------------------------------------------------------------------------------------
         iterables = product(config_dict['mask_tellu'], config_dict['mask_wings'], config_dict['n_pc'])
@@ -87,9 +95,8 @@ def run_pipe(config_filepath, run_name):
                 'config_dict': config_dict,
                 'planet': planet,
                 'obs': obs,
-                'scratch_dir': scratch_dir,
-                'out_dir': out_dir,
-                'path_fig': path_fig,
+                'scratch_dir': dirs_dict['scratch_dir'],
+                'out_dir': dirs_dict['out_dir'],
                 'visit_name': visit_name,
                 'wave_mod': wave_mod,
                 'mod_spec': mod_spec
@@ -98,34 +105,32 @@ def run_pipe(config_filepath, run_name):
             # Create a list of all arguments including those from iterables
             all_args = [(arg_tuple + (args,)) for arg_tuple in iterables]
 
-
             # Use pool.starmap to pass multiple arguments
             pool.starmap(main_loop_wrapper, all_args)
         
         # include injection step here, need to change the dictionaries everything is saved to
 # --------------------------------------------------------------------------------------------------------------------------------
-
         # plots for each pc
         for mask_tellu in config_dict['mask_tellu']:
             for mask_wings in config_dict['mask_wings']:
-                corr.plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, scratch_dir, 
+                corr.plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, dirs_dict['scratch_dir'], 
                                 visit_name, planet, id_pc0=None, order_indices=np.arange(75), 
-                                path_fig = path_fig)
+                                path_fig = str(dirs_dict['param_dir']) + '/')
 
         # plots for each mask_wings 
         for mask_tellu in config_dict['mask_tellu']:
             for n_pc in config_dict['n_pc']:
                 # load all ccf map and reductions for (mask_tellu, n_pc) at each mask_wings
                 corr.plot_all_maskwings(config_dict, planet, mol, mask_tellu, n_pc, 
-                                                            scratch_dir, visit_name, id_pc0=None, 
-                                                            order_indices=np.arange(75), path_fig = path_fig)
+                                                            dirs_dict['scratch_dir'], visit_name, id_pc0=None, 
+                                                            order_indices=np.arange(75), path_fig = str(dirs_dict['param_dir']) + '/')
 
         # plots for each mask_tellu
         for n_pc in config_dict['n_pc']:
             for mask_wings in config_dict['mask_wings']:
                 corr.plot_all_masktellu(config_dict, planet, mol, mask_wings, n_pc, 
-                                                            scratch_dir, visit_name, id_pc0=None, 
-                                                            order_indices=np.arange(75), path_fig = path_fig)
+                                                            dirs_dict['scratch_dir'], visit_name, id_pc0=None, 
+                                                            order_indices=np.arange(75), path_fig = str(dirs_dict['param_dir']) + '/')
         
 
         # iterate over individual molecules if there are more than 1
@@ -163,9 +168,8 @@ def run_pipe(config_filepath, run_name):
                         'config_dict': config_dict,
                         'planet': planet,
                         'obs': obs,
-                        'scratch_dir': scratch_dir,
-                        'out_dir': out_dir,
-                        'path_fig': path_fig,
+                        'scratch_dir': dirs_dict['scratch_dir'],
+                        'out_dir': dirs_dict['out_dir'],
                         'visit_name': visit_name,
                         'wave_mod': wave_mod,
                         'mod_spec': mod_spec
@@ -181,30 +185,25 @@ def run_pipe(config_filepath, run_name):
                 # plots for each pc
                 for mask_tellu in config_dict['mask_tellu']:
                     for mask_wings in config_dict['mask_wings']:
-                        corr.plot_all_ccf(config_dict, single_mol[0], mask_tellu, mask_wings, scratch_dir, 
+                        corr.plot_all_ccf(config_dict, single_mol[0], mask_tellu, mask_wings, dirs_dict['scratch_dir'], 
                                         visit_name, planet, id_pc0=None, order_indices=np.arange(75), 
-                                        path_fig = path_fig)
+                                        path_fig = str(dirs_dict['param_dir']) + '/')
 
                 # plots for each mask_wings 
                 for mask_tellu in config_dict['mask_tellu']:
                     for n_pc in config_dict['n_pc']:
                         # load all ccf map and reductions for (mask_tellu, n_pc) at each mask_wings
                         corr.plot_all_maskwings(config_dict, planet, single_mol[0], mask_tellu, n_pc, 
-                                                                    scratch_dir, visit_name, id_pc0=None, 
-                                                                    order_indices=np.arange(75), path_fig = path_fig)
+                                                                    dirs_dict['scratch_dir'], visit_name, id_pc0=None, 
+                                                                    order_indices=np.arange(75), path_fig = str(dirs_dict['param_dir']) + '/')
 
                 # plots for each mask_tellu
                 for n_pc in config_dict['n_pc']:
                     for mask_wings in config_dict['mask_wings']:
                         corr.plot_all_masktellu(config_dict, planet, single_mol[0], mask_wings, n_pc, 
-                                                                    scratch_dir, visit_name, id_pc0=None, 
-                                                                    order_indices=np.arange(75), path_fig = path_fig)
-
-                # if len(config_dict['visit_name']) > 1:
-                #     if ([mask_tellu, mask_wings, n_pc] == config_dict['night_params']) and (visit_name == config_dict['visit_name'][-1]):
-                #         comb_scratch_dir, comb_out_dir, comb_path_fig = red.set_save_location(config_dict['pl_name'], 'combined', config_dict['reduction'], config_dict['instrument'])
-                #         corr.combined_visits_ccf(planet, single_mol, wave_mod, mod_spec, comb_scratch_dir, comb_path_fig, comb_out_dir, config_dict)                            
-                                            
+                                                                    dirs_dict['scratch_dir'], visit_name, id_pc0=None, 
+                                                                    order_indices=np.arange(75), path_fig = str(dirs_dict['param_dir']) + '/')
+        
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run the pipeline with the given config files.')
     parser.add_argument('config_filepath', type=Path, help='Path to the config.yaml file.')

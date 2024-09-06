@@ -48,7 +48,7 @@ def classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, nametag, cor
 
     # Make the plots and save them
 
-    corr_obj.full_plot(transit, [], save_fig = f'classic_ccf{nametag}', path_fig = str(path_fig))
+    corr_obj.full_plot(transit, [], save_fig = f'classic_ccf{nametag}', path_fig = str(path_fig) + '/')
 
     return corr_obj
 
@@ -73,7 +73,8 @@ def perform_ccf(config_dict, transit, mol, wave_mod, mod_spec, n_pc, mask_tellu,
 
     nametag = f'_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
     
-    corr_obj = classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, nametag) 
+    # changed to be put directly into the pipeline
+    # corr_obj = classic_ccf(config_dict, transit, wave_mod, mod_spec, path_fig, nametag) 
 
     try:
         # Check if ccf for individual visit was already generated
@@ -184,7 +185,7 @@ def plot_all_masktellu(config_dict, planet, mol, mask_wings, n_pc, scratch_dir, 
                                         plot_prf = False, id_pc0 = None)
     return ccf_obj, logl_obj
     
-def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, out_dir, config_dict, order_indices=np.arange(75)):
+def combined_visits_ccf(planet, mol, wave_mod, mod_spec, dir_dict, config_dict, order_indices=np.arange(75)):
     mask_tellu, mask_wings, n_pc = config_dict['night_params'][:3]
     combined_ccf = []
     combined_logl = []
@@ -202,7 +203,7 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
         visit_name = key[1]
 
         # load existing reductions for each visit
-        transit = pl_obs.load_single_sequences(fname, planet.name, path=scratch_dir,
+        transit = pl_obs.load_single_sequences(fname, planet.name, path=dir_dict['scratch_dir'],
                                 load_all=False, filename_end='', plot=False, planet=planet)
         
         out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
@@ -212,7 +213,7 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
 
         try:
             # Check if ccf for individual visit was already generated
-            saved_values = np.load(scratch_dir / Path(out_filename).with_suffix('.npz'))
+            saved_values = np.load(dir_dict['scratch_dir'] / Path(out_filename).with_suffix('.npz'))
             ccf_map = saved_values['corr']
             logl_map = saved_values['logl']
         except FileNotFoundError:
@@ -222,7 +223,7 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
                                                     wave_mod, np.array([mod_spec]), nolog=True, 
                                                     inj_alpha='ones', RVconst=transit.RV_const, counting = False)
             print('Done!')
-            corr.save_logl_seq(scratch_dir / Path(out_filename), ccf_map, logl_map,
+            corr.save_logl_seq(dir_dict['scratch_dir'] / Path(out_filename), ccf_map, logl_map,
                             wave_mod, mod_spec, n_pc, Kp_array, corrRV, config_dict['kind_trans'])
 
         visit_dict[idx] = transit
@@ -249,7 +250,7 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, scratch_dir, path_fig, 
     
     ccf_obj, logl_obj = cc.plot_ccflogl(all_visits, ccf_maps_in, logl_maps_in, corrRV,
                                         Kp_array, config_dict['n_pc'], orders=order_indices, 
-                                        split_fig = split_fig, path_fig = path_fig, fig_name = out_filename, map = True)
+                                        split_fig = split_fig, path_fig = dir_dict['injected_ccf_dir'], fig_name = out_filename, map = True)
 
     return ccf_obj, logl_obj
 
