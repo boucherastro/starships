@@ -240,7 +240,7 @@ class Correlations():
         self.npc_snr = np.array(snr)
         self.npc_courbe = np.array(courbe)
 
-        print('Max value at {} npc = {} at {} km/s'.format(self.n_pcas[np.argmax(val)], \
+        print('Max value at {} {} = {} at {} km/s'.format(self.n_pcas[np.argmax(val)], str(param), \
                                                            val.max(), self.npc_pos[np.argmax(val)]))
         if hlines is not None:
             for line in hlines:
