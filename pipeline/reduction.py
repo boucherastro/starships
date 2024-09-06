@@ -63,11 +63,14 @@ def set_save_location(pl_name, visit_name, reduction, instrument, out_dir = None
     red_steps_dir = out_dir / Path('Results') / Path('Reduction_steps')
     red_steps_dir.mkdir(parents=True, exist_ok=True)
 
+    ttest_dir = out_dir / Path('Results') / Path('T-test')
+    ttest_dir.mkdir(parents=True, exist_ok=True)
+
     param_dir = out_dir / Path('Results') / Path('Parameters')
     param_dir.mkdir(parents=True, exist_ok=True)
 
     dirs_dict = {'scratch_dir': scratch_dir, 'out_dir': out_dir, 'classic_ccf_dir': classic_ccf_dir, 
-                 'injected_ccf_dir': injected_ccf_dir, 'red_steps_dir': red_steps_dir, 'param_dir': param_dir}
+                 'injected_ccf_dir': injected_ccf_dir, 'red_steps_dir': red_steps_dir, 'param_dir': param_dir, 'ttest_dir': ttest_dir}
 
     return dirs_dict # all output as posix path objects
 

@@ -1824,6 +1824,9 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                  indexs=None, icorr=None, RV=0.0, split_fig=False, std_robust=True,
                  fig_name=None, path_fig=None, vlines=[0], param = 'pc', plot_prf = True, **kwargs):
 
+    dir_dict = None
+    if isinstance(path_fig, dict): dir_dict = path_fig.copy()
+
     if split_fig is False:
         split_fig = []
 
@@ -1836,6 +1839,10 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
 
     if RV_limit is None:
         RV_limit = corrRV0.max()
+
+
+    # plotting the multi-param plots
+    if dir_dict != None: path_fig = str(dir_dict['param_dir']) + '/'
 
     fig, axs = plt.subplots(3, 2, figsize=(15, 15))
 
@@ -1871,6 +1878,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
         else:
             label = None
 
+        if dir_dict != None: path_fig = str(dir_dict['injected_ccf_dir']) + '/'
         ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
                          kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
                          map_kind='snr', id_pc=id_pc0, figwidth=9, fig_name=label, path_fig=path_fig,
@@ -1878,6 +1886,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
         ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                             plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
         if map is True:
+            if dir_dict != None: path_fig = str(dir_dict['ttest_dir']) + '/'
             ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                               kp0=0, RV_limit=corrRV0.max() - 20, kp_step=5, rv_step=2, RV=None, speed_limit=3,
                               icorr=tr.iIn,
@@ -1892,6 +1901,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
             else:
                 label = None
 
+            if dir_dict != None: path_fig = str(dir_dict['injected_ccf_dir']) +'/'
             ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
                              kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
                              map_kind='snr', id_pc=id_pc, figwidth=9, fig_name=label, path_fig=path_fig,
@@ -1899,6 +1909,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
             ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                                 plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
             if map is True:
+                if dir_dict != None: path_fig = str(dir_dict['ttest_dir']) + '/'
                 ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                                   kp0=0, RV_limit=RV_limit, kp_step=5, rv_step=2, RV=None, speed_limit=3,
                                   icorr=tr.iIn,

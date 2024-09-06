@@ -115,7 +115,7 @@ def run_pipe(config_filepath, run_name):
             for mask_wings in config_dict['mask_wings']:
                 corr.plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, dirs_dict['scratch_dir'], 
                                 visit_name, planet, id_pc0=None, order_indices=np.arange(75), 
-                                path_fig = str(dirs_dict['param_dir']) + '/')
+                                path_fig = dirs_dict)
 
         # plots for each mask_wings 
         for mask_tellu in config_dict['mask_tellu']:
@@ -187,7 +187,7 @@ def run_pipe(config_filepath, run_name):
                     for mask_wings in config_dict['mask_wings']:
                         corr.plot_all_ccf(config_dict, single_mol[0], mask_tellu, mask_wings, dirs_dict['scratch_dir'], 
                                         visit_name, planet, id_pc0=None, order_indices=np.arange(75), 
-                                        path_fig = str(dirs_dict['param_dir']) + '/')
+                                        path_fig = dirs_dict)
 
                 # plots for each mask_wings 
                 for mask_tellu in config_dict['mask_tellu']:
