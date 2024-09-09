@@ -121,7 +121,7 @@ def run_pipe(config_filepath, run_name):
                 model = np.load(file)
                 wave_mod = model['wave_mod']
                 mod_spec = model['mod_spec']
-                mol = model['model_name']
+                mol = model['mol']
 
                 # quick plot of the model
                 plt.figure()
@@ -139,7 +139,7 @@ def run_pipe(config_filepath, run_name):
             model = np.load(config_dict['input_model_file'])
             wave_mod = model['wave_mod']
             mod_spec = model['mod_spec']
-            mol = model['model_name']
+            mol = model['mol']
 
             plt.figure()
             plt.plot(wave_mod, mod_spec)
