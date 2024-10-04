@@ -24,9 +24,11 @@ def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, dirs_
                             dirs_dict['red_steps_dir'], n_pc, mask_tellu, mask_wings, visit_name)
 
     # perfoming classic ccf (translates model)
-    nametag = f'_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
-    corr.classic_ccf(config_dict, reduc, wave_mod, mod_spec, dirs_dict['classic_ccf_dir'], nametag) 
-
+    try:
+        nametag = f'_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+        corr.classic_ccf(config_dict, reduc, wave_mod, mod_spec, dirs_dict['classic_ccf_dir'], nametag) 
+    except TypeError:
+        print('Classic CCF could not be performed. Skipping...')
     # performing injected ccf 
     corr.perform_ccf(config_dict, reduc, mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, 
                      dirs_dict['scratch_dir'], dirs_dict['injected_ccf_dir'], visit_name)
@@ -147,7 +149,7 @@ def run_pipe(config_filepath, run_name):
             plt.xlabel('Wavelength (um)')
             plt.ylabel('Flux')
             plt.savefig(str(dirs_dict['out_dir']) + f'/{mol}_model.pdf')
-                
+
             pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
             multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
 
