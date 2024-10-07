@@ -185,11 +185,19 @@ class Correlations():
         for i in range(len(self.n_pcas)):
             couleur = (0.5,0.1,i/len(self.n_pcas))
             
+            # wrapping in try loop to fix indexing errors
             if len(self.n_pcas) > 1:
-#                 print(logl.shape)
-                self.courbe = (logl[:,:,i]).squeeze()
+                try:
+                    if logl.ndim > 2:
+                        self.courbe = logl[:, :, i].squeeze()
+                    else:
+                        self.courbe = logl[:, i].squeeze()
+                except IndexError:
+                    self.courbe = logl[:, i].squeeze()
             else:
                 self.courbe = logl.squeeze()
+
+            self.get_snr_1d(max_rv=max_rv, **kwargs)
             
 #             print(self.courbe, max_rv)
 #             if kind == 'courbe':

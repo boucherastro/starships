@@ -3,14 +3,17 @@ import yaml
 from pathlib import Path
 import argparse
 import matplotlib.pyplot as plt
+import os
 
 from multiprocessing import Pool
 from itertools import product
+import astropy.units as u
 
 import pipeline.reduction as red
 import pipeline.make_model as mod
 import pipeline.correlations as corr
 import pipeline.split_nights as split
+import pipeline.injection_recovery as inj_rec
 
 '''--------------------------------------Helper Functions----------------------------------------'''
 def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, dirs_dict, 
@@ -29,6 +32,7 @@ def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, dirs_
         corr.classic_ccf(config_dict, reduc, wave_mod, mod_spec, dirs_dict['classic_ccf_dir'], nametag) 
     except TypeError:
         print('Classic CCF could not be performed. Skipping...')
+
     # performing injected ccf 
     corr.perform_ccf(config_dict, reduc, mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, 
                      dirs_dict['scratch_dir'], dirs_dict['injected_ccf_dir'], visit_name)
@@ -93,7 +97,40 @@ def pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, m
         # Use pool.starmap to pass multiple arguments
         pool.starmap(main_loop_wrapper, all_args)
            
+def injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec):
+    # only doing for one set of parameters, so no need for pool processing or multi param plots
 
+    # change directories so everything saved in injected-recovery results folder
+    dirs_dict_new = dirs_dict.copy()
+    dirs_dict_new['scratch_dir'] = dirs_dict['scratch_dir'] / 'injected_fits'
+    dirs_dict_new['scratch_dir'].mkdir(parents=True, exist_ok=True)
+
+    inj_dir = dirs_dict['out_dir'] / Path('Results') / Path('Injected')
+    inj_dir.mkdir(parents=True, exist_ok=True)
+
+    dirs_dict_new['red_steps_dir'] = inj_dir
+    dirs_dict_new['classic_ccf_dir'] = inj_dir
+    dirs_dict_new['injected_ccf_dir'] = inj_dir
+    dirs_dict_new['ttest_dir'] = inj_dir
+
+    # inject the model into the data and save the new fits files
+    inj_rec.main(config_dict, planet, obs, visit_name, wave_mod, mod_spec, 
+                    scratch_dir = dirs_dict_new['scratch_dir'], path_fig = str(inj_dir))
+
+    mask_tellu = config_dict['inj_params'][0]
+    mask_wings = config_dict['inj_params'][1]
+    n_pc = config_dict['inj_params'][2]
+
+    # Make a copy of the config dict and change the observations file so it grabs the new
+    config_dict_new = config_dict.copy()
+    config_dict_new['obs_dir'] = dirs_dict_new['scratch_dir']
+
+    # make a new planet and obs object using the injected filed
+    planet_new, obs_new = red.load_planet(config_dict_new, visit_name)
+
+    main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict_new, planet_new, obs_new, dirs_dict_new, 
+            visit_name, wave_mod, mod_spec)
+    
 '''-------------------------------------Actual pipeline------------------------------------------'''
 def run_pipe(config_filepath, run_name):
     # unpack input parameters into config dictionary
@@ -114,10 +151,18 @@ def run_pipe(config_filepath, run_name):
         if visit_name != 'combined':
             planet, obs = red.load_planet(config_dict, visit_name)
 
+        # if multiple mid_tr have been given, use the one for that visit
+        # if config_dict['mid_tr'] != []:
+        #     config_dict['pl_params']['mid_tr'] = {
+        #         'value' : config_dict['mid_tr'][config_dict['visit_name'].index(visit_name)],
+        #         'unit' : 'd'
+        #     }
+
         dirs_dict = red.set_save_location(config_dict['pl_name'], visit_name, 
                                           config_dict['reduction'], config_dict['instrument'])
 
-        # if a list of existing models was given to test: 
+
+        # Case 1: a list of existing models was given to test: 
         if isinstance(config_dict['input_model_file'], list):
             for file in config_dict['input_model_file']:
                 model = np.load(file)
@@ -136,7 +181,11 @@ def run_pipe(config_filepath, run_name):
                 pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
                 multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
 
-        # if a single model file was given to test
+                if config_dict['do_injection']: 
+                            injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
+
+
+        # Case 2: if a single model file was given to test
         elif config_dict['input_model_file'].endswith('.npz'):
             model = np.load(config_dict['input_model_file'])
             wave_mod = model['wave_mod']
@@ -153,7 +202,11 @@ def run_pipe(config_filepath, run_name):
             pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
             multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
 
-        # else, we make our own model based on the input file
+            if config_dict['do_injection']: 
+                        injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
+
+
+        # Case 3: else, we make our own model based on the input file
         else: 
             with open(config_dict['input_model_file'], 'r') as file:
                 config_model = yaml.safe_load(file)
@@ -167,8 +220,7 @@ def run_pipe(config_filepath, run_name):
             wave_mod, mod_spec, abundances, MMW, VMR = mod.make_model(config_model, planet, 
                                                                         dirs_dict['out_dir'], config_dict)
 
-            if len(config_model['line_opacities']) == 1:
-                mol = config_model['line_opacities'][0]
+            if len(config_model['line_opacities']) == 1: mol = config_model['line_opacities'][0]
             else: mol = 'all'
 
             if visit_name == config_dict['visit_name'][0]:
@@ -176,6 +228,9 @@ def run_pipe(config_filepath, run_name):
         
             pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
             multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
+
+            if config_dict['do_injection']: 
+                        injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
             
             # iterate over individual molecules if there are more than 1
             if len(config_model['line_opacities']) > 1:
@@ -200,6 +255,7 @@ def run_pipe(config_filepath, run_name):
 
                     pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, single_mol[0])
                     multi_param_plots(config_dict, planet, single_mol[0], dirs_dict, visit_name)
+
 
 '''----------------------------------------------------------------------------------------------'''
 if __name__ == '__main__':
