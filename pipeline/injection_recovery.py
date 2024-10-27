@@ -15,7 +15,7 @@ def plot_scaled_model(wave_mod, mod_spec, mod_spec_scaled, path_fig):
     plt.plot(wave_mod, 1 - mod_spec_scaled, label = 'Scaled model')
     plt.legend()
 
-    if path_fig != '': plt.savefig(path_fig + 'scaled_model.pdf', bbox_inches = 'tight')
+    if path_fig != '': plt.savefig(path_fig + '/scaled_model.pdf', bbox_inches = 'tight')
 
 def main(config_dict, p, obs, visit_name, wave_mod, mod_spec, scratch_dir = None, path_fig = '', debug = False):
 

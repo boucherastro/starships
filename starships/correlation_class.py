@@ -1848,33 +1848,35 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
     if RV_limit is None:
         RV_limit = corrRV0.max()
 
-
-    # plotting the multi-param plots
-    if dir_dict != None: path_fig = str(dir_dict['param_dir']) + '/'
-
-    fig, axs = plt.subplots(3, 2, figsize=(15, 15))
-
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
-                                n_pcas=n_pcas, kp_array=Kp_array)
-    ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
-    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = [axs[0,0], axs[0,1]])
+                                    n_pcas=n_pcas, kp_array=Kp_array)
+    
+    # plotting the multi-param plots
+    if param != None: 
+        if dir_dict != None: path_fig = str(dir_dict['param_dir']) + '/'
 
-    logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
-                                n_pcas=n_pcas, kp_array=Kp_array)
-    logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
+        fig, axs = plt.subplots(3, 2, figsize=(15, 15))
 
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = [axs[1,0], axs[1,1]])
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
-                                title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = [axs[2,0], axs[2,1]])
+        
+        ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
+        ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = [axs[0,0], axs[0,1]])
 
-    plt.tight_layout()
-    plt.savefig(str(path_fig) + f'fig_multi_{param}'+fig_name+'.pdf')
+        logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
+                                    n_pcas=n_pcas, kp_array=Kp_array)
+        logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
+
+        logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = [axs[1,0], axs[1,1]])
+        logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
+                                    title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = [axs[2,0], axs[2,1]])
+
+        plt.tight_layout()
+        plt.savefig(str(path_fig) + f'fig_multi_{param}'+fig_name+'.pdf')
 
 
-    print(ccf_obj.npc_val)
-    print(logl_obj.npc_max_abs)
-    print(logl_obj.npc_bic)
-    print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
+        print(ccf_obj.npc_val)
+        print(logl_obj.npc_max_abs)
+        print(logl_obj.npc_bic)
+        print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
 
     if id_pc0 is not None and plot_prf:
 

@@ -89,11 +89,14 @@ def perform_ccf(config_dict, transit, mol, wave_mod, mod_spec, n_pc, mask_tellu,
     return ccf_map, logl_map
 
 
-def plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, scratch_dir, visit_name, planet, id_pc0=None, order_indices=np.arange(75), path_fig = Path('.')):
+def plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, scratch_dir, visit_name, planet, id_pc0=None, order_indices=np.arange(75), path_fig = Path('.'), param = 'pc'):
     
     corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
 
-    n_pc = config_dict['n_pc'][0]
+    if id_pc0 is None:
+        n_pc = config_dict['n_pc'][0]
+    else: 
+        n_pc = id_pc0
     fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
     transit = pl_obs.load_single_sequences(fname, planet.name, path=scratch_dir,
                                 load_all=False, filename_end='', plot=False, planet=planet)
@@ -102,7 +105,15 @@ def plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, scratch_dir, visit_na
 
     ccf_maps_in = []
     logl_maps_in = []
-    for n_pc in  config_dict['n_pc']:
+
+    if id_pc0 is None:
+        for n_pc in  config_dict['n_pc']:
+            out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+            saved_values = np.load(scratch_dir / Path(out_filename).with_suffix('.npz'))
+            ccf_maps_in.append(saved_values['corr'])
+            logl_maps_in.append(saved_values['logl'])
+
+    else: 
         out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
         saved_values = np.load(scratch_dir / Path(out_filename).with_suffix('.npz'))
         ccf_maps_in.append(saved_values['corr'])
@@ -115,7 +126,7 @@ def plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, scratch_dir, visit_na
 
     ccf_obj, logl_obj = cc.plot_ccflogl(transit, ccf_maps_in, logl_maps_in, corrRV,
                                         Kp_array, config_dict['n_pc'], id_pc0=id_pc0, orders=order_indices, 
-                                        path_fig = path_fig, map = True, fig_name = out_filename)
+                                        path_fig = path_fig, map = True, fig_name = out_filename, param = param)
     
     return ccf_obj, logl_obj
 
@@ -250,7 +261,7 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, dir_dict, config_dict, 
     
     ccf_obj, logl_obj = cc.plot_ccflogl(all_visits, ccf_maps_in, logl_maps_in, corrRV,
                                         Kp_array, config_dict['n_pc'], orders=order_indices, 
-                                        split_fig = split_fig, path_fig = dir_dict['injected_ccf_dir'], fig_name = out_filename, map = True)
+                                        split_fig = split_fig, path_fig = dir_dict['injected_ccf_dir'] + '/', fig_name = out_filename, map = True)
 
     return ccf_obj, logl_obj
 

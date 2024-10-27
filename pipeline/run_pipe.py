@@ -56,7 +56,7 @@ def multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name):
         for mask_wings in config_dict['mask_wings']:
             corr.plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, dirs_dict['scratch_dir'], 
                             visit_name, planet, id_pc0=None, order_indices=np.arange(75), 
-                            path_fig = dirs_dict)
+                            path_fig = dirs_dict) # give dict as input, will select correct path based on that
 
     # plots for each mask_wings 
     for mask_tellu in config_dict['mask_tellu']:
@@ -130,6 +130,12 @@ def injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wav
 
     main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict_new, planet_new, obs_new, dirs_dict_new, 
             visit_name, wave_mod, mod_spec)
+
+    # plot the injected ccf and ttest results
+    corr.plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, dirs_dict_new['scratch_dir'], 
+                            visit_name, planet, id_pc0=n_pc, order_indices=np.arange(75), 
+                            path_fig = dirs_dict_new, param = None)
+
     
 '''-------------------------------------Actual pipeline------------------------------------------'''
 def run_pipe(config_filepath, run_name):
@@ -203,7 +209,7 @@ def run_pipe(config_filepath, run_name):
             multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
 
             if config_dict['do_injection']: 
-                        injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
+                injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
 
 
         # Case 3: else, we make our own model based on the input file
@@ -230,7 +236,7 @@ def run_pipe(config_filepath, run_name):
             multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
 
             if config_dict['do_injection']: 
-                        injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
+                injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
             
             # iterate over individual molecules if there are more than 1
             if len(config_model['line_opacities']) > 1:
