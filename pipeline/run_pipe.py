@@ -33,7 +33,7 @@ def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, dirs_
     except TypeError:
         print('Classic CCF could not be performed. Skipping...')
 
-    # performing injected ccf 
+    # performing injected ccf and saving the files
     corr.perform_ccf(config_dict, reduc, mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, 
                      dirs_dict['scratch_dir'], dirs_dict['injected_ccf_dir'], visit_name)
 
@@ -124,6 +124,7 @@ def injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wav
     # Make a copy of the config dict and change the observations file so it grabs the new
     config_dict_new = config_dict.copy()
     config_dict_new['obs_dir'] = dirs_dict_new['scratch_dir']
+    config_dict_new['n_pc'] = [n_pc]
 
     # make a new planet and obs object using the injected filed
     planet_new, obs_new = red.load_planet(config_dict_new, visit_name)
@@ -132,9 +133,14 @@ def injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wav
             visit_name, wave_mod, mod_spec)
 
     # plot the injected ccf and ttest results
-    corr.plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, dirs_dict_new['scratch_dir'], 
-                            visit_name, planet, id_pc0=n_pc, order_indices=np.arange(75), 
-                            path_fig = dirs_dict_new, param = None)
+    # corr.plot_all_ccf(config_dict_new, mol, mask_tellu, mask_wings, dirs_dict_new['scratch_dir'], 
+    #                         visit_name, planet, id_pc0=n_pc, order_indices=np.arange(75), 
+    #                         path_fig = dirs_dict_new, param = None)
+    
+    corr.plot_all_ccf(config_dict_new, mol, mask_tellu, mask_wings, dirs_dict_new['scratch_dir'], 
+                            visit_name, planet, id_pc0=None, order_indices=np.arange(75), 
+                            path_fig = dirs_dict_new) # give dict as input, will select correct path based on that
+
 
     
 '''-------------------------------------Actual pipeline------------------------------------------'''
@@ -158,6 +164,7 @@ def run_pipe(config_filepath, run_name):
             planet, obs = red.load_planet(config_dict, visit_name)
 
         # if multiple mid_tr have been given, use the one for that visit
+        # note: this is working, just commented out because yaml files have not been updated yet
         # if config_dict['mid_tr'] != []:
         #     config_dict['pl_params']['mid_tr'] = {
         #         'value' : config_dict['mid_tr'][config_dict['visit_name'].index(visit_name)],
@@ -188,7 +195,7 @@ def run_pipe(config_filepath, run_name):
                 multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
 
                 if config_dict['do_injection']: 
-                            injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
+                    injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
 
 
         # Case 2: if a single model file was given to test
@@ -209,6 +216,9 @@ def run_pipe(config_filepath, run_name):
             multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
 
             if config_dict['do_injection']: 
+
+                # THIS ASSUMES THE MODEL IS GIVEN IN PPM AND NEEDS TO BE CONVERTED (SCARLET MODELS)
+                mod_spec = mod_spec * 1e-6
                 injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
 
 

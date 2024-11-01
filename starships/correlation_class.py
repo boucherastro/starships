@@ -1851,6 +1851,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
                                     n_pcas=n_pcas, kp_array=Kp_array)
     
+    
     # plotting the multi-param plots
     if param != None: 
         if dir_dict != None: path_fig = str(dir_dict['param_dir']) + '/'
