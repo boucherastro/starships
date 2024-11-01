@@ -4,6 +4,7 @@ from pathlib import Path
 import argparse
 import matplotlib.pyplot as plt
 import os
+import traceback
 
 from multiprocessing import Pool
 from itertools import product
@@ -32,6 +33,7 @@ def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, dirs_
         corr.classic_ccf(config_dict, reduc, wave_mod, mod_spec, dirs_dict['classic_ccf_dir'], nametag) 
     except TypeError:
         print('Classic CCF could not be performed. Skipping...')
+        traceback.print_exc()
 
     # performing injected ccf and saving the files
     corr.perform_ccf(config_dict, reduc, mol, wave_mod, mod_spec, n_pc, mask_tellu, mask_wings, 
@@ -46,6 +48,7 @@ def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, dirs_
                 corr.combined_visits_ccf(planet, mol, wave_mod, mod_spec, comb_dir_dict, config_dict)
             except:
                 print('Could not combine visits. Skipping...')
+                traceback.print_exc()
 
 def main_loop_wrapper(*args):
     ''' Wrapper function to pass multiple arguments to the main loop. '''
@@ -201,6 +204,7 @@ def run_pipe(config_filepath, run_name):
                 except:
                     #print the error
                     print(f'Error in processing {visit_name} night. Skipping...')
+                    traceback.print_exc()
                     continue
 
                 if config_dict['do_injection']: 
@@ -226,6 +230,7 @@ def run_pipe(config_filepath, run_name):
                 multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
             except:
                 print(f'Error in processing {visit_name} night. Skipping...')
+                traceback.print_exc()
                 continue
 
             if config_dict['do_injection']: 
@@ -259,6 +264,7 @@ def run_pipe(config_filepath, run_name):
                 multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
             except:
                 print(f'Error in processing {visit_name} night. Skipping...')
+                traceback.print_exc()
                 continue
 
             if config_dict['do_injection']: 
@@ -290,6 +296,7 @@ def run_pipe(config_filepath, run_name):
                         multi_param_plots(config_dict, planet, single_mol[0], dirs_dict, visit_name)
                     except:
                         print(f'Error in processing {visit_name} night. Skipping...')
+                        traceback.print_exc()
                         continue
 
 
