@@ -40,9 +40,12 @@ def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, dirs_
     # combining visits
     if (len(config_dict['visit_name']) > 1) and (visit_name == config_dict['visit_name'][-1]):
         if ([mask_tellu, mask_wings, n_pc] == config_dict['night_params']):
-            comb_dir_dict = red.set_save_location(config_dict['pl_name'], 'combined', 
-                                                  config_dict['reduction'], config_dict['instrument'])
-            corr.combined_visits_ccf(planet, mol, wave_mod, mod_spec, comb_dir_dict, config_dict)
+            try:
+                comb_dir_dict = red.set_save_location(config_dict['pl_name'], 'combined', 
+                                                    config_dict['reduction'], config_dict['instrument'])
+                corr.combined_visits_ccf(planet, mol, wave_mod, mod_spec, comb_dir_dict, config_dict)
+            except:
+                print('Could not combine visits. Skipping...')
 
 def main_loop_wrapper(*args):
     ''' Wrapper function to pass multiple arguments to the main loop. '''
@@ -191,8 +194,14 @@ def run_pipe(config_filepath, run_name):
                 plt.ylabel('Flux')
                 plt.savefig(str(dirs_dict['out_dir']) + f'/{mol}_model.pdf')
                 
-                pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
-                multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
+                # wrapping in try-except loop
+                try:
+                    pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
+                    multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
+                except:
+                    #print the error
+                    print(f'Error in processing {visit_name} night. Skipping...')
+                    continue
 
                 if config_dict['do_injection']: 
                     injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
@@ -212,11 +221,14 @@ def run_pipe(config_filepath, run_name):
             plt.ylabel('Flux')
             plt.savefig(str(dirs_dict['out_dir']) + f'/{mol}_model.pdf')
 
-            pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
-            multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
+            try:
+                pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
+                multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
+            except:
+                print(f'Error in processing {visit_name} night. Skipping...')
+                continue
 
             if config_dict['do_injection']: 
-
                 # THIS ASSUMES THE MODEL IS GIVEN IN PPM AND NEEDS TO BE CONVERTED (SCARLET MODELS)
                 mod_spec = mod_spec * 1e-6
                 injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
@@ -242,8 +254,12 @@ def run_pipe(config_filepath, run_name):
             if visit_name == config_dict['visit_name'][0]:
                 mod.plot_model_components(config_model, planet, path_fig = str(dirs_dict['out_dir']))
         
-            pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
-            multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
+            try:
+                pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, mol)
+                multi_param_plots(config_dict, planet, mol, dirs_dict, visit_name)
+            except:
+                print(f'Error in processing {visit_name} night. Skipping...')
+                continue
 
             if config_dict['do_injection']: 
                 injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
@@ -269,8 +285,12 @@ def run_pipe(config_filepath, run_name):
                                                     abundances = abundances_subtracted,
                                                     MMW = MMW, config_dict=config_dict)
 
-                    pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, single_mol[0])
-                    multi_param_plots(config_dict, planet, single_mol[0], dirs_dict, visit_name)
+                    try: 
+                        pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, single_mol[0])
+                        multi_param_plots(config_dict, planet, single_mol[0], dirs_dict, visit_name)
+                    except:
+                        print(f'Error in processing {visit_name} night. Skipping...')
+                        continue
 
 
 '''----------------------------------------------------------------------------------------------'''
