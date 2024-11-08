@@ -671,10 +671,10 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
 
 def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
                             vrp=None, RV_sys=None, limit_shift=60., vmin=None,vmax=None, vline=None, hline=None, kind='snr',
-                            return_snr=False):
+                            return_snr=False, orders=None):
     
     """
-    Plot Vrad vs exposition number for all orders, then Vrad vs SNR (in σ) for all orders.
+    Plot Vrad vs exposure number for all orders, then Vrad vs SNR (in σ) for all orders.
     The text above each small plot indicates: {index} - SNR: {mean SNR of that order} - {fraction of pixels with signal in that order}. The color of this text is the wavelength band: yellow-orange = y band; green = j band; steel blue = h band; purple = k band; red = areas of strong telluric absorption.
     The dashed vertical line is at Vrad = 0, or the Vsys of the planet in the planetary rest frame.    
     Each bottom plot shows the sum of each column in its associated top plot, normalized. The horizontal blue line is set at 2σ. A peak above 2σ or 3σ indicates a detection signal in that order. This is useful to check from which order / wavelength range a detection signal really comes from.
@@ -696,6 +696,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
         hline (float, optional): The horizontal line position. Defaults to None.
         kind (str, optional): The type of plot ('snr' or 'courbe'). Defaults to 'snr'.
         return_snr (bool, optional): Whether to return the SNR list. Defaults to False.
+        orders (array-like, optional): Orders used in the analysis. If not None, adds a big red "X" on the orders that were not used in the analysis.
 
     Returns:
         list: The SNR list if return_snr is True.
@@ -746,8 +747,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
                 ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), ccf[:,i*n_cols+j], vmin=vmin, vmax=vmax)
             ax[i,j].plot(vrp, np.arange(ccf.shape[0]), 'k:', alpha=0.5)
             
-            ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]),
-                                color=fg_color)
+            ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]), color=fg_color)
 
             shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*n_cols+j], corrRV, \
                                                             vrp[icorr], RV_sys=RV_sys, limit_shift=limit_shift)
@@ -765,6 +765,22 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
             if hline is not None:
                 ax_single[i,j].axhline(hline, linestyle='-', alpha=0.5, color='navy')
             ax_single[i,j].axvline(np.mean(tr.berv), linestyle='--', color='red', alpha=0.5)
+            
+            if orders is not None:
+                if index not in orders:
+                    left1, width1 = corrRV[0], corrRV[-1] - corrRV[0]
+                    bottom1, height1 = 0, ccf.shape[0]
+                    right1 = left1 + width1
+                    top1 = bottom1 + height1
+                    ax[i,j].text(0.5 * (left1 + right1), 0.4 * (bottom1 + top1), "X", horizontalalignment='center',
+                                 verticalalignment='center', color="red",fontsize=65.)
+                    
+                    left2, width2 = interp_grid[0], interp_grid[-1] - interp_grid[0]
+                    bottom2, height2 = -4, 8
+                    right2 = left2 + width2
+                    top2 = bottom2 + height2
+                    ax_single[i,j].text(0.5 * (left2 + right2), 0.4 * (bottom2 + top2), "X", horizontalalignment='center',
+                                        verticalalignment='center', color="red",fontsize=65.)
 
     if output_file is not None:
         output_file = Path(output_file)

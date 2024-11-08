@@ -1764,7 +1764,7 @@ class Correlations():
                 vrp = np.zeros_like(tr.vrp) + tr.RV_const  # + tr.mid_vrp
                 
         (t_in, p_in), fig = pf.plot_ttest_map_hist(tr, self.rv_grid, ccf.copy(), Kp_array, RV_array, t_value, ttest_params,
-                               orders=orders, plot_trail=True, masked=True, ccf=ccf.copy(),
+                               orders=orders, plot_trail=False, masked=True, ccf=ccf.copy(),
                               vrp=vrp, RV=RV, fig_name=fig_name, path_fig=path_fig, hist=hist, cmap=cmap)
         print(t_in, p_in, nf.pval2sigma(p_in))
         return fig
