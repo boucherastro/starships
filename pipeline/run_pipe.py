@@ -16,6 +16,8 @@ import pipeline.correlations as corr
 import pipeline.split_nights as split
 import pipeline.injection_recovery as inj_rec
 
+from importlib import reload
+
 '''--------------------------------------Helper Functions----------------------------------------'''
 def main_loop(mask_tellu, mask_wings, n_pc, mol, config_dict, planet, obs, dirs_dict, 
               visit_name, wave_mod, mod_spec):
@@ -165,9 +167,9 @@ def run_pipe(config_filepath, run_name):
     
     # loop over all visits
     for visit_name in config_dict['visit_name']:
+        print('Running night:' + visit_name)
         # creating the planet and observation objects
-        if visit_name != 'combined':
-            planet, obs = red.load_planet(config_dict, visit_name)
+        planet, obs = red.load_planet(config_dict, visit_name)
 
         # if multiple mid_tr have been given, use the one for that visit
         # note: this is working, just commented out because yaml files have not been updated yet
@@ -208,6 +210,7 @@ def run_pipe(config_filepath, run_name):
                     continue
 
                 if config_dict['do_injection']: 
+                    mod_spec = mod_spec * 1e-6
                     injection_recovery(config_dict, planet, obs, mol, dirs_dict, visit_name, wave_mod, mod_spec)
 
 
@@ -241,11 +244,14 @@ def run_pipe(config_filepath, run_name):
 
         # Case 3: else, we make our own model based on the input file
         else: 
+            reload(mod)
+            
             with open(config_dict['input_model_file'], 'r') as file:
                 config_model = yaml.safe_load(file)
 
             # initialize all molecule abundances
             if config_model['species_vmr'] == {}:
+                print('Generating dummy VMRs before making model...')
                 for mol in config_model['line_opacities']:
                     config_model['species_vmr'][mol] = -99.0
 
@@ -295,7 +301,7 @@ def run_pipe(config_filepath, run_name):
                         pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, mod_spec, single_mol[0])
                         multi_param_plots(config_dict, planet, single_mol[0], dirs_dict, visit_name)
                     except:
-                        print(f'Error in processing {visit_name} night. Skipping...')
+                        print(f'Error in processing {single_mol} for {visit_name}. Skipping...')
                         traceback.print_exc()
                         continue
 

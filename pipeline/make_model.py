@@ -162,6 +162,7 @@ def prepare_model_high_or_low(config_model, int_dict, planet, atmo_obj=None, fct
                               abundances = None, MMW = None):
 
     mode = config_model['mode']
+    print('mode: ', mode)
     # if Raf is None:
     #     Raf = load_instrum(config_model['instrument'])['resol']
     
@@ -331,7 +332,7 @@ def make_model(config_model, planet, out_dir, config_dict = {}, abundances = Non
                                         verbose=False, vmrh2he=[0.85, 0.15],
                                         dissociation=config_model['dissociation'], plot=False)
 
-        wave_mod, mod_spec = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, abundances=abundances, MMW = MMW)
+        wave_mod, mod_spec = prepare_model_high_or_low(config_model, int_dict, planet, out_dir=out_dir, abundances=abundances, MMW = MMW, atmo_obj=None)
         if config_model['instrument'] == None:
             wave_mod, mod_spec = add_instrum_model(config_dict, wave_mod, mod_spec)
         return wave_mod, mod_spec, None, None, None

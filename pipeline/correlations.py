@@ -261,7 +261,6 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, dir_dict, config_dict, 
     
     ccf_obj, logl_obj = cc.plot_ccflogl(all_visits, ccf_maps_in, logl_maps_in, corrRV,
                                         Kp_array, config_dict['n_pc'], orders=order_indices, 
-                                        split_fig = split_fig, path_fig = dir_dict['injected_ccf_dir'] + '/', fig_name = out_filename, map = True)
+                                        split_fig = split_fig, path_fig = str(dir_dict['injected_ccf_dir']) + '/', fig_name = out_filename, map = True)
 
     return ccf_obj, logl_obj
-
