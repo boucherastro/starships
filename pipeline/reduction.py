@@ -198,7 +198,7 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
 def save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs=[]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
     out_filename = f'retrieval_input' + nametag
-    pl_obs.save_single_sequences(out_filename, list_tr, path=scratch_dir, save_all=True, bad_indexs = bad_indexs)
+    pl_obs.save_sequences(out_filename, list_tr, ['0'], path=scratch_dir, bad_indexs=bad_indexs, save_all=True)
 
 
 def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag): 
