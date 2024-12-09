@@ -198,8 +198,11 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
 def save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs=[]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
     out_filename = f'retrieval_input' + nametag
-    pl_obs.save_sequences(out_filename, list_tr, ['0'], path=scratch_dir, bad_indexs=bad_indexs, save_all=True)
+    pl_obs.save_single_sequences(out_filename, list_tr['1'], path=scratch_dir, save_all=True, bad_indexs = bad_indexs)
 
+    # QUICK FIX - SHOULD FIX FILE NAMING PROPERLY LATER
+    pl_obs.save_sequences(f'retrieval_inputs' + nametag, list_tr, [1], path=scratch_dir, bad_indexs=bad_indexs, save_all=True)
+    
 
 def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag): 
     visit_list = [list_tr]  # You could put multiple visits in the same figure
@@ -225,7 +228,7 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu
 
     else: # building the transit spectrum
         list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
-        list_tr = list_tr['1']
+        # list_tr = list_tr['1']
 
     # saving the transit spectrum
 
@@ -238,6 +241,6 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu
     save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs)
 
     # outputting plots for reduction steps
-    reduction_plots(config_dict, obs, list_tr, n_pc, out_dir, nametag)
+    reduction_plots(config_dict, obs, list_tr['1'], n_pc, out_dir, nametag)
 
-    return list_tr
+    return list_tr['1']
