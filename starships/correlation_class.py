@@ -954,7 +954,7 @@ class Correlations():
     def plot_PRF(self, tr, interp_grid=None, ccf=None, orders=None, RV=0., icorr=None, split_fig=[0], peak_center=None,
                      hlines=None, texts=None, kind='logl_corr', index=None, snr_1d=None, labels=None, clim=None, 
                      path_fig='', fig_name=None, extension='.pdf', id_pc=None, map_kind='snr', debug=False, remove_mean=False,
-                 minus_kp=False, figwidth=10):
+                 minus_kp=False, figwidth=10, cmap="plasma"):
 
         '''
         Plot SNR in the orbital phase / Vrad space.
@@ -1117,7 +1117,7 @@ class Correlations():
         if len(split_fig) > 1:
             for i in range(len(split_fig))[:-1]:
         #         print(i)
-                im = ax_map[i].pcolormesh(x, y[i], z[i] , cmap='plasma', rasterized=True,
+                im = ax_map[i].pcolormesh(x, y[i], z[i] , cmap=cmap, rasterized=True,
                                          vmin=np.nanpercentile(z[i],0.1), 
                                          vmax=np.nanpercentile(z[i],99.9))
                 if index is not None:
@@ -1136,7 +1136,7 @@ class Correlations():
                 try: 
                     id_out = tr.iOut[(tr.iOut>=id_range[i][0]) & (tr.iOut<id_range[i][1])]-id_range[i][0]
                     ax_map[i].plot(np.ones_like(y[i])[id_out]*RV, y[i][id_out],
-                                   'c.', alpha=0.5, label="Out of transit observations")
+                                   'k.', alpha=0.5, label="Out of transit observations")
                 except IndexError:
                     ax_map[i].axvline(RV, color='k', linestyle=':', alpha=0.8)
 
@@ -1155,8 +1155,8 @@ class Correlations():
             
         else:
             ax_map.set_ylabel(r'Orbital Phase', fontsize=16)
-            im = ax_map.pcolormesh(x, y, z , cmap='plasma', rasterized=True)
-            ax_map.plot(np.ones_like(y)[tr.iOut]*RV, y[tr.iOut],'c.', alpha=0.5, label="Out of transit observations")
+            im = ax_map.pcolormesh(x, y, z , cmap=cmap, rasterized=True)
+            ax_map.plot(np.ones_like(y)[tr.iOut]*RV, y[tr.iOut],'k.', alpha=0.5, label="Out of transit observations")
             ax_map.axvline(0, linestyle=':', color='black', alpha=0.8, label="$V_{rad}$ = 0")
             if minus_kp is False:
                 ax_map.plot(berv_rv, y, '--', color='darkred', label="Tellurics")
@@ -1274,7 +1274,7 @@ class Correlations():
                 fct_ccf2d = interp2d(x, y[i], z[i], fill_value=0)
                 ccf_interp.append(fct_ccf2d(x, common_y))
             fig2 = plt.figure(figsize=(9,4))
-            plt.pcolormesh(x, common_y, np.array(ccf_interp).sum(axis=0) , cmap='plasma', rasterized=True)
+            plt.pcolormesh(x, common_y, np.array(ccf_interp).sum(axis=0) , cmap=cmap, rasterized=True)
             plt.xlabel(r'$v_{\rm rad}$ [km s$^{-1}$]', fontsize=16)
             plt.ylabel(r'Orbital Phase', fontsize=16)
             plt.axhline(tr.phase[tr.iIn[0]], color='white',linestyle='--')
@@ -1684,7 +1684,7 @@ class Correlations():
     def ttest_map(self, tr, kind='corr', vrp=None, orders=np.arange(49), 
                   kp0=0, RV_limit=100, kp_step=5, rv_step=1, RV=None, 
                   fig_name='', path_fig=None, speed_limit=2.5, ccf=None, peak_center=None, hist=True,
-                  cmap=None, **kwargs):
+                  cmap=None, tellu_loc=None, **kwargs):
         
         if kind == 'corr':
             if ccf is None:
@@ -1737,13 +1737,13 @@ class Correlations():
         
         if Kp_array.size > 1 :
             self.plot_ttest_map(tr, vrp=vrp, kind=kind, orders=orders, fig_name=fig_name,
-                                cmap=cmap, hist=hist, path_fig=path_fig)
+                                cmap=cmap, hist=hist, path_fig=path_fig, tellu_loc=tellu_loc)
         
         
         
     def plot_ttest_map(self, tr, 
                        RV=None, kind='corr', vrp=None, orders=np.arange(49), fig_name='',
-                       cmap=None, hist=True, path_fig=None):
+                       cmap=None, hist=True, path_fig=None, tellu_loc=None):
         
         Kp_array, RV_array, t_value, ttest_params = self.ttest_map_kp, self.ttest_map_rv, \
                                                     self.ttest_map_tval, self.ttest_map_params
@@ -1765,7 +1765,7 @@ class Correlations():
                 
         (t_in, p_in), fig = pf.plot_ttest_map_hist(tr, self.rv_grid, ccf.copy(), Kp_array, RV_array, t_value, ttest_params,
                                orders=orders, plot_trail=False, masked=True, ccf=ccf.copy(),
-                              vrp=vrp, RV=RV, fig_name=fig_name, path_fig=path_fig, hist=hist, cmap=cmap)
+                              vrp=vrp, RV=RV, fig_name=fig_name, path_fig=path_fig, hist=hist, cmap=cmap, tellu_loc=tellu_loc)
         print(t_in, p_in, nf.pval2sigma(p_in))
         return fig
         
@@ -1846,7 +1846,7 @@ def plot_ccf_timeseries(t, rv_star, correlation, plot_gauss=True, plot_spline=Tr
 def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                  swapaxes=None, orders=np.arange(49), map=False, id_pc0=None, RV_limit=None,
                  indexs=None, icorr=None, RV=0.0, split_fig=False, std_robust=True,
-                 fig_name=None, path_fig=None, vlines=[0], **kwargs):
+                 fig_name=None, path_fig=None, vlines=[0], cmap="plasma", **kwargs):
     '''
     Plot CCF SNR, log likelihood and log10 ΔBIC (Bayesian information criterion) as a function of nPC to determine what is the best number of principal components to remove. Plot a SNR map using this best value of nPC.
     '''
@@ -1895,7 +1895,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
 
         ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
                          kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
-                         map_kind='snr', id_pc=id_pc0, figwidth=9, fig_name=label, path_fig=path_fig,
+                         map_kind='snr', id_pc=id_pc0, figwidth=9, fig_name=label, path_fig=path_fig, cmap=cmap,
                          **kwargs)
         ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                             plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
@@ -1916,7 +1916,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
 
             ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
                              kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
-                             map_kind='snr', id_pc=id_pc, figwidth=9, fig_name=label, path_fig=path_fig,
+                             map_kind='snr', id_pc=id_pc, figwidth=9, fig_name=label, path_fig=path_fig, cmap=cmap,
                              **kwargs)
             ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                                 plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)

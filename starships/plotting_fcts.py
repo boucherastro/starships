@@ -1370,7 +1370,7 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
 def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttest_params, ccf=None,
                         orders=np.arange(49), masked=False, logl=False, plot_trail=False, show_max=True,
                         show_rest_frame=True, Kp=None, RV=None, vrp=None, fig_name='',
-                        path_fig=None, hist=True, cmap=None):
+                        path_fig=None, hist=True, cmap=None, tellu_loc=None):
     
     '''
     Plot Kp/Vrad map, T-test and Trail.
@@ -1399,6 +1399,14 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 
         ax[0].axhline(tr.Kp.value,color='r', linestyle=':', label='Planet Rest Frame')
         ax[0].axvline(0,color='r', linestyle=':')
+        
+        # Position of tellurics
+        if tellu_loc is not None:
+            if tellu_loc >= RV_array[0] and tellu_loc <= RV_array[-1]:  # if the telluric are within the limits of the x axis
+                ax[0].axvline(tellu_loc, linestyle=":", alpha=0.85, color="saddlebrown")
+            else:
+                print("The telluric residuals are not located within the x axis limits of this plot")
+        
         fig.tight_layout(pad=1.0)
 
 

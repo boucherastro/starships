@@ -564,7 +564,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                                                       noise=noise, ratio=ratio,
                                                       pca=pca, alpha=alpha, inj_alpha=inj_alpha)
 
-    n_spec, nord, _ = final.shape
+    n_spec, nord, _ = final.shape                   # change final for spec_trans to use step F of reduction in the correlation
 #     if get_bl is True:
 #         logl_BL = np.ma.zeros((tr.n_spec, tr.nord, Kp_array.size, corrRV.size, len(n_pcas), modelTD0.shape[0]))
     correl = np.ma.zeros((n_spec, nord, Kp_array.size, corrRV.size, len(n_pcas), models.shape[0]))
@@ -615,10 +615,10 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                 data_obj['N'] = N
             
         if get_GG is True:
-            flux = final/noise
+            flux = final/noise                     # change final for spec_trans to use step F of reduction in the correlation
     #         flux -= np.ma.mean(flux, axis=-1)[:,:,None]
         else:
-            flux = final
+            flux = final                     # change final for spec_trans to use step F of reduction in the correlation
         
         s2f_sig = np.ma.sum(flux**2, axis=-1)
         
@@ -667,7 +667,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                     for iOrd in range(nord):
 #                         print('iOrd',iOrd)
 
-                        if final[:,iOrd].mask.all():
+                        if final[:,iOrd].mask.all():     # change final for spec_trans to use step F of reduction in the correlation
                             continue
 
                         logl_BL_sig[:, iOrd, i, v, n, f],\
