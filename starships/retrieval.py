@@ -1570,6 +1570,8 @@
 
 # Do imports when needed
 import os
+os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
 from pathlib import Path
 import yaml
 import logging
