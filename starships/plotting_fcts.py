@@ -446,6 +446,7 @@ def plot_all_orders_logl(tr, loglbl, var_in, var_out,
 
             
 from scipy.interpolate import interp2d
+
 def plot_logl_and_corrmap(tr, var_out, var_in, corrRV0, logl_grid, corrRV, corr_map, 
                           good_rv_idx=0, icorr=None, cmap=None, orders=np.arange(49)):
     
@@ -542,8 +543,8 @@ def plot_logl_and_corrmap(tr, var_out, var_in, corrRV0, logl_grid, corrRV, corr_
         im_corr = ax_map.imshow(snr2, origin='lower', aspect='auto', 
                                  extent=(interp_grid.min(), interp_grid.max(),
                                 Kp_array.min(), Kp_array.max()), cmap=cmap)
-        ax_map.set_ylabel('$K_p$ (km s$^{-1}$)', fontsize=14)
-        ax_map.set_xlabel('$v_{\rm offset}$ (km s$^{-1}$)', fontsize=14)
+        ax_map.set_ylabel('$K_p$ [km s$^{-1}$]', fontsize=14)
+        ax_map.set_xlabel('$v_{\rm offset}$ [km s$^{-1}$]', fontsize=14)
         ax_map.axhline(Kp, linestyle=':', alpha=0.7, color='white') 
         ax_map.axvline(0, linestyle=':', alpha=0.7, color='white')
         ax_map.plot(0, Kp, 'k+', label=r'{:.2f} $\sigma$'.format(snr_fct(RV_sys, Kp)[0]))
@@ -672,14 +673,16 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
 #     if return_snr is True:
 #         return interp_grid, snr_list
 
-
-
 def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
                             vrp=None, RV_sys=None, limit_shift=60., vmin=None,vmax=None, vline=None, hline=None, kind='snr',
-                            return_snr=False):
-    """ Plot all orders correlation.
-
-    Args:
+                            return_snr=False, orders=None):
+    
+    """
+    Plot Vrad vs exposure number for all orders, then Vrad vs SNR (in σ) for all orders.
+    The text above each small plot indicates: {index} - SNR: {mean SNR of that order} - {fraction of pixels with signal in that order}. The color of this text is the wavelength band: yellow-orange = y band; green = j band; steel blue = h band; purple = k band; red = areas of strong telluric absorption.
+    The dashed vertical line is at Vrad = 0, or the Vsys of the planet in the planetary rest frame.    
+    Each bottom plot shows the sum of each column in its associated top plot, normalized. The horizontal blue line is set at 2σ. A peak above 2σ or 3σ indicates a detection signal in that order. This is useful to check from which order / wavelength range a detection signal really comes from.
+       Args:
         corrRV (array-like): The RV values for correlation.
         ccf (array-like): The cross-correlation function.
         tr (object): The transit object.
@@ -697,10 +700,12 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
         hline (float, optional): The horizontal line position. Defaults to None.
         kind (str, optional): The type of plot ('snr' or 'courbe'). Defaults to 'snr'.
         return_snr (bool, optional): Whether to return the SNR list. Defaults to False.
+        orders (array-like, optional): Orders used in the analysis. If not None, adds a big red "X" on the orders that were not used in the analysis.
 
     Returns:
         list: The SNR list if return_snr is True.
     """
+    
     if icorr is None:
         icorr = tr.icorr
 
@@ -746,8 +751,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
                 ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), ccf[:,i*n_cols+j], vmin=vmin, vmax=vmax)
             ax[i,j].plot(vrp, np.arange(ccf.shape[0]), 'k:', alpha=0.5)
             
-            ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]),
-                                color=fg_color)
+            ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]), color=fg_color)
 
             shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*n_cols+j], corrRV, \
                                                             vrp[icorr], RV_sys=RV_sys, limit_shift=limit_shift)
@@ -765,6 +769,22 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
             if hline is not None:
                 ax_single[i,j].axhline(hline, linestyle='-', alpha=0.5, color='navy')
             ax_single[i,j].axvline(np.mean(tr.berv), linestyle='--', color='red', alpha=0.5)
+            
+            if orders is not None:
+                if index not in orders:
+                    left1, width1 = corrRV[0], corrRV[-1] - corrRV[0]
+                    bottom1, height1 = 0, ccf.shape[0]
+                    right1 = left1 + width1
+                    top1 = bottom1 + height1
+                    ax[i,j].text(0.5 * (left1 + right1), 0.4 * (bottom1 + top1), "X", horizontalalignment='center',
+                                 verticalalignment='center', color="red",fontsize=65.)
+                    
+                    left2, width2 = interp_grid[0], interp_grid[-1] - interp_grid[0]
+                    bottom2, height2 = -4, 8
+                    right2 = left2 + width2
+                    top2 = bottom2 + height2
+                    ax_single[i,j].text(0.5 * (left2 + right2), 0.4 * (bottom2 + top2), "X", horizontalalignment='center',
+                                        verticalalignment='center', color="red",fontsize=65.)
 
     if output_file is not None:
         output_file = Path(output_file)
@@ -803,6 +823,12 @@ import matplotlib as mpl
         
 def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='', 
                cmap=None, bad_color='red', path_fig=None):
+    
+    '''
+    Plot main steps of data reduction.
+    
+    id_spec:    index of the exposure
+    '''
     
     if cmap is None:
         cmap = mpl.cm.Greys_r
@@ -1354,7 +1380,17 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
 def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttest_params, ccf=None,
                         orders=np.arange(49), masked=False, logl=False, plot_trail=False, show_max=True,
                         show_rest_frame=True, Kp=None, RV=None, vrp=None, fig_name='',
-                        path_fig=None, hist=True, cmap=None):
+                        path_fig=None, hist=True, cmap=None, tellu_loc=None):
+    
+    '''
+    Plot Kp/Vrad map, T-test and Trail.
+    
+    In the Kp/Vrad map, the horizontal dotted line indicates the known Kp value of the planet. The vertical dotted line centers at the highest signal at the known Kp that is close to Vrad = 0. A signal at the intersection of these lines signifies a detection.
+    
+    The T-test plot tells us if the in-trail and out-of-trail distributions (both randomly selected values, respectively close to and far from the Vrad of the planet) are drawn from the same parent distribution.
+    
+    The trail plot is where the values used in the T-test are drawn from. The region outside of the black lines but within the red ones is not used because it is unclear if it is in-trail or out-of-trail.
+    '''
     
     speed_limit, limit_out, both_side, equal_var = ttest_params
     
@@ -1363,16 +1399,24 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         fig, ax = plt.subplots(2,1, figsize=(8,7))
 
         im0 = ax[0].pcolormesh(RV_array, Kp_array, sigma, rasterized=True, cmap=cmap)
-        ax[0].set_ylabel(r'$K_{\rm P}$ (km s$^{-1}$)', fontsize=16)
-        ax[0].set_xlabel(r'$v_{\rm rad}$ (km s$^{-1}$)', fontsize=16)
+        ax[0].set_ylabel(r'$K_{\rm P}$ [km s$^{-1}$]', fontsize=16)
+        ax[0].set_xlabel(r'$v_{\rm rad}$ [km s$^{-1}$]', fontsize=16)
 
         divider = make_axes_locatable(ax[0])
         cax = divider.append_axes('right', size='3%', pad=0.05)
         cbar = fig.colorbar(im0, ax=ax[0], cax=cax)
         cbar.set_label(r'$t$-test $\sigma$', fontsize=16)
 
-        ax[0].axhline(tr.Kp.value,color='indigo',alpha=0.5, linestyle=':', label='Planet Rest Frame')
-        ax[0].axvline(0,color='indigo',alpha=0.5, linestyle=':')
+        ax[0].axhline(tr.Kp.value,color='r', linestyle=':', label='Planet Rest Frame')
+        ax[0].axvline(0,color='r', linestyle=':')
+        
+        # Position of tellurics
+        if tellu_loc is not None:
+            if tellu_loc >= RV_array[0] and tellu_loc <= RV_array[-1]:  # if the telluric are within the limits of the x axis
+                ax[0].axvline(tellu_loc, linestyle=":", alpha=0.85, color="saddlebrown")
+            else:
+                print("The telluric residuals are not located within the x axis limits of this plot")
+        
         fig.tight_layout(pad=1.0)
 
 
@@ -1416,20 +1460,24 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
             print('Histogram for Kp = {:.2f} and RV = {:.2f}'.format(Kp,wind))
 
         if plot_trail is True:
-            plt.figure()
+            plt.figure(figsize=(8,5))
             plt.pcolormesh(corrRV, np.arange(tr.n_spec),ccf)
             plt.plot(tr.berv, np.arange(tr.n_spec),'b')
-            plt.plot(vrp+wind-speed_limit, np.arange(tr.n_spec),'k')
+            plt.plot(vrp+wind-speed_limit, np.arange(tr.n_spec),'k', label="In-trail (inside the lines)")
             plt.plot(vrp+wind+speed_limit, np.arange(tr.n_spec),'k')
 
             if both_side is True:
-                plt.plot(vrp+wind+limit_out, np.arange(tr.n_spec),'r')
+                plt.plot(vrp+wind+limit_out, np.arange(tr.n_spec),'r', label="Out-of-trail (outside the lines)")
                 plt.plot(vrp+wind-limit_out, np.arange(tr.n_spec),'r')
             else:
                 plt.plot(vrp+wind+limit_out, np.arange(tr.n_spec),'r')
 
-            plt.axhline(tr.iIn[0],linestyle='--',color='white')
-            plt.axhline(tr.iIn[-1],linestyle='--',color='white')
+            plt.axhline(tr.iIn[0], linestyle='--', color='white', label="In transit observations")
+            plt.axhline(tr.iIn[-1], linestyle='--', color='white')
+            
+            plt.xlabel(r'$v_{\rm rad}$ [km s$^{-1}$]', fontsize=16)
+            plt.ylabel("Observation number", fontsize=16)
+            plt.legend(loc="upper right")
 
 
 
@@ -1461,8 +1509,8 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         fig, ax = plt.subplots(1,1, figsize=(8,5))
 
         im0 = ax.pcolormesh(RV_array, Kp_array, sigma, rasterized=True, cmap=cmap)
-        ax.set_ylabel(r'$K_{\rm P}$ (km s$^{-1}$)', fontsize=16)
-        ax.set_xlabel(r'$v_{\rm rad}$ (km s$^{-1}$)', fontsize=16)
+        ax.set_ylabel(r'$K_{\rm P}$ [km s$^{-1}$]', fontsize=16)
+        ax.set_xlabel(r'$v_{\rm rad}$ [km s$^{-1}$]', fontsize=16)
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes('right', size='3%', pad=0.05)
@@ -1529,7 +1577,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 #             plt.axhline(tr.iIn[0],linestyle='--',color='white')
 #             plt.axhline(tr.iIn[-1],linestyle='--',color='white')
 
-
+        
 
         in_ccf, out_ccf = nf.get_corr_in_out_trail(tr.iIn, corrRV, ccf, tr, wind=wind, 
                                                 speed_limit=speed_limit, limit_out=limit_out, 
@@ -1554,6 +1602,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         if path_fig is not None:
             fig.savefig(path_fig+'fig_ttest_map{}.pdf'.format(fig_name))
 
+    
     return sp.stats.ttest_ind(A, B, nan_policy='omit', equal_var=equal_var), fig
     
 
@@ -2548,3 +2597,4 @@ def scatterplot_logl(flatten_sample, flatten_logl, n_max_pts=10000, tight_ylim=T
     plt.tight_layout()
     
     return fig, ax
+

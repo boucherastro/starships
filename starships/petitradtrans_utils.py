@@ -55,7 +55,7 @@ def calc_single_mass(mol):
 
 
 def mass_fraction(mol, vmr, mmw=2.33):
-    return calc_single_mass(mol) / mmw * vmr
+    return (calc_single_mass(mol) / mmw) * vmr
 
 
 def mass_frac_2_vmr(mass_frac_dict=None, mass_frac=None, mmw=None, from_lnlst=False):
@@ -1017,7 +1017,7 @@ def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None, rot_ker
 
     resampled = np.ma.masked_invalid(resamp_model(modelWave0[:-1], modelTD0[:-1], Rbf,
                                                   Raf=Raf, rot_ker=rot_ker))
-
+    
     return modelWave0[:-1][15:-15], resampled[15:-15]
 
 

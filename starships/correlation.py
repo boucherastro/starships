@@ -167,7 +167,7 @@ def sum_logl(loglbl, icorr, orders, N, alpha=None, axis=0, del_idx=None,
 
     if orders is None:
         orders = slice(None)
-
+ 
     if del_idx is not None:
         correlation = loglbl.copy()
         correlation[del_idx] = np.nan
@@ -565,7 +565,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                                                       noise=noise, ratio=ratio,
                                                       pca=pca, alpha=alpha, inj_alpha=inj_alpha)
 
-    n_spec, nord, _ = final.shape
+    n_spec, nord, _ = final.shape                   # change final for spec_trans to use step F of reduction in the correlation
 #     if get_bl is True:
 #         logl_BL = np.ma.zeros((tr.n_spec, tr.nord, Kp_array.size, corrRV.size, len(n_pcas), modelTD0.shape[0]))
     correl = np.ma.zeros((n_spec, nord, Kp_array.size, corrRV.size, len(n_pcas), models.shape[0]))
@@ -616,10 +616,10 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                 data_obj['N'] = N
             
         if get_GG is True:
-            flux = final/noise
+            flux = final/noise                     # change final for spec_trans to use step F of reduction in the correlation
     #         flux -= np.ma.mean(flux, axis=-1)[:,:,None]
         else:
-            flux = final
+            flux = final                     # change final for spec_trans to use step F of reduction in the correlation
         
         s2f_sig = np.ma.sum(flux**2, axis=-1)
         
@@ -650,9 +650,9 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                                                 n_pc, i+1,len(Kp_array),Kpi, f+1, models.shape[0], v+1,corrRV.size))
                     
                     velocities = vrad + vrp_orb - vr_orb + RV_const
-                    model_seq = gen_model_sequence_noinj(velocities, 
+                    model_seq = gen_model_sequence_noinj(velocities,
                                          wave, sep, pca, int(params[5]),
-                                         planet, wave_mod[20:-20], specMod[20:-20], 
+                                         planet, wave_mod[20:-20], specMod[20:-20],
                                          kind_trans=kind_trans, alpha=alpha, #resol=resol,
                                                          **kwargs)
     
@@ -669,7 +669,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                     for iOrd in range(nord):
 #                         print('iOrd',iOrd)
 
-                        if final[:,iOrd].mask.all():
+                        if final[:,iOrd].mask.all():     # change final for spec_trans to use step F of reduction in the correlation
                             continue
 
                         logl_BL_sig[:, iOrd, i, v, n, f],\
