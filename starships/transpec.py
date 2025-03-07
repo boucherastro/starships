@@ -50,7 +50,7 @@ def mask_deep_tellu(flux, tellu=None, path=None, tellu_list='list_tellu_tr',
     return flux_masked
 
 
-def unberv(wave, flux_masked, berv, vr):  #, norm=False
+def unberv(wave, flux_masked, berv, vr, counting = True):  #, norm=False
     
     n_spec, nord, _ = flux_masked.shape
     
@@ -72,7 +72,8 @@ def unberv(wave, flux_masked, berv, vr):  #, norm=False
     print('')
     for n in range(n_spec):
         for iOrd in range(nord):
-            hm.print_static(' Unberv : {} - {}  '.format(iOrd, n))
+            if counting:
+                hm.print_static(' Unberv : {} - {}  '.format(iOrd, n))
 
             if flux_masked[n,iOrd].mask.all():
                 continue
@@ -579,7 +580,7 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
                           poly_time=None, kind_mo="median", cont=False, cbp=False,
                           tresh=3., tresh_lim=1., last_tresh=3, last_tresh_lim=1, noise=None, somme=False, norm=True,
                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
-                          spec_trans=None, clean_ts=None, unberv_it=True):
+                          spec_trans=None, clean_ts=None, unberv_it=True, counting = True):
     
     rebuilt=np.ma.empty_like(flux)
     ratio=np.ma.empty_like(flux)
@@ -604,9 +605,9 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         hm.print_static('Shifting everything in the stellar ref. frame and normalizing by the median \n')
         if unberv_it is True:
             print('Spectra ', end="")
-            flux_Sref = unberv(wave, flux_norm, berv, vr)
+            flux_Sref = unberv(wave, flux_norm, berv, vr, counting = counting)
             print('Telluriques ', end="")
-            tellu_Sref = unberv(wave, tellu, berv, vr)
+            tellu_Sref = unberv(wave, tellu, berv, vr, counting = counting)
         else:
             flux_Sref = flux_norm
             tellu_Sref = tellu
@@ -620,10 +621,10 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
             flux_masked = flux_Sref.copy()            
     print('flux_masked all nan : {}'.format(flux_masked.mask.all()))
     # --- ***** CHANGED iOut FOR SOMETHING ELSE
-    if (iOut_temp is None):  # or (iOut_temp == ''):
-        iOut_temp = iOut #np.arange(0,36)
-    elif iOut_temp == 'all':
-        iOut_temp = np.arange(flux.shape[0])
+    # if (iOut_temp is None):  # or (iOut_temp == ''):
+    #     iOut_temp = iOut #np.arange(0,36)
+    # elif iOut_temp == 'all':
+    iOut_temp = np.arange(flux.shape[0])
 #     else:
 #         iOut_temp = iOut_temp
 

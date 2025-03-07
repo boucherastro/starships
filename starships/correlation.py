@@ -17,7 +17,7 @@ from .transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, 
 
 
 def quick_correl(wave, flux, corrRV, mod_x, mod_y, wave_ref=None, 
-                     get_logl=False, kind='BL', mod2d=False, expand_mask=0, noise=None, somme=False):
+                     get_logl=False, kind='BL', mod2d=False, expand_mask=0, noise=None, somme=False, counting = True):
     
     n_spec, nord, npix = flux.shape
     correl = np.ma.zeros((n_spec, nord, corrRV.size))
@@ -43,7 +43,8 @@ def quick_correl(wave, flux, corrRV, mod_x, mod_y, wave_ref=None,
         sig, flux_norm, s2f, cst = calc_logl_OG_cst(flux, axis=2, sig=noise)
     
     for iOrd in range(nord):
-        hm.print_static('{} / {}'.format(iOrd+1,nord))
+        if counting:
+            hm.print_static('{} / {}'.format(iOrd+1,nord))
 
         if flux[:,iOrd].mask.all():
             continue
@@ -550,7 +551,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                      kind_trans, final=None, spec_trans=None, noise=None, ratio=None,
                                  pca=None, alpha=None, inj_alpha='ones',
                                  get_GG=True, vrp_kind='t', nolog=True, 
-                                 change_noise=False, force_npc=None, filename=None, **kwargs):
+                                 change_noise=False, force_npc=None, filename=None, counting = True, **kwargs):
     
     if models.ndim < 2:
         models = models[None,:]
@@ -644,9 +645,10 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
 
                 for v,vrad in enumerate(corrRV):
 #                     print('v',v)
-                    hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
-                                             n_pc, i+1,len(Kp_array),Kpi, f+1, models.shape[0], v+1,corrRV.size))
-
+                    if counting:
+                        hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
+                                                n_pc, i+1,len(Kp_array),Kpi, f+1, models.shape[0], v+1,corrRV.size))
+                    
                     velocities = vrad + vrp_orb - vr_orb + RV_const
                     model_seq = gen_model_sequence_noinj(velocities,
                                          wave, sep, pca, int(params[5]),
@@ -739,7 +741,7 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
                                  get_GG=True, RVconst = 0.0, new_mask=None,
                                  vrp_kind='t',  master_out=None, iOut=None, ratio=None,
                                  reconstructed=None, change_noise=False, force_npc=None,
-                                 filename=None, **kwargs):
+                                 filename=None, counting = True, **kwargs):
     
     if modelTD0.ndim < 2:
         modelTD0 = modelTD0[None,:]
@@ -825,8 +827,9 @@ def quick_calc_logl_injred_class(tr, Kp_array, corrRV, n_pcas, modelWave0, model
 
                 for v,vrad in enumerate(corrRV):
 #                     print('v',v)
-                    hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
-                                             n_pc, i+1,len(Kp_array),Kpi, f+1, modelTD0.shape[0], v+1,corrRV.size))
+                    if counting:
+                        hm.print_static('         N_pca = {}, Kp = {}/{} = {:.2f}, File = {}/{}, RV = {}/{}  '.format(\
+                                                n_pc, i+1,len(Kp_array),Kpi, f+1, modelTD0.shape[0], v+1,corrRV.size))
     
                     model_seq = gen_model_sequence([vrad, vrp_orb-vr_orb, RVconst], tr, modelWave0, specMod,  
                                                    pca=pca, n_pcs=n_pc_mod, norm=norm,
@@ -993,10 +996,10 @@ def quick_calc_logl_injred_class_parts(tr, Kp_array, corrRV, n_pcas, modelWave0,
     
     return [R_sig, logl_BL_sig, s2f_val_sig, s2g_val_sig]
 
-def calc_split_correl(trb1, trb2, corrRV, Wave0, Model0, tr_merged=None, **kwargs):
+def calc_split_correl(trb1, trb2, corrRV, Wave0, Model0, tr_merged=None, counting = True, **kwargs):
     
-    trb1.calc_correl(corrRV, Wave0, Model0, kind="BL", **kwargs)
-    trb2.calc_correl(corrRV, Wave0, Model0, kind="BL", **kwargs)
+    trb1.calc_correl(corrRV, Wave0, Model0, kind="BL", counting = True, **kwargs)
+    trb2.calc_correl(corrRV, Wave0, Model0, kind="BL", counting = True, **kwargs)
 
     tr_new_correl = np.concatenate((trb1.correl, trb2.correl), axis=0)
     tr_new_logl = np.concatenate((trb1.logl, trb2.logl), axis=0)

@@ -1,11 +1,12 @@
 import numpy as np
 from . import homemade as hm
 from . import analysis as a
-from .retrieval_utils import get_all_param_names
+from . import retrieval_utils as ru
 from . import ttest_fcts as nf
 from .orbite import rv_theo_nu
 from .mask_tools import interp1d_masked
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import matplotlib.transforms as transforms
 
 # import scipy.constants as cst
 import scipy as sp
@@ -17,6 +18,9 @@ import matplotlib.pyplot as plt
 from astropy.table import Table, Column
 
 from pathlib import Path
+
+# Initiate random number generator
+rng = np.random.default_rng()
 
 
 retrieval_plot_labels = { 'H2O': r"$\log_{10}$ H$_2$O",
@@ -110,7 +114,7 @@ def get_plot_labels(params=None, retrieval_obj=None):
             raise ValueError('Either params or retrieval_obj must be specified.')
         else:
             # Get all params names from retrieval object
-            params = get_all_param_names(retrieval_obj)
+            params = ru.get_all_param_names(retrieval_obj)
 
     # Get corresponding labels (if not found, use param name)
     labels = list()
@@ -125,7 +129,7 @@ def get_plot_labels(params=None, retrieval_obj=None):
 
 def get_plot_limits_from_data(data, pad=0.1):
     plt_limits = [np.min(data), np.max(data)]
-    d_lim = np.diff(plt_limits)
+    d_lim = plt_limits[1] - plt_limits[0]
     plt_limits[0] -= pad * d_lim
     plt_limits[-1] += pad * d_lim
 
@@ -1768,32 +1772,67 @@ def plot_logl_grid(logl_grid, n_pcas, cases, cond, pCloud, corrRV0, sig='with', 
 def plot_airmass(list_tr, markers=['o','s','d'], 
                 colors=['darkblue','dodgerblue','darkorange'], fig_name='', path_fig=None):
 
-    plt.figure(figsize=(8,3.5))
+    ig, ax = plt.subplots(3,1, figsize=(9,8))
+
+    # plt.figure(figsize=(8,3.5))
 
     for i,tr in enumerate(list_tr):
-        plt.plot(tr.phase, tr.AM,'-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
+        ax[0].plot(tr.phase, tr.AM,'-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
 
     phase_t1 = np.min([tr.phase[tr.iIn[0]] for tr in list_tr])
     phase_t2 = np.min([tr.phase[tr.total[0]] for tr in list_tr])
     phase_t3 = np.max([tr.phase[tr.total[-1]] for tr in list_tr])
     phase_t4 = np.max([tr.phase[tr.iIn[-1]] for tr in list_tr])
 
-    plt.axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
-    plt.axvspan(phase_t2, phase_t3, alpha=0.2)
-    plt.axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+    ax[0].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[0].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[0].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
 
-    plt.ylabel('Airmass', fontsize=16)
-    plt.xlabel(r'Orbital phase ($\phi$)', fontsize=16)
-    plt.legend(loc='best', fontsize=12)
-    plt.tight_layout()
+    ax[0].ylabel('Airmass', fontsize=16)
+    ax[0].xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    ax[0].legend(loc='upper left', fontsize=12)
+    ax[0].tight_layout()
 
-    if path_fig is not None:
-        plt.savefig(path_fig+'fig_airmass_{}.pdf'.format(fig_name))
+    # if path_fig is not None:
+    #     plt.savefig(path_fig+'fig_airmass{}.pdf'.format(fig_name))
 
-    fig, ax = plt.subplots(2,1, figsize=(9,8))
+    # fig, ax = plt.subplots(2,1, figsize=(9,8))
     
     hband = a.bands(tr.wv,'h')[2:-2]
     
+    for i,tr in enumerate(list_tr):
+        ax[1].plot(np.mean(tr.wv,axis=-1).T, np.nanmean(tr.SNR,axis=0).T,
+                   '-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
+
+
+    ax[1].set_ylabel('Mean S/N\nper order', fontsize=16)
+    ax[1].set_xlabel(r'Wavelength ($\mu$m)', fontsize=16)
+    # ax[0].axvspan(np.mean(tr.wv,axis=-1)[28], np.mean(tr.wv,axis=-1)[36], alpha=0.2, color='darkorange',label='H-band')
+    ax[1].legend(loc='upper left', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+
+    for i,tr in enumerate(list_tr):
+        ax[2].plot(tr.phase, np.nanmean(tr.SNR[:, hband],axis=-1),'-', marker=markers[i], color=colors[i])
+
+
+    ax[2].set_ylabel('Mean H-band S/N\nper exposure', fontsize=16)
+    ax[2].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+
+    ax[2].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[2].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[2].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+
+    ax[2].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+
+    if path_fig is not None:
+        plt.savefig(path_fig+'fig_SNR{}.pdf'.format(fig_name))
+
+
+def plot_night_summary_NIRPS(list_tr, obs, markers=['o','s','d'], 
+                colors=['darkblue','dodgerblue','darkorange'], fig_name='', path_fig=None):
+
+    fig, ax = plt.subplots(6,1, figsize=(8,15))
+    
+    # plot mean s/n per order
     for i,tr in enumerate(list_tr):
         ax[0].plot(np.mean(tr.wv,axis=-1).T, np.nanmean(tr.SNR,axis=0).T,
                    '-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
@@ -1801,24 +1840,80 @@ def plot_airmass(list_tr, markers=['o','s','d'],
 
     ax[0].set_ylabel('Mean S/N\nper order', fontsize=16)
     ax[0].set_xlabel(r'Wavelength ($\mu$m)', fontsize=16)
-    # ax[0].axvspan(np.mean(tr.wv,axis=-1)[28], np.mean(tr.wv,axis=-1)[36], alpha=0.2, color='darkorange',label='H-band')
-    ax[0].legend(loc='upper left', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+    ax[0].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
 
+    # plot airmass
     for i,tr in enumerate(list_tr):
-        ax[1].plot(tr.phase, np.nanmean(tr.SNR[:, hband],axis=-1),'-', marker=markers[i], color=colors[i])
+        ax[1].plot(tr.phase, tr.AM,'-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
 
-
-    ax[1].set_ylabel('Mean H-band S/N\nper exposure', fontsize=16)
-    ax[1].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    phase_t1 = np.min([tr.phase[tr.iIn[0]] for tr in list_tr])
+    phase_t2 = np.min([tr.phase[tr.total[0]] for tr in list_tr])
+    phase_t3 = np.max([tr.phase[tr.total[-1]] for tr in list_tr])
+    phase_t4 = np.max([tr.phase[tr.iIn[-1]] for tr in list_tr])
 
     ax[1].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[1].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[1].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
 
-    ax[1].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+    ax[1].set_ylabel('Airmass', fontsize=16)
+    # ax[1].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    ax[1].legend(loc='best', fontsize=12)
+    
+
+    # plot mean s/n per exposure in Y and H band
+    hband = a.bands(tr.wv,'h')[2:-2]
+    yband = a.bands(tr.wv,'y')[2:-2]
+    
+    for i,tr in enumerate(list_tr):
+        ax[2].plot(tr.phase, np.nanmean(tr.SNR[:, hband],axis=-1),'-', marker=markers[i], color=colors[0], label = 'H-band')
+        ax[2].plot(tr.phase, np.nanmean(tr.SNR[:, yband],axis=-1),'-', marker=markers[i], color='darkred', label = 'Y-band')
+
+    ax[2].set_ylabel('Mean S/N\nper exposure', fontsize=16)
+#     ax[2].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+
+    ax[2].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[2].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[2].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+
+    ax[2].legend(loc='best', fontsize=12, ncol = 2) #, bbox_to_anchor=(0.9, 0.71)
+    
+    # plot H2O telluric pre-clean exponent
+    for i,tr in enumerate(list_tr):
+        ax[3].plot(tr.phase, obs.headers_tellu.get_all('TLPEH2O')[0], '-', marker=markers[i], color=colors[0])
+    
+    ax[3].set_ylabel('Telluric exp. H2O', fontsize=16)
+#     ax[3].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+
+    ax[3].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[3].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[3].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+    
+    # plot other tellurice pre-clean exponents
+    for i,tr in enumerate(list_tr):
+        ax[4].plot(tr.phase, obs.headers_tellu.get_all('TLPEOTR')[0], '-', marker=markers[i], color=colors[i])
+    
+    ax[4].set_ylabel('Telluric exp. \nother species', fontsize=16)
+    # ax[4].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+
+    ax[4].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[4].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[4].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+
+    start = np.array(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM START')[0])
+    end = np.array(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM END')[0])
+    mean_seeing = (start + end) / 2
+
+    ax[5].plot(tr.phase, mean_seeing, '-', marker=markers[i], color = colors[i])
+    ax[5].set_ylabel('Mean seeing', fontsize = 16)
+    ax[5].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    ax[5].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+    ax[5].axvspan(phase_t2, phase_t3, alpha=0.2)
+    ax[5].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+
+    fig.tight_layout()
 
     if path_fig is not None:
-        plt.savefig(path_fig+'fig_SNR_{}.pdf'.format(fig_name))
+        plt.savefig(path_fig+'night_summary{}.pdf'.format(fig_name), bbox_inches='tight')
         
             
 # def plot_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False):
@@ -2201,7 +2296,8 @@ def plot_spectra_sample_GTC(wave, spectra_stats_list, colorsOrder=None, wv_range
     return fig, ax
 
 
-def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None):
+def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None,
+                      vlines=True, hlines=True, linestyle='--', color='grey', **kwargs):
     """Plot horizontal and vertical line at a given position.
     Leave a hole at this position so the lines don't overplot at the wanted position."""
     
@@ -2216,11 +2312,289 @@ def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None):
     y_hole = y_hole * (y_max - y_min)
     
     # Plot vertical and horizontal lines around the hole.
-    ax.vlines(x, y_min, y - y_hole,  color='grey', linestyle='--')
-    ax.vlines(x, y + y_hole, y_max, color='grey', linestyle='--')
-    ax.hlines(y, x_min, x - x_hole,  color='grey', linestyle='--')
-    ax.hlines(y, x + x_hole, x_max, color='grey', linestyle='--')
+    kwargs['linestyle'] = linestyle
+    kwargs['color'] = color
+    if vlines:
+        ax.vlines(x, y_min, y - y_hole, **kwargs)
+        ax.vlines(x, y + y_hole, y_max, **kwargs)
+    if hlines:
+        ax.hlines(y, x_min, x - x_hole, **kwargs)
+        ax.hlines(y, x + x_hole, x_max, **kwargs)
     
     return fig, ax
     
     
+def plot_tp_profiles_combined(n_draw, chains=None, yaml_file_list=None, get_tp_from_param=None,
+                              prob_values=None, p_range=None, fig=None, ax=None,
+                              tight_range=None, colorsOrder=None, log_level='WARNING', retrieval_obj=None):
+    """
+    Plot TP profile statistics from different walker chains.
+    Args:
+        n_draw: int
+            Number of draws to take from each chain.
+        chains: list of arrays
+            List of chains. Each chain is a 2D array with shape (n_steps * n_wakers, n_params).
+        yaml_file_list: list of str
+            List of yaml files to setup the retrieval object. They must match the walker chains.
+        get_tp_from_param: function
+            Function to get the TP profile from the parameters. It must take the parameters as input and return the
+            TP profile.
+        prob_values: list of floats
+             Percentiles to compute associated to `key_names`. Needs to have the same length as `key_names`.
+             Default is (0.68, 0.954, 0.997).
+        p_range: 2-tuple of floats
+            Pressure range to plot. If None, the full range is used.
+        fig: figure object
+            Figure object to use for the plot. If `ax` and `fig` are not specified, a new figure is created.
+        ax: axes object
+            Axes object to use for the plot. If `ax` and `fig` are not specified, a new figure is created.
+        tight_range: bool
+            If True, the y-axis is set to the minimum and maximum pressure of all chains.
+        colorsOrder: list of strings
+            List of colors sets (from pyGTC) to use for each chain. If None, the default color order
+            from pyGTC is used. Available colors are the same as pyGTC.
+
+    Returns:
+        fig, ax: figure and axes objects
+    """
+    
+    # Import retrieval.py if no retrieval object given
+    if retrieval_obj is None:
+        import retrieval as retrieval_obj
+    
+    # Set log levels
+    imported_libs = [retrieval_obj, ru]
+    save_level = [im_lib.log.level for im_lib in imported_libs]
+    for im_lib in imported_libs:
+        im_lib.log.setLevel(log_level)
+
+    # Number of chains
+    n_chains = len(chains)
+
+    # Find confidence intervals for each chains
+    tp_stats_list = list()
+    pressure_list = list()
+    pressure_idx_list = list()
+    for ch, yaml_file in zip(chains, yaml_file_list):
+        retrieval_obj.setup_retrieval(yaml_file)
+        n_draw_ch = np.min([n_draw, ch.shape[0]])
+        profile_sample, pressures = ru.draw_tp_profiles_from_sample(n_draw_ch, ch, retrieval_obj=retrieval_obj)
+        tp_stats = ru.get_stats_from_profile(profile_sample, prob_values=prob_values)
+        # pressures idx for plot range
+        idx_p = _get_idx_in_range(pressures, p_range)
+        # Remove median from statistics
+        del tp_stats['median']
+        tp_stats_list.append(tp_stats)
+        pressure_list.append(pressures)
+        pressure_idx_list.append(idx_p)
+
+
+    # Plot starts here
+
+    # Init figure and axes if needed
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+
+    # Get colors and assign for each statistic in sample_stats (so each key)
+    color_region = [dict() for _ in range(n_chains)]
+    # and assign for each statistic in sample_stats (so each key)
+    for idx_ch, cs in enumerate(colorsOrder):
+        stats = tp_stats_list[idx_ch]
+        for idx_stat, key in enumerate(stats):
+            try:
+                color_region[idx_ch][key] = colorsDict[cs][idx_stat]
+            except IndexError:
+                raise IndexError(f"To many satistics to plot for available colors (length = {len(defaultColorsOrder)})")
+
+
+    for idx_ch in reversed(range(n_chains)):
+        stats = tp_stats_list[idx_ch]
+        color_ch = color_region[idx_ch]
+        pressures = pressure_list[idx_ch]
+        idx_p = pressure_idx_list[idx_ch]
+        for key, (x1, x2) in reversed(stats.items()):
+            ax.fill_betweenx(pressures[idx_p], x1[idx_p], x2[idx_p], color=color_ch[key])
+
+    for idx_ch in reversed(range(1, n_chains)):
+        stats = tp_stats_list[idx_ch]
+        color_ch = color_region[idx_ch]
+        pressures = pressure_list[idx_ch]
+        idx_p = pressure_idx_list[idx_ch]
+        for key, (x1, x2) in reversed(stats.items()):
+            ax.plot(x1[idx_p], pressures[idx_p], '-', color=color_ch[key])
+            ax.plot(x2[idx_p], pressures[idx_p], '-', color=color_ch[key])
+
+    if tight_range:
+        all_p = [pressures[idx_p] for pressures, idx_p in zip(pressure_list, pressure_idx_list)]
+        ax.set_ylim(np.min(all_p), np.max(all_p))
+
+    ax.set_yscale('log')    
+
+    ylim = ax.get_ylim()
+    if ylim[-1] > ylim[0]:
+        ax.invert_yaxis()
+
+
+    ax.set_xlabel('Temperature [K]', fontsize=16)
+    ax.set_ylabel('Pressure [bar]', fontsize=16)
+    
+    # set the log level to what it was
+    for im_lib, level in zip(imported_libs, save_level):
+        im_lib.log.setLevel(level)
+
+    return fig, ax
+
+
+def plot_mol_features_labels(mol_name, feature_list, y_feat, color=None,
+                             dy_feat=0.02, txt_shift=None,
+                             fig=None, ax=None,
+                             plot_kwargs=None, text_kwargs=None):
+    """Plot position of molecular bands.
+    All values in y (`y_feat`, `dy_feat`, `txt_shift`) are in Axes coordinates,
+    i.e. from 0 (bottom of axes) to 1 (top of axes)."""
+    
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+    
+    if plot_kwargs is None:
+        plot_kwargs = dict()
+        
+    if text_kwargs is None:
+        text_kwargs = dict()  
+        
+    if txt_shift is None:
+        txt_shift = 0.5 * dy_feat
+        
+    # Convert values in Axes scale to Data scale
+    ylim = ax.get_ylim()
+    dylim = ylim[-1] - ylim[0]
+    txt_shift_y = dylim * txt_shift
+    
+    xlim = ax.get_xlim()
+    dx = np.diff(xlim)
+    txt_shift_x = dx * txt_shift
+
+    # Consider y in  axes coordinates and x in Data coordinates 
+    trans = ax.transAxes
+    
+    # Inverse transormation (puts display coordinates back to Data coordinates)
+    inv = ax.transData.inverted()
+    
+    # y values for the plot (in Axes coordinates)
+    y_axes_coords = np.full(3, y_feat)
+    y_axes_coords[0] += dy_feat
+    
+    # Convert in Data coord
+    y_plot = ylim[0] + y_axes_coords * dylim
+    
+    # Iterate over the feature list
+    for x_feat in feature_list:
+
+        x_plot = np.append(x_feat[0], x_feat)  # 3 points instead of 2
+        
+        # Plot
+        ax.plot(x_plot, y_plot, color=color, **plot_kwargs)
+        if color is None:
+            color = ax.get_lines()[-1].get_color()
+        
+        x_in_plot = (xlim[0] <= x_plot[1]) & (x_plot[1] < xlim[-1])
+        if x_in_plot:
+            ax.text(x_plot[1] + txt_shift_x, y_plot[1] + txt_shift_y, mol_name, **text_kwargs)
+            
+    # Reset x and y limits
+    ax.set_ylim(*ylim)
+    ax.set_xlim(*xlim)
+        
+    return fig, ax
+
+
+def scatterplot_logl(flatten_sample, flatten_logl, n_max_pts=10000, tight_ylim=True, alpha=0.1,
+                     color=None, fig=None, ax=None, ylabels=None, **kwargs):
+    """
+    Generate scatter plots of samples against their log-likelihood values.
+
+    This function creates scatter plots for each parameter in the `flatten_sample` array against the corresponding
+    log-likelihood values in `flatten_logl`. It supports plotting a maximum number of points to avoid overplotting.
+
+    Parameters
+    ----------
+    flatten_sample : ndarray
+        A 2D array of shape (n_samples, n_params) containing the sample values for each parameter.
+    flatten_logl : ndarray
+        A 1D array of length n_samples containing the log-likelihood values corresponding to each sample.
+    n_max_pts : int, optional
+        The maximum number of points to display in the scatter plot. If the number of samples exceeds this value,
+        a random subset of `n_max_pts` samples will be selected for plotting. Default is 10000.
+    tight_ylim : bool, optional
+        If True, the y-axis limits are set to tightly encompass the range of log-likelihood values, with a small
+        margin added. If False, the y-axis limits are determined automatically. Default is True.
+    alpha : float, optional
+        The alpha blending value, between 0 (transparent) and 1 (opaque), for the points in the scatter plot.
+        Default is 0.1.
+    color : str or None, optional
+        The color of the points in the scatter plot. If None, the default color cycle is used. Default is None.
+    fig : Figure or None, optional
+        An existing matplotlib Figure object to plot on. If None, a new figure is created. Default is None.
+    ax : Axes or None, optional
+        An array of matplotlib Axes objects to plot on. If None, new axes are created. Default is None.
+    ylabels : list of str or None, optional
+        A list of labels for the y-axis, one for each parameter. If None, parameter indices are used as labels.
+        Default is None.
+    **kwargs
+        Additional keyword arguments are passed to the `plot` function.
+
+    Returns
+    -------
+    fig : Figure
+        The matplotlib Figure object containing the plot.
+    ax : Axes
+        An array of matplotlib Axes objects containing the scatter plots, one for each parameter.
+
+    Notes
+    -----
+    This function is designed to visualize the distribution of samples and their corresponding log-likelihood values
+    in parameter space. It is particularly useful for examining the results of sampling algorithms in the context
+    of Bayesian inference or optimization problems.
+    """
+
+    # Init figure and ax if not given
+    n_param = flatten_sample.shape[-1]
+    fig, ax =  _get_fig_and_ax_inputs(fig, ax, n_param, 1, figsize=(6, 3 * n_param))
+    
+    # ylabels
+    if ylabels is None:
+        ylabels = list(range(n_param))
+
+    # Make sure the inputs are sorted with respect to logl
+    sort_idx = np.argsort(flatten_logl)
+    flatten_sample = flatten_sample[sort_idx]
+    flatten_logl = flatten_logl[sort_idx]
+
+    # Take random integers (no repeated value)
+    rand_idx = rng.permutation(range(flatten_logl.shape[-1]))[:n_max_pts]
+
+    # ylimits
+    if tight_ylim:
+        ymin, ymax = (np.quantile(flatten_logl, 0.1), np.max(flatten_logl))
+        dy = ymax - ymin
+        ylim = (ymin - 0.1 * dy, ymax + 0.1 * dy)
+    else:
+        ylim = (None, None)
+
+    for i_param, ax_i in enumerate(ax):
+        (lines,) = ax_i.plot(flatten_sample[rand_idx, i_param], flatten_logl[rand_idx], '.', 
+                  color=color, alpha=alpha, **kwargs)
+        color = lines.get_color()
+
+        ax_i.set_ylim(*ylim)
+        ax_i.set_xlabel(ylabels[i_param])
+
+        # Add vertical lines for best logl and median
+        ax_i.axvline(flatten_sample[-1, i_param], linestyle="-", color=color, label='best')
+        ax_i.axvline(flatten_sample[len(flatten_sample)//2, i_param], linestyle="-.",
+                     color=color, label='median')
+        ax_i.axhline(flatten_logl[len(flatten_sample)//2], linestyle="-.", color=color)
+        ax_i.legend()
+
+    plt.tight_layout()
+    
+    return fig, ax
+

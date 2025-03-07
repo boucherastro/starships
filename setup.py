@@ -18,7 +18,7 @@ setup(
         'scikit-learn>=1.0.2,<=1.3.1',
         'astroquery==0.4.6',
         'molmass',
-        'arviz',
+        'arviz<=0.13',
         # 'netcdf4==1.5.*',
         'PyAstronomy==0.18.0'
     ],

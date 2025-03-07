@@ -38,35 +38,34 @@ log.setLevel(logging.INFO)
 rng = np.random.default_rng()
 
 
-# def guillot_global(P,kappa_IR,gamma,grav,T_int,T_equ):
-#     ''' Returns a temperature array, in units of K,
-#     of the same dimensions as the pressure P
-#     (in bar). For this the temperature model of Guillot (2010)
-#     is used (his Equation 29).
+# ==================================
+# Functions for abundance ratios
+# ==================================
 
-#     Args:
-#         P:
-#             numpy array of floats, containing the input pressure in bars.
-#         kappa_IR (float):
-#             The infrared opacity in units of :math:`\\rm cm^2/s`.
-#         gamma (float):
-#             The ratio between the visual and infrated opacity.
-#         grav (float):
-#             The planetary surface gravity in units of :math:`\\rm cm/s^2`.
-#         T_int (float):
-#             The planetary internal temperature (in units of K).
-#         T_equ (float):
-#             The planetary equilibrium temperature (in units of K).
-#     '''
-#     tau = P*1e6*kappa_IR/grav
-#     T_irr = T_equ*np.sqrt(2.)
-#     T = (0.75 * T_int**4. * (2. / 3. + tau) + \
-#       0.75 * T_irr**4. / 4. * (2. / 3. + 1. / gamma / 3.**0.5 + \
-#       (gamma / 3.**0.5 - 1. / 3.**0.5 / gamma)* \
-#       np.exp(-gamma * tau *3.**0.5)))**0.25
-#     return T
+def get_atom_abundance(atom, abundances, list_species, abund0=0):
+    
+    atom_abund = np.zeros_like(abundances[0]) + abund0
+
+    for idx_specie, specie in enumerate(list_species):
+        if atom in specie:
+            idx = specie.index(atom) + len(specie) + 1
+            if idx < len(specie):
+                num = specie[idx]
+                try:
+                    num = float(num)
+                except ValueError:
+                    if num.islower():
+                        num = 0.
+                    else:
+                        num = 1.
+            else:
+                num = 1.
+            atom_abund += num * abundances[idx_specie]
+
+    return atom_abund
 
 
+# --------- Old functions -----------
 def add_contrib_mol(atom, nb_mols, list_mols, abunds, abund0=0., samples=None):
     abund = 0. + abund0
 
@@ -916,7 +915,7 @@ def single_max_dist(samp, bins='auto', start=0, end=-1, bin_size=6, plot=False):
 
 
 def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True, prob=0.68, print_gen_walkers=False,
-                   cut_sample=None, print_latex_style=False):
+                   cut_sample=None, print_latex_style=False, alpha_plot=0.3):
     """
     Compute the maximum values and errors for each parameter in the given sample.
     The maximum values are computed using a spline interpolation of the smoothed histogram
@@ -943,6 +942,10 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
         Whether to print the generated walkers initialization. Default is False.
     cut_sample : numpy.ndarray, optional
         A subset of the sample to be used for computation. If provided, the sample_all parameter will be ignored.
+    print_latex_style : bool, optional
+        Whether to print the maximum values and errors ready for latex tables. Default is False.
+    alpha_plot : float, optional
+        The transparency of the walker chains in the plot. Default is 0.3.
 
     Returns:
     --------
@@ -972,7 +975,7 @@ def find_dist_maxs(sample_all, labels=None, bin_size=6, flag_id=None, plot=True,
             sample_i = cut_sample[:, i]
 
         if plot:
-            ax[i, 0].plot(sample_all[:, :, i], "k", alpha=0.3)
+            ax[i, 0].plot(sample_all[:, :, i], "k", alpha=alpha_plot)
             ax[i, 0].set_xlim(0, len(sample_all))
             ax[i, 0].set_ylabel(labels[i])
 
@@ -1730,7 +1733,7 @@ def gen_ret_dict(ret_params, ret_name, files, labels, discard=0, tol=8, plot=Tru
 def plot_TP_profile_samples(ret_params, ret_names,  # nb_mols,
                             title='', labels=None, colors=None, dark_colors=None, kind=['best'], xlim=None, slim=False,
                             n_samp=100, samples=None, confid_interv=False, show_2sig=True, linestyle=['-', '--', ':'],
-                            params=None, **kwargs):
+                            params=None, counting = True, **kwargs):
     if slim:
         fig = plt.figure(figsize=(3, 5))
     else:
@@ -1758,7 +1761,8 @@ def plot_TP_profile_samples(ret_params, ret_names,  # nb_mols,
                     sample = samples[ret_i]
 
             for i in range(n_samp):
-                hm.print_static(i)
+                if counting: 
+                    hm.print_static(i)
                 params_i = sample[random.randint(0, sample.shape[0] - 1)]  # [random.randint(0, sample.shape[1] - 1)]
                 #                 print(params_i)
                 #                 print(ret_params[ret_name_i]['nb_mols'])
@@ -2605,6 +2609,8 @@ def ordered_prior(theta_dict, key, prior_inputs):
         return -np.inf
         
     # Then apply the correct prior
+    
+    # Work in progress...
 
     
     return out
@@ -2616,6 +2622,58 @@ default_prior_init_func = {'gaussian': init_gaussian_prior,
 default_prior_func = {'gaussian': gaussian_prior,
                       'uniform': uniform_prior,
                       'log_uniform': uniform_prior}
+
+
+def load_custom_prior(custom_prior_file):
+    
+    # Custom prior file is a python script that contains the 2 dictionaries
+    
+    # First load the python script
+    cstm_p = hm.import_module_by_path('dummy', custom_prior_file)
+    
+    return cstm_p.prior_func, cstm_p.prior_init_func
+
+
+def rejection_sampling(spl_func, x_bounds, envelope_func=None, n_samples=1000):
+    """
+    Perform rejection sampling to generate samples from a distribution.
+
+    This function generates samples from a distribution defined by `spl_func` within the bounds specified by `x_bounds`. 
+    An optional envelope function can be provided to optimize the sampling process. If no envelope function is provided, 
+    a simple heuristic based on the maximum value of `spl_func` over the specified bounds is used.
+
+    Parameters:
+    - spl_func (callable): The target distribution function from which to sample. This function should take a single argument (x) and return the value of the distribution at x.
+    - x_bounds (tuple): A tuple of two elements specifying the lower and upper bounds of the domain from which to sample.
+    - envelope_func (callable, optional): An optional envelope function that bounds `spl_func` from above. This function should take a single argument (x) and return the value of the envelope at x. If not provided, a default envelope is calculated.
+    - n_samples (int): The number of samples to generate.
+
+    Returns:
+    - list: A list of sampled values from the target distribution.
+
+    Note:
+    The default envelope function, if not provided, is computed as 1.1 times the maximum value of `spl_func` over a linear space of 1000 points within `x_bounds`. This heuristic aims to ensure that the envelope function reliably bounds `spl_func` from above, improving the efficiency of the sampling process.
+    """
+    samples = []
+    
+    # If envelope_func is not provided, compute a simple envelope
+    if envelope_func is None:
+        x_vals = np.linspace(x_bounds[0], x_bounds[1], 1000)  # Sample 1000 points within bounds
+        y_vals = spl_func(x_vals)
+        max_y_val = np.max(y_vals)
+        envelope_func = lambda x: max_y_val * 1.1  # 10% padding above max value
+    
+    while len(samples) < n_samples:
+        # Sample from the envelope function
+        x_sample = np.random.uniform(x_bounds[0], x_bounds[1])
+        y_envelope = envelope_func(x_sample)
+        y_uniform = np.random.uniform(0, y_envelope)
+        
+        # Accept or reject the sample
+        if y_uniform < spl_func(x_sample):
+            samples.append(x_sample)
+    
+    return np.array(samples)
 
 
 def log_prior(theta, params_prior, prior_func_dict=None):
@@ -2680,6 +2738,9 @@ def init_from_prior(n_wlkrs, prior_init_func, prior_dict, n_mol=1, special_treat
         else:
             # Run init function
             sample = init_func(prior_args, n_wlkrs)
+            # Make sure it has the right dimension to be used with hstack
+            if sample.ndim == 1:
+                sample = sample[:, np.newaxis]
             walkers_init.append(sample)
 
     # Stack all parameters
@@ -2796,7 +2857,11 @@ def draw_profiles_form_sample(n_draw, flat_samples, list_mols=None, retrieval_ob
         dictionnary with 'temperature' and all molecules profiles.
     """
     if list_mols is None:
-        list_mols = retrieval_obj.list_mols + retrieval_obj.continuum_opacities
+        try:
+            list_mols = retrieval_obj.line_opacities + retrieval_obj.continuum_opacities + retrieval_obj.other_species
+        except AttributeError:
+            # TODO: remove this in an eventual version 1.0
+            list_mols = retrieval_obj.list_mols + retrieval_obj.continuum_opacities
     else:
         list_mols = list_mols.copy()
 
@@ -2981,6 +3046,186 @@ def normalize_spec_sample(spec_sample, wave=None, shift_fct=None, wv_norm=None, 
     out = out / y_scale
 
     return out
+
+
+def get_contribution(list_of_species, retrieval_obj, theta_regions, mode='low', atmo_obj=None):
+    """ Get the contribution by keeping only the species in `list_of_species`"""
+    
+    # Copy input dict (so you don't modify the input object)
+    theta_reg_single = [dict(theta_dict) for theta_dict in theta_regions]
+
+    # Init outputs
+    out_spec = dict()
+    
+    # Spec with all species
+    wv, out_spec['All'] = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+
+    # Spec without any opacity (apart from CIA for H2-H2 and He-H2 which are always there)
+    all_species = retrieval_obj.line_opacities + retrieval_obj.continuum_opacities
+    for theta_dict in theta_reg_single:
+        for specie in all_species:
+            theta_dict[specie] = 1e-99
+            
+    _, out_spec['No Species'] = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+
+
+    # Iterate over input species
+    for specie_name in list_of_species:
+        
+        # Need to be a list
+        if not isinstance(specie_name, list):
+            specie_name = [specie_name]
+            
+        # Name in the output
+        specie_key = ' + '.join(specie_name)
+            
+        # ===========================================================
+        # Spec without the targetted species contribution
+        # ===========================================================
+        
+        # Resest param_specie to its original values
+        theta_reg_single = [dict(theta_dict) for theta_dict in theta_regions]
+        
+        # Set all other linelists to zero (10^-99 to avoid division by zero)
+        for theta_dict in theta_reg_single:
+            for specie in all_species:
+                if specie in specie_name:
+                    theta_dict[specie] = 1e-99
+        
+        _, spec_no_specie = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+        
+        # Resest param_specie to its original values
+        theta_reg_single = [dict(theta_dict) for theta_dict in theta_regions]
+        
+        # Set all other linelists to zero (10^-99 to avoid division by zero)
+        for theta_dict in theta_reg_single:
+            for specie in all_species:
+                if specie not in specie_name:
+                    theta_dict[specie] = 1e-99
+                    
+        _, spec_specie_only = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+
+        # Save it in output
+        out_spec[f'Without {specie_key}'] = spec_no_specie
+        out_spec[f'{specie_key} only'] = spec_specie_only
+
+    return wv, out_spec
+
+
+def draw_spectra_from_samples(n_draw, flat_samples, species_list=None, retrieval_obj=None,
+                              kind_res='low', atmo_obj=None):
+    """
+    Draw spectra from a set of samples.
+
+    Parameters
+    ----------
+    n_draw : int
+        The number of spectra to draw.
+    flat_samples : numpy.ndarray
+        The flattened array of samples.
+    species_list : list, optional
+        The list of species if you want the species specific contribution.
+    retrieval_obj : object, optional
+        The retrieval object containing the necessary information for retrieval.
+    kind_res : str, optional
+        The kind of resolution to use. Default is 'low'.
+    atmo_obj : object, optional
+        The atmospheric object containing the necessary information for the atmosphere.
+
+    Returns
+    -------
+    wv : numpy.ndarray
+        The wavelength array.
+    spec_samples : dict
+        A dictionary containing the sampled spectra.
+
+    Notes
+    -----
+    kind_res='high' takes much longer to run. But it can be useful for debugging.
+    For example, to compare the opacities used in both cases ('low' VS 'high')
+    if the spectra are not fitting well the data at low resolution.
+    Sometimes the opacity from low (c-k) does not match the opacity at high resolution (lbl).
+    
+    """
+    if species_list is None:
+        species_list = []
+
+    rng = np.random.default_rng()
+
+    # Take random integers (no repeated value)
+    random_idx = rng.permutation(range(flat_samples.shape[0]))[:n_draw]
+
+    spec_samples = dict()
+
+    for param_i in flat_samples[random_idx]:
+
+        param_i = param_i.copy()
+        theta_regions = retrieval_obj.unpack_theta(param_i)
+
+        wv, spec_and_contrib = get_contribution(species_list, retrieval_obj, theta_regions,
+                                                   mode=kind_res, atmo_obj=atmo_obj)
+
+        for key, val in spec_and_contrib.items():
+            try:
+                spec_samples[key]
+            except KeyError:
+                spec_samples[key] = list()
+            spec_samples[key].append(val)
+            
+    # Convert to array
+    for key, value in spec_samples.items():
+        spec_samples[key] = np.array(value)
+            
+    return wv, spec_samples
+
+
+def get_syntetic_data_low_res(wv_low=None, spec_low=None, wv_high=None, spec_high=None,
+                              force_model_type=None, retrieval_obj=None):
+    """Generate the synthetic data for all the low resolution instruments,
+    including spectrophotometry and photometry.
+    Args:
+    - wv_low: 1d array
+        Wavelengths of the low resolution model (c-k).
+    - spec_low: 1d array
+        Spectrum of the low resolution model (c-k).
+    - wv_high: 1d array
+        Wavelengths of the high resolution model (lbl).
+    - spec_high: 1d array
+        Spectrum of the high resolution model (lbl).
+    - force_model_type: str, optional
+        If not None, force the model type to be 'low' or 'high'.
+        
+    """
+    prt_res = retrieval_obj.prt_res
+    res_instru = retrieval_obj.res_instru
+    
+    synt_data_dict = dict()
+    for low_res_data_type in ['spectrophotometric', 'photometric']:
+        if low_res_data_type == 'photometric':
+            prepare_fct = retrieval_obj.prepare_photometry
+        else:
+            prepare_fct = retrieval_obj.prepare_spectrophotometry
+
+        low_res_data_dict = getattr(retrieval_obj, f'{low_res_data_type}_data')
+
+        for instru_name, infos in low_res_data_dict.items():
+            log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
+            if force_model_type is None:
+                model_type = infos.get('model_type', 'low')
+            else:
+                model_type = force_model_type
+            log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
+            if model_type == 'low':
+                args = (wv_low, spec_low, prt_res['low'], infos)
+            elif model_type == 'high':
+                args = (wv_high, spec_high, res_instru, infos, prt_res['high'])
+            else:
+                raise ValueError(f"Model type {model_type} not valid. Choose between 'low' or 'high'.")
+            # Generate the synthetic data
+            _, synt_data = prepare_fct(*args)
+            synt_data_dict[instru_name] = synt_data
+
+    return synt_data_dict
 
 
 def get_all_param_names(retrieval_obj):
