@@ -820,6 +820,12 @@ import matplotlib as mpl
 def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='', 
                cmap=None, bad_color='red', path_fig=None):
     
+    '''
+    Plot main steps of data reduction.
+    
+    id_spec:    index of the exposure
+    '''
+    
     if cmap is None:
         cmap = mpl.cm.Greys_r
     cmap.set_bad(bad_color,1.)
