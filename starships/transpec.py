@@ -621,10 +621,10 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
             flux_masked = flux_Sref.copy()            
     print('flux_masked all nan : {}'.format(flux_masked.mask.all()))
     # --- ***** CHANGED iOut FOR SOMETHING ELSE
-    if (iOut_temp is None):  # or (iOut_temp == ''):
-        iOut_temp = iOut #np.arange(0,36)
-    elif iOut_temp == 'all':
-        iOut_temp = np.arange(flux.shape[0])
+    # if (iOut_temp is None):  # or (iOut_temp == ''):
+    #     iOut_temp = iOut #np.arange(0,36)
+    # elif iOut_temp == 'all':
+    iOut_temp = np.arange(flux.shape[0])
 #     else:
 #         iOut_temp = iOut_temp
 
