@@ -38,7 +38,6 @@ def set_save_location(pl_name, visit_name, reduction, instrument, out_dir = None
         #out_dir /= Path(f'projects/def-dlafre/shared/{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
         out_dir /= Path(f'projects/def-rdoyon/shared/{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
 
-
     # Output reductions in dedicated directory
     scratch_dir /= Path(f'{instrument}/Reductions/{reduction}/{pl_name_fname}')
 
@@ -217,18 +216,19 @@ def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag):
         pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig) + '/', fig_name = nametag + f'_ord{idx_ord}')
 
 
-def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu, mask_wings, visit_name):
+def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu, mask_wings, visit_name, plot = True, saved = False):
 
     nametag = f'_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
     # check if reduction already exists
     if os.path.exists(scratch_dir / f'retrieval_input{nametag}_data_trs_.npz'):
+        saved = True
         print(f"Reduction already exists for {nametag}. Loading...")
-        list_tr = pl_obs.load_single_sequences(f'retrieval_input{nametag}_data_trs_.npz', planet.name, path=scratch_dir,
+        transit = pl_obs.load_single_sequences(f'retrieval_input{nametag}_data_trs_.npz', planet.name, path=scratch_dir,
                           load_all=True, filename_end='', planet=planet, plot = False)
 
     else: # building the transit spectrum
         list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
-        # list_tr = list_tr['1']
+        transit = list_tr['1']
 
     # saving the transit spectrum
 
@@ -238,9 +238,11 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu
 
     else: bad_indexs = []
     
-    save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs)
+    if saved == False:
+        save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs)
 
     # outputting plots for reduction steps
-    reduction_plots(config_dict, obs, list_tr['1'], n_pc, out_dir, nametag)
+    if plot:
+        reduction_plots(config_dict, obs, transit, n_pc, out_dir, nametag)
 
-    return list_tr['1']
+    return transit
