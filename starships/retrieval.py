@@ -2915,7 +2915,7 @@ def lnprob(theta, ):
 
             logl_i.append(logl_tr)
 
-        logl_all_visits = np.concatenate(np.array(logl_i), axis=0)
+        logl_all_visits = np.concatenate(logl_i, axis=0)
         log.debug(f'Shape of individual logl for all exposures (all visits combined): {logl_all_visits.shape}')
         total += corr.sum_logl(logl_all_visits, data_info['trall_icorr'], orders,
                                data_info['trall_N'], axis=0, del_idx=data_info['bad_indexs'], nolog=True,
