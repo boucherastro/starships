@@ -159,7 +159,7 @@ class Correlations():
     def plot_multi_npca(self, logl=None, vlines=[0], kind='snr', kind_courbe='bic', ylim=None, 
                         no_signal=None, ground_type='mean',
                         hlines=None, legend=True, title='', max_rv=None, force_max_rv=None, 
-                        path_fig = None, fig_name = None, param = 'pc', axs = None, **kwargs):
+                        path_fig = None, fig_name = None, param = 'pc', axs = [], **kwargs):
     
         lstyles = ['-','--','-.',':']
 
@@ -176,23 +176,28 @@ class Correlations():
         snr = []
         courbe = []
 
-        if axs is None:
-            fig,ax = plt.subplots(1,2, figsize=(10,4))
+        if axs is []:
+            fig, ax = plt.subplots(1,2, figsize=(10,4))
         else:
-            fig = axs.figure
-            ax = []
-            ax[0] = inset_axes(axs, width="50%", height="50%", loc='upper left')
-            ax[1]= inset_axes(axs, width="50%", height="50%", loc='lower right')
-            
+            fig = axs[0].figure
+            ax = axs
 
         for i in range(len(self.n_pcas)):
             couleur = (0.5,0.1,i/len(self.n_pcas))
             
+            # wrapping in try loop to fix indexing errors
             if len(self.n_pcas) > 1:
-#                 print(logl.shape)
-                self.courbe = (logl[:,:,i]).squeeze()
+                try:
+                    if logl.ndim > 2:
+                        self.courbe = logl[:, :, i].squeeze()
+                    else:
+                        self.courbe = logl[:, i].squeeze()
+                except IndexError:
+                    self.courbe = logl[:, i].squeeze()
             else:
                 self.courbe = logl.squeeze()
+
+            self.get_snr_1d(max_rv=max_rv, **kwargs)
             
 #             print(self.courbe, max_rv)
 #             if kind == 'courbe':
@@ -243,7 +248,7 @@ class Correlations():
         self.npc_snr = np.array(snr)
         self.npc_courbe = np.array(courbe)
 
-        print('Max value at {} npc = {} at {} km/s'.format(self.n_pcas[np.argmax(val)], \
+        print('Max value at {} {} = {} at {} km/s'.format(self.n_pcas[np.argmax(val)], str(param), \
                                                            val.max(), self.npc_pos[np.argmax(val)]))
         if hlines is not None:
             for line in hlines:
@@ -319,7 +324,7 @@ class Correlations():
     def calc_correl_snr_2d(self, tr, icorr=None, limit_shift=100, interp_size=201, RV_sys=0, Kp0=None,
                            kp0=0, kp1=2, rv_limit=15, kp_limit=70, RV_shift=0,
                            vr_orb=None, vrp_kind='t',
-                           kind='', orders=np.arange(49), plot=True):
+                           kind='', orders=np.arange(49), plot=True, counting = True):
     
         if isinstance(RV_sys, u.Quantity):
             RV_sys = (RV_sys.to(u.km / u.s)).value
@@ -342,7 +347,8 @@ class Correlations():
 
         sum_ccf = np.zeros((Kp_array.size, interp_grid.size))
         for i, Kpi in enumerate(Kp_array):
-            hm.print_static(i)
+            if counting:
+                hm.print_static(i)
 
             # if vrp_orb is None:
             if vrp_kind == 'nu':
@@ -1083,7 +1089,7 @@ class Correlations():
                 height.append(np.sum(tr.dt[id_range[i][0]:id_range[i][1]]).to(u.h).value)
             height.append(height[0]/2)
 
-            fig = plt.figure(constrained_layout=True, figsize=(figwidth,8))
+            fig = plt.figure(constrained_layout=True, figsize=(figwidth, 2 * len(split_fig)))
             gs = fig.add_gridspec(len(split_fig), 3, width_ratios=[3, 3, 1.3], height_ratios=height)
 
             ax_map = []
@@ -1825,6 +1831,9 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                  swapaxes=None, orders=np.arange(49), map=False, id_pc0=None, RV_limit=None,
                  indexs=None, icorr=None, RV=0.0, split_fig=False, std_robust=True,
                  fig_name=None, path_fig=None, vlines=[0], param = 'pc', plot_prf = True, **kwargs):
+    
+    dir_dict = None
+    if isinstance(path_fig, dict): dir_dict = path_fig.copy()
 
     if split_fig is False:
         split_fig = []
@@ -1839,30 +1848,33 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
     if RV_limit is None:
         RV_limit = corrRV0.max()
 
-
-    fig, axs = plt.subplots(3, 1, figsize=(15, 5))
-
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
-                                 n_pcas=n_pcas, kp_array=Kp_array)
+                                    n_pcas=n_pcas, kp_array=Kp_array)
     ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
-    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = axs[0])
-
+    
     logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
-                                  n_pcas=n_pcas, kp_array=Kp_array)
+                                    n_pcas=n_pcas, kp_array=Kp_array)
     logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
+    
+    # plotting the multi-param plots
+    if dir_dict != None: path_fig = str(dir_dict['param_dir']) + '/'
 
-    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = axs[1])
+    fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+
+    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = [axs[0,0], axs[0,1]])
+
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = [axs[1,0], axs[1,1]])
     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
-                                  title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = axs[2])
+                                title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = [axs[2,0], axs[2,1]])
 
-    plt.tight_layout()
-    plt.savefig(path_fig + f'fig_multi_{param}'+fig_name+'.pdf')
+    if param != None: 
+        plt.tight_layout()
+        plt.savefig(str(path_fig) + f'fig_multi_{param}'+fig_name+'.pdf')
 
-
-    print(ccf_obj.npc_val)
-    print(logl_obj.npc_max_abs)
-    print(logl_obj.npc_bic)
-    print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
+        print(ccf_obj.npc_val)
+        print(logl_obj.npc_max_abs)
+        print(logl_obj.npc_bic)
+        print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
 
     if id_pc0 is not None and plot_prf:
 
@@ -1874,6 +1886,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
         else:
             label = None
 
+        if dir_dict != None: path_fig = str(dir_dict['injected_ccf_dir']) + '/'
         ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
                          kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
                          map_kind='snr', id_pc=id_pc0, figwidth=9, fig_name=label, path_fig=path_fig,
@@ -1881,6 +1894,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
         ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                             plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
         if map is True:
+            if dir_dict != None: path_fig = str(dir_dict['ttest_dir']) + '/'
             ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                               kp0=0, RV_limit=corrRV0.max() - 20, kp_step=5, rv_step=2, RV=None, speed_limit=3,
                               icorr=tr.iIn,
@@ -1895,6 +1909,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
             else:
                 label = None
 
+            if dir_dict != None: path_fig = str(dir_dict['injected_ccf_dir']) +'/'
             ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
                              kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
                              map_kind='snr', id_pc=id_pc, figwidth=9, fig_name=label, path_fig=path_fig,
@@ -1902,6 +1917,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
             ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                                 plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
             if map is True:
+                if dir_dict != None: path_fig = str(dir_dict['ttest_dir']) + '/'
                 ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
                                   kp0=0, RV_limit=RV_limit, kp_step=5, rv_step=2, RV=None, speed_limit=3,
                                   icorr=tr.iIn,

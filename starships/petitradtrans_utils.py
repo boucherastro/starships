@@ -58,6 +58,32 @@ def mass_fraction(mol, vmr, mmw=2.33):
     return calc_single_mass(mol) / mmw * vmr
 
 
+def mass_frac_2_vmr(mass_frac_dict=None, mass_frac=None, mmw=None, from_lnlst=False):
+    
+    # Use output from petitRADTRANS eq chem function (poor_mans_nonequ_chem.interpol_abundances)
+    if mass_frac is None and mmw is None:
+        mmw = mass_frac_dict['MMW']
+        mass_frac = {key.split(',')[0]: val
+                     for key, val in mass_frac_dict.items()
+                     if key not in ['MMW', 'nabla_ad']}
+    elif from_lnlst:
+        # Assume the keys in mass_frac_dict are the linelist names, not the specie.
+        # So remove the '_' if present and take what is before as the specie's name
+        mass_frac = {key.split('_')[0]: val for key, val in mass_frac}
+        
+    all_vmrs = {key: mass_frac_2_vmr_specie(key, m_frac, mmw)
+                for key, m_frac in mass_frac.items()}
+    
+    return all_vmrs
+
+    
+def mass_frac_2_vmr_specie(species_name, m_frac, mmw):
+    
+    specie_single_mass = calc_single_mass(species_name)
+    vmr = m_frac / specie_single_mass * mmw
+    
+    return vmr
+
 # def save_models(atmosphere, mod_array, VMRs, mol, R_star, pl_name, path):
 #     for i in range(len(mod_array)):
 #         file_name = path+pl_name.replace(' ','_')+'_PRT_'+mol+'_VMR_'+str(VMRs[i])
@@ -1036,7 +1062,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
     
     # Compute the abundances (and add species that need to be included if not fitted)
     if abundances is None: 
-        print('Calculating abundances')
+        log.debug('Calculating abundances')
         abundances, MMW, VMR = gen_abundances([*species.keys()], [*species.values()],
                                      pressures, temperatures,
                                      verbose=False, vmrh2he=vmrh2he,
@@ -1045,7 +1071,7 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
     else: 
         if chemical_equilibrium:
             chemical_equilibrium = False
-            print('WARNING: Using inputted abundances, forcing chemical_equilibrium = False')
+            log.warning('Using inputted abundances, forcing chemical_equilibrium = False')
     
     if chemical_equilibrium:        
         # Same shape as T and P

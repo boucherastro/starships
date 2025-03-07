@@ -1570,6 +1570,8 @@
 
 # Do imports when needed
 import os
+os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
 from pathlib import Path
 import yaml
 import logging
@@ -1629,8 +1631,9 @@ except ModuleNotFoundError:
 
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
-logging.basicConfig()
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
 
 # Here is a list of all the global parameters that are used in the code
 # This is done to optimize the multiprocessing for two main reasons:
@@ -1745,9 +1748,13 @@ def get_slurm_id():
     else:
         job_id_key_list = ['SLURM_JOB_ID']
 
-    # jobid is combining all ID 
-    jobid = '_'.join([os.environ[key] for key in job_id_key_list])
-    
+    try:
+        # jobid is combining all ID
+        jobid = '_'.join([os.environ[key] for key in job_id_key_list])
+    except KeyError:
+        jobid = None
+        log.info('slurm job ID not found.')
+            
     return jobid
 
 def get_run_name(input_params):
@@ -1777,12 +1784,10 @@ def get_run_name(input_params):
         run_name_args.append('chemEq')
 
     # Take job ID from environment variable if available
-    try:
-        # jobid is combining all ID 
-        jobid = get_slurm_id()
+    # jobid is combining all ID 
+    jobid = get_slurm_id()
+    if jobid is not None:
         run_name_args.append(jobid)
-    except KeyError:
-        pass
     
     run_name = '_'.join(run_name_args)
     
@@ -1879,7 +1884,8 @@ def unpack_input_parameters(input_parameters, **kwargs):
         
     # Make sure all the file paths are Path objects
     all_file_keys = ['base_dir', 'high_res_path', 'walker_path', 'walker_file_out',
-                     'walker_file_in', 'params_path', 'params_file_out', 'star_spectrum']
+                     'walker_file_in', 'params_path', 'params_file_out', 'star_spectrum',
+                     'custom_prior_file']
     for key in all_file_keys:
         if input_params[key] is not None:
             # expanduser() to make sure to replace the '~' in the paths
@@ -2153,10 +2159,14 @@ def setup_retrieval(input_parameters, **kwargs):
             params_prior.pop(param)
 
     # Prior functions
-    global prior_init_func, prior_func_dict
-    prior_init_func = ru.default_prior_init_func
-    prior_func_dict = ru.default_prior_func
-    # TODO make sure to import the custom prior functions
+    global prior_init_func, prior_func_dict, custom_prior_file
+    if custom_prior_file is None:
+        prior_func_dict = ru.default_prior_func
+        prior_init_func = ru.default_prior_init_func
+    else:
+        c_prior_func, c_prior_init = ru.load_custom_prior(custom_prior_file)
+        prior_func_dict = {**ru.default_prior_func, **c_prior_func}
+        prior_init_func = {**ru.default_prior_init_func, **c_prior_init}
 
     # Get the initialisation from prior
     global walker_init
@@ -2246,28 +2256,27 @@ def load_high_res_data():
     data_info = {'trall_alpha_frac': [], 'trall_icorr': [], 'trall_N': [], 'bad_indexs': []}
     data_trs = []
 
-    if retrieval_type == 'JR' or retrieval_type == 'HRR':
-        for high_res_file_stem in high_res_file_stem_list:
-            log.debug(f'Hires files stem: {high_res_path / high_res_file_stem}')
-            log.info('Loading Hires files.')
-            data_info_i, data_trs_i = pl_obs.load_sequences(high_res_file_stem, do_tr, path=high_res_path)
-            # Add index of the exposures where we expect to see the planet signal (to be used in kernel function)
-            # trall_alpha_frac is the fraction of the total planet signal received during the exposure.
-            data_trs_i['0']['i_pl_signal'] = data_info_i['trall_alpha_frac'] > 0.5
-            for data_tr in data_trs_i.values():
-                data_trs.append(data_tr)
-            # Patch for now data_info. Need to modify how the logl is computed to make it more clean.
-            # Would not work with different instruments
-            for key in ['trall_alpha_frac', 'trall_N', 'bad_indexs']:
-                data_info[key].append(data_info_i[key])
-            try:
-                data_info['trall_icorr'].append(data_info_i['trall_icorr'] + data_info['trall_icorr'][-1][-1] + 1)
-            except IndexError:
-                data_info['trall_icorr'].append(data_info_i['trall_icorr'])
-        for key in data_info.keys():
-            data_info[key] = np.concatenate(data_info[key], axis=0)
-        
-        data_info['bad_indexs'] = None  # Leave it to None. Not implemented yet.
+    for high_res_file_stem in high_res_file_stem_list:
+        log.debug(f'Hires files stem: {high_res_path / high_res_file_stem}')
+        log.info('Loading Hires files.')
+        data_info_i, data_trs_i = pl_obs.load_sequences(high_res_file_stem, do_tr, path=high_res_path)
+        # Add index of the exposures where we expect to see the planet signal (to be used in kernel function)
+        # trall_alpha_frac is the fraction of the total planet signal received during the exposure.
+        data_trs_i['0']['i_pl_signal'] = data_info_i['trall_alpha_frac'] > 0.5
+        for data_tr in data_trs_i.values():
+            data_trs.append(data_tr)
+        # Patch for now data_info. Need to modify how the logl is computed to make it more clean.
+        # Would not work with different instruments
+        for key in ['trall_alpha_frac', 'trall_N', 'bad_indexs']:
+            data_info[key].append(data_info_i[key])
+        try:
+            data_info['trall_icorr'].append(data_info_i['trall_icorr'] + data_info['trall_icorr'][-1][-1] + 1)
+        except IndexError:
+            data_info['trall_icorr'].append(data_info_i['trall_icorr'])
+    for key in data_info.keys():
+        data_info[key] = np.concatenate(data_info[key], axis=0)
+    
+    data_info['bad_indexs'] = None  # Leave it to None. Not implemented yet.
 
     return data_info, data_trs
 
@@ -2619,7 +2628,10 @@ def unpack_theta(theta):
     
     # Convert from log to linear scale if needed.
     for key, prior_info in params_prior.items():
-        if prior_info[0] == 'log_uniform':
+        # Check the last parameter, which tells if the parameter is in log scale
+        convert_from_log10 = (prior_info[-1] == 'log10')
+        if prior_info[0] == 'log_uniform' or convert_from_log10:
+            log.debug(f'Converting {key} to 10**({key}).')
             theta_dict[key] = 10 ** theta_dict[key]
     
     # Make a dictionnary for each region if needed.
@@ -2842,52 +2854,12 @@ def prepare_spectrophotometry(wv_mod, spec_mod, model_res, data_info, mod_sampli
     return wv_grid, mod
 
 
-def get_syntetic_data_low_res(wv_low, spec_low, wv_high, spec_high):
-    """Generate the synthetic data for all the low resolution instruments,
-    including spectrophotometry and photometry.
-    Args:
-    - wv_low: 1d array
-        Wavelengths of the low resolution model (c-k).
-    - spec_low: 1d array
-        Spectrum of the low resolution model (c-k).
-    - wv_high: 1d array
-        Wavelengths of the high resolution model (lbl).
-    - spec_high: 1d array
-        Spectrum of the high resolution model (lbl).
-        
-    """
-    global prt_res, res_instru
-    
-    synt_data_dict = dict()
-    for low_res_data_type in ['spectrophotometric', 'photometric']:
-        if low_res_data_type == 'photometric':
-            prepare_fct = prepare_photometry
-        else:
-            prepare_fct = prepare_spectrophotometry
-
-        low_res_data_dict = globals()[f'{low_res_data_type}_data']
-
-        for instru_name, infos in low_res_data_dict.items():
-            log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
-            model_type = infos.get('model_type', 'low')
-            log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
-            if model_type == 'low':
-                args = (wv_low, spec_low, prt_res['low'], infos)
-            else:
-                args = (wv_high, spec_high, res_instru, infos, prt_res['high'])
-            # Generate the synthetic data
-            _, synt_data = prepare_fct(*args)
-            synt_data_dict[instru_name] = synt_data
-
-    return synt_data_dict
-
-
 def lnprob(theta, ):
     
     global params_prior, retrieval_type, kind_trans, orders, white_light
     global photometric_data, spectrophotometric_data
     
-    log.debug(f"lnprob: {theta}")
+    log.debug(f"In `lnprob`, input array = {theta}")
     
     # --- Prior ---
     log.debug('Commpute Prior')
@@ -2898,6 +2870,12 @@ def lnprob(theta, ):
         return -np.inf
 
     theta_regions = unpack_theta(theta)
+    
+    # First check if the TP profile gives negative temperatures. Discard if so.
+    for theta_dict in theta_regions:
+        if np.any(theta_dict['temperatures'] < 0):
+            log.debug('Negative temperatures in TP profile. >>> return -np.inf')
+            return -np.inf
 
     ####################
     # --- HIGH RES --- #
@@ -2905,7 +2883,7 @@ def lnprob(theta, ):
     # High res is needed in joint retrievals or High-res retrievals
     if (retrieval_type == 'JR') or (retrieval_type == 'HRR'):
 
-        # For the rest, just use the first region
+        # For the rest, just use the first region (we only need general informations)
         theta_dict = theta_regions[0]
 
         logl_i = []
@@ -2937,7 +2915,7 @@ def lnprob(theta, ):
 
             logl_i.append(logl_tr)
 
-        logl_all_visits = np.concatenate(np.array(logl_i), axis=0)
+        logl_all_visits = np.concatenate(logl_i, axis=0)
         log.debug(f'Shape of individual logl for all exposures (all visits combined): {logl_all_visits.shape}')
         total += corr.sum_logl(logl_all_visits, data_info['trall_icorr'], orders,
                                data_info['trall_N'], axis=0, del_idx=data_info['bad_indexs'], nolog=True,
@@ -2959,31 +2937,26 @@ def lnprob(theta, ):
                 return -np.inf
 
         # Iterate over all low-res spectrophotometric observations
-        # for low_res_data_type in ['spectrophotometric', 'photometric']:
-        #     if low_res_data_type == 'photometric':
-        #         prepare_fct = prepare_photometry
-        #     else:
-        #         prepare_fct = prepare_spectrophotometry
-                
-        #     low_res_data_dict = globals()[f'{low_res_data_type}_data']
-        #     for instru_name, infos in low_res_data_dict.items():
-        #         log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
-        #         model_type = infos.get('model_type', 'low')
-        #         log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
-        #         if model_type == 'low':
-        #             args = (wv_low, model_low, prt_res['low'], infos)
-        #         else:
-        #             args = (wv_high, model_high, res_instru, infos, prt_res['high'])
-        #         # Generate the synthetic data
-        #         _, synt_data = prepare_fct(*args)
-        synt_data_dict = get_syntetic_data_low_res(wv_low, model_low, wv_high, model_high)
-        
+        # NOTE: You may think that you can use the function to clean the following loop,
+        #       but the problem is that passing the spectra (especially the high res one)
+        #       will slow down the multiprocessing considerably.
         for low_res_data_type in ['spectrophotometric', 'photometric']:
+            if low_res_data_type == 'photometric':
+                prepare_fct = prepare_photometry
+            else:
+                prepare_fct = prepare_spectrophotometry
+                
             low_res_data_dict = globals()[f'{low_res_data_type}_data']
             for instru_name, infos in low_res_data_dict.items():
-                
-                # Get synthetic data from model
-                synt_data = synt_data_dict[instru_name]
+                log.debug(f"Generating synthetic {low_res_data_type} data for {instru_name}")
+                model_type = infos.get('model_type', 'low')
+                log.debug(f"Using the {model_type}-res model to synthetize {instru_name} data.")
+                if model_type == 'low':
+                    args = (wv_low, model_low, prt_res['low'], infos)
+                else:
+                    args = (wv_high, model_high, res_instru, infos, prt_res['high'])
+                # Generate the synthetic data
+                _, synt_data = prepare_fct(*args)        
                 
                 # Get data measured by the instrument
                 data, uncert = infos['data'], infos['err']
@@ -3011,6 +2984,15 @@ def lnprob(theta, ):
     return total
 
 
+def find_max_lnprob(param_init):
+    """Find the maximum likelihood value using scipy.optimize.minimize
+    param_init is the initial position. It has a shape (n_try, n_params)
+    """
+    
+    
+    
+
+
 def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None, **kwargs):
 
     with open(yaml_file_in, 'r') as f:
@@ -3021,6 +3003,9 @@ def save_yaml_file_with_version(yaml_file_in, yaml_file_out, output_dir=None, **
     
     # Edit some values to make sure it is consistent with the current run
     params_yaml['walker_file_out'] = str(globals()['walker_file_out'])
+    
+    # Add the JOB ID
+    params_yaml['slurm_id'] = get_slurm_id()
     
     # Edit all other values that have been specify with kwargs
     for key, val in kwargs.items():
@@ -3056,7 +3041,7 @@ def prepare_run(yaml_file=None, **kwargs):
     
     # Other globals used in the function
     global n_steps_burnin, n_steps_sampling, n_walkers, n_dim
-    global walker_path, n_cpu, slurm_array_behaviour
+    global walker_path, n_cpu, slurm_array_behaviour, retrieval_type
 
     if yaml_file is not None:
         # Unpack the yaml_file and add variables to the global space
@@ -3065,7 +3050,10 @@ def prepare_run(yaml_file=None, **kwargs):
         raise NotImplementedError("kwargs passed without yaml_file. Not implemented yet.")
 
     # Read the data and add them to the global space
-    _ = load_high_res_data()
+    if retrieval_type == 'JR' or retrieval_type == 'HRR':
+        _ = load_high_res_data()
+    else:
+        log.info(f"Retrieval type = {retrieval_type}. High res data is not needed.")
 
     ############################
     # Define additional parameters that are not in the yaml file
@@ -3160,9 +3148,10 @@ def main(yaml_file=None, **kwargs):
 
         # Now that yaml_file is removed from the kwargs from command line,
         # print all the other kwargs passed (if there are any)
-        log.info(f"keys from command line will replace values in yaml file: {kwargs.keys()}")
-        log.info("Converting command line arguments tp expected type if needed...")
-        kwargs = convert_cmd_line_to_types(kwargs)
+        if kwargs:
+            log.info(f"keys from command line will replace values in yaml file: {kwargs.keys()}")
+            log.info("Converting command line arguments to expected type if needed...")
+            kwargs = convert_cmd_line_to_types(kwargs)
     
     # Prepare the run
     n_steps, pos, walker_file_out, yaml_file, good_to_go = prepare_run(yaml_file=yaml_file, **kwargs)

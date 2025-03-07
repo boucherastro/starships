@@ -1402,7 +1402,7 @@ class Observations():
 
     
     def calc_correl(self, corrRV, mod_x, mod_y, get_corr=True, get_logl=True, 
-                    kind='BL', somme=False, sfsg=False, binning=False):
+                    kind='BL', somme=False, sfsg=False, binning=False, counting = True):
         print("Trans spec reduction params :  ", self.params) 
 
         correl = np.ma.zeros((self.n_spec, self.nord, corrRV.size))
@@ -1420,7 +1420,8 @@ class Observations():
 #             sig, flux_norm, s2f, cst = calc_logl_OG_cst(self.final[:, :, :, None], axis=2)
 
         for iOrd in range(self.nord):
-            hm.print_static('{} / {}'.format(iOrd+1, self.nord))
+            if counting:
+                hm.print_static('{} / {}'.format(iOrd+1, self.nord))
 
             if self.final[:,iOrd].mask.all():
                 continue
@@ -2444,7 +2445,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
         pca.singular_values_ = data_tr['singular_values_']
         pca.mean_ = data_tr['mean_']
         pca.n_components_ = data_tr['n_components_']
-        pca.n_features_ = data_tr['n_features_']
+        # pca.n_features_ = data_tr['n_features_']
         pca.n_samples_ = data_tr['n_samples_']
         pca.noise_variance_ = data_tr['noise_variance_']
         pca.n_features_in_ = data_tr['n_features_in_']
@@ -2604,7 +2605,7 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
                            thresh=None, plot=False, pad_to=None,
                            snr_floor=None,
                            masking_spectra=None, correl_spectra=None,
-                           kind='tellu'):
+                           kind='tellu', counting = True):
     new_mask_pclean = np.empty_like(pclean)
     ccf_pclean_new = ccf_pclean.copy()  # np.empty_like(ccf_pclean)
     if kind == 'tellu':
@@ -2650,7 +2651,9 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
 
         fct_snr = interp1d(rv_snr, snr_i)
         snr_i_0 = np.max(snr_i[100 - 3:100 + 3 + 1])  # fct_snr(0.0)
-        hm.print_static(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
+
+        if counting:
+            hm.print_static(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
 
         if plot:
             fig, axs = plt.subplots(2, 2, figsize=(6, 7), sharex=True)
@@ -2671,7 +2674,8 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
             while (snr_i_0 > snr_floor) and (limit_mask < pad_to):
 
                 limit_mask += add_to_mask
-                hm.print_static(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
+                if counting:
+                    hm.print_static(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
 
                 new_mask = [get_mask_tell(np.ma.masked_invalid(tell),
                                           limit_mask, pad_to) for tell in masking_spectra[:, iOrd, :]]
@@ -2751,7 +2755,7 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
 
 
 # for tr in [t1,t2,t3]:
-def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False, fig_output_file=None):
+def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False, fig_output_file=None, counting = True):
     if not (hasattr(tr, 'pclean') | hasattr(tr, 'sky')):
         sky = []
         tellu = []
@@ -2815,7 +2819,7 @@ def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False, fig_output_file=N
     ccf_tellu_tr = quick_correl_3dmod(tr.wave, flux_mask, corrRV0, tr.wave, tr.pclean)
 
     tellu_mask, cmasked_flux_tr, ccf_tellu_clean = mask_custom_pclean_ord(tr, flux_mask, tr.pclean,
-                                                                          ccf_tellu_tr, corrRV0, plot=False)
+                                                                          ccf_tellu_tr, corrRV0, plot=False, counting = counting)
 
     if plot_clean:
         ccf_tellu_clean = quick_correl_3dmod(tr.wave, cmasked_flux_tr,
