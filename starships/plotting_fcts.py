@@ -1053,14 +1053,14 @@ def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
         
     fig.subplots_adjust(hspace=0)
 
-    ax01.text( tr.wv[iord][100],tr.phase[-15], 'A', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
-    ax2.text( tr.wv[iord][100],tr.phase[-15], 'B', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
-    ax3.text( tr.wv[iord][100],tr.phase[-15], 'C', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
-    ax4.text( tr.wv[iord][100],tr.phase[-15], 'D', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
+    ax01.text( tr.wv[iord][100],tr.phase[10], 'A', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
+    ax2.text( tr.wv[iord][100],tr.phase[10], 'B', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
+    ax3.text( tr.wv[iord][100],tr.phase[10], 'C', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
+    ax4.text( tr.wv[iord][100],tr.phase[10], 'D', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
     if path_fig is not None:
         # fig.tight_layout()
-        fig.savefig(path_fig +'fig_five_STEPS'+fig_name+'.pdf')
+        fig.savefig(path_fig +'fig_five_STEPS_'+fig_name+'.png')
 
     return fig
     # cbar = plt.colorbar(im3, orientation="horizontal")

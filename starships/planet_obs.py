@@ -2445,7 +2445,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
         pca.singular_values_ = data_tr['singular_values_']
         pca.mean_ = data_tr['mean_']
         pca.n_components_ = data_tr['n_components_']
-        pca.n_features_ = data_tr['n_features_']
+        # pca.n_features_ = data_tr['n_features_']
         pca.n_samples_ = data_tr['n_samples_']
         pca.noise_variance_ = data_tr['noise_variance_']
         pca.n_features_in_ = data_tr['n_features_in_']
