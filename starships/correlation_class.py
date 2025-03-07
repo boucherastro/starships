@@ -1831,7 +1831,7 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                  swapaxes=None, orders=np.arange(49), map=False, id_pc0=None, RV_limit=None,
                  indexs=None, icorr=None, RV=0.0, split_fig=False, std_robust=True,
                  fig_name=None, path_fig=None, vlines=[0], param = 'pc', plot_prf = True, **kwargs):
-
+    
     dir_dict = None
     if isinstance(path_fig, dict): dir_dict = path_fig.copy()
 
@@ -1850,29 +1850,26 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
 
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
                                     n_pcas=n_pcas, kp_array=Kp_array)
+    ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
     
+    logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
+                                    n_pcas=n_pcas, kp_array=Kp_array)
+    logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
     
     # plotting the multi-param plots
+    if dir_dict != None: path_fig = str(dir_dict['param_dir']) + '/'
+
+    fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+
+    ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = [axs[0,0], axs[0,1]])
+
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = [axs[1,0], axs[1,1]])
+    logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
+                                title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = [axs[2,0], axs[2,1]])
+
     if param != None: 
-        if dir_dict != None: path_fig = str(dir_dict['param_dir']) + '/'
-
-        fig, axs = plt.subplots(3, 2, figsize=(15, 15))
-
-        
-        ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
-        ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR', vlines=vlines, fig_name = 'SNR' + fig_name, path_fig=None, param = param, axs = [axs[0,0], axs[0,1]])
-
-        logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
-                                    n_pcas=n_pcas, kp_array=Kp_array)
-        logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
-
-        logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs', vlines=vlines, fig_name = 'abs' + fig_name, path_fig=None, param = param,  axs = [axs[1,0], axs[1,1]])
-        logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
-                                    title=r'$\log_{10} \Delta$ BIC', vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = [axs[2,0], axs[2,1]])
-
         plt.tight_layout()
         plt.savefig(str(path_fig) + f'fig_multi_{param}'+fig_name+'.pdf')
-
 
         print(ccf_obj.npc_val)
         print(logl_obj.npc_max_abs)
