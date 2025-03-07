@@ -1569,6 +1569,11 @@
 # -----------------------------------------------------------
 
 # Do imports when needed
+
+import sys
+sys.path.append('/home/fgenest/')
+sys.path.append('/home/fgenest/starships/')
+
 import os
 from pathlib import Path
 import yaml
@@ -1583,7 +1588,6 @@ from astropy import units as u
 from astropy.table import Table
 
 
-import sys
 import emcee
 import starships
 import starships.spectrum as spectrum
@@ -1626,6 +1630,9 @@ try:
     from petitRADTRANS.physics import guillot_global, guillot_modif
 except ModuleNotFoundError:
     from petitRADTRANS.nat_cst import guillot_global, guillot_modif
+    
+# other newly implemented TP profiles
+from starships.extra_TP_profiles import madhu_seager
 
 
 log = logging.getLogger(__name__)
@@ -1690,6 +1697,9 @@ global get_ker_file
 global limP
 global n_pts
 global star_spectrum
+# new global variables to be able to remove species at either resolution
+global remove_mol_high
+global remove_mol_low
 
 
 def convert_to_quantity(quantity_dict):
@@ -1819,7 +1829,8 @@ def unpack_input_parameters(input_parameters, **kwargs):
     # --- Check for None values that should be empty dictionaries ---
     empty_dict_if_none = ['spectrophotometric_data', 'photometric_data',
                           'pl_params', 'linelist_names', 'fixed_params',
-                          'reg_fixed_params', 'reg_params', 'special_init']
+                          'reg_fixed_params', 'reg_params', 'special_init',
+                          'remove_mol_high', 'remove_mol_low']
     for key in empty_dict_if_none:
         if input_params[key] is None:
             log.info(f'{key} is None. Setting it to an empty dictionary instead.')
@@ -2313,7 +2324,8 @@ def load_low_res_data(pad_n_res_elem=5):
         # Get the wavelenghts
         default_name = 'wave'
         col_name = infos.get('wv_col_name', default_name)
-        infos['wave'] = data_table[col_name].to('um').value
+        # infos['wave'] = data_table[col_name].to('um').value
+        infos['wave'] = data_table[col_name].value
         
         # Get the data (depends on emission or transmission)
         default_name = 'F_p/F_star' if (kind_trans == 'emission') else 'dppm'
@@ -2657,7 +2669,7 @@ def unpack_theta(theta):
                                         (theta_region['R_pl'] * const.R_jup) ** 2).cgs.value
             
         # Some values need to be set to None if not included in the fit or not in fixed_params.
-        for key in ['wind', 'p_cloud', 'gamma_scat', 'scat_factor', 'C/O', 'Fe/H']:
+        for key in ['wind', 'p_cloud', 'gamma_scat', 'scat_factor', 'C/O', 'Fe/H', 'cloud_fraction']:
             if key not in combined_dict:
                 combined_dict[key] = None
             
@@ -2672,6 +2684,10 @@ def unpack_theta(theta):
             fct_inputs = ['pressures', 'kappa_IR', 'tp_gamma', 'gravity', 'T_int', 'T_eq']
             args = (combined_dict[key] for key in fct_inputs)
             combined_dict['temperatures'] = guillot_global(*args)
+        elif kind_temp == 'madhu':
+            fct_inputs = ['pressures', 'a1', 'a2', 'log_P1', 'log_P2', 'log_P3', 'T_set', 'P_set']
+            args = (combined_dict[key] for key in fct_inputs)
+            combined_dict['temperatures'] = madhu_seager(*args)
         else:
             raise ValueError(f'`kind_temp` = {kind_temp} not valid. Choose between guillot, modif or iso')
         
@@ -2686,7 +2702,7 @@ def unpack_theta(theta):
 
 def prepare_abundances(theta_dict, mode=None, ref_linelists=None):
     """Use the correct linelist name associated to the species."""
-
+    
     if ref_linelists is None:
         if mode is None:
             ref_linelists = line_opacities.copy()
@@ -2704,6 +2720,14 @@ def prepare_abundances(theta_dict, mode=None, ref_linelists=None):
     # --- Adding other species
     for mol in other_species:
         species[mol] = theta_dict[mol]
+        
+    # Tentative implementation of removing species at high or low res
+    # Put lists in yaml (can be empty or absent): remove_mol_high and remove_mol_low
+    # abundances for mols in those lists will be set to 0 for the appropriate mode
+    for lnlst in species.keys():
+        for mol in globals()[f'remove_mol_{mode}']:
+            if mol in lnlst:
+                species[lnlst] = 0.
 
     return species
 
@@ -2742,7 +2766,16 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
                     fct_star=fct_star)
     wv_all, model_all = list(), list()
     for atmo_obj in atmo_obj_list:
-        wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
+        if theta_dict['cloud_fraction'] == None or theta_dict['cloud_fraction'] == 1:
+            wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
+        else:
+            cloud_f = theta_dict['cloud_fraction']
+            clear_f = 1 - cloud_f
+            wv_out, model_out_cloudy = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
+            theta_dict['p_cloud_clear'] = None
+            args_clear = [theta_dict[key] for key in ['pressures', 'temperatures', 'gravity', 'P0', 'p_cloud_clear', 'R_pl', 'R_star']]
+            wv_out, model_out_clear = prt.retrieval_model_plain(atmo_obj, species, planet, *args_clear, **kwargs)
+            model_out = (cloud_f * model_out_cloudy) + (clear_f * model_out_clear)
 
         if mode == 'high':
             # --- Downgrading and broadening the model (if broadening is included)
@@ -2913,7 +2946,8 @@ def lnprob(theta, ):
 
             logl_i.append(logl_tr)
 
-        logl_all_visits = np.concatenate(np.array(logl_i), axis=0)
+        # logl_all_visits = np.concatenate(np.array(logl_i), axis=0)
+        logl_all_visits = np.concatenate(logl_i, axis=0)
         log.debug(f'Shape of individual logl for all exposures (all visits combined): {logl_all_visits.shape}')
         total += corr.sum_logl(logl_all_visits, data_info['trall_icorr'], orders,
                                data_info['trall_N'], axis=0, del_idx=data_info['bad_indexs'], nolog=True,
@@ -3094,16 +3128,16 @@ def prepare_run(yaml_file=None, **kwargs):
     else:
         log.warning("log likelihood function test was not successful... (sad face)")
 
-    # # Add index to the file name if slurm array is used in sbatch
-    # if 'SLURM_ARRAY_TASK_ID' in os.environ:
-    #     if slurm_array_behaviour == 'burnin':
-    #         idx_file = os.environ['SLURM_ARRAY_TASK_ID']
-    #         walker_file_out = walker_file_out.with_stem(f'{walker_file_out.stem}_{idx_file}')
-    #         log.info(f'Using SLURM_ARRAY_TASK_ID={idx_file} detected. This will be added to `walker_file_out`.')
-    #     elif slurm_array_behaviour is None:
-    #         log.info('SLURM_ARRAY_TASK_ID detected but not used. slurm_array_behaviour is None.')
-    #     else:
-    #         raise ValueError(f"slurm_array_behaviour = {slurm_array_behaviour} not valid.")
+    # Add index to the file name if slurm array is used in sbatch
+    if 'SLURM_ARRAY_TASK_ID' in os.environ:
+        if slurm_array_behaviour == 'burnin':
+            idx_file = os.environ['SLURM_ARRAY_TASK_ID']
+            walker_file_out = walker_file_out.with_stem(f'{walker_file_out.stem}_{idx_file}')
+            log.info(f'Using SLURM_ARRAY_TASK_ID={idx_file} detected. This will be added to `walker_file_out`.')
+        elif slurm_array_behaviour is None:
+            log.info('SLURM_ARRAY_TASK_ID detected but not used. slurm_array_behaviour is None.')
+        else:
+            raise ValueError(f"slurm_array_behaviour = {slurm_array_behaviour} not valid.")
     
     # Make sure file does not already exist
     if init_mode != 'continue':
@@ -3190,5 +3224,8 @@ def main(yaml_file=None, **kwargs):
 
     log.info('End of retrieval. It seems to be a success!')
     
+    
+if __name__ == '__main__':
+    main()
 
 # %%
