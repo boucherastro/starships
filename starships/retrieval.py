@@ -1571,8 +1571,6 @@
 # Do imports when needed
 
 import sys
-sys.path.append('/home/fgenest/')
-sys.path.append('/home/fgenest/starships/')
 
 import os
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
