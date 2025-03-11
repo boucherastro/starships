@@ -60,7 +60,8 @@ NOTE: If you don't know your path to python3.9, run `which python` or `which pyt
 For **compute canada**:
 If you are on compute canada, you can use the following script to install starships and petitRADTRANS. 
 ```shell
-module load gcc python/3.9 mpi4py
+module load StdEnv/2020
+module load gcc python/3.9 mpi4py hdf5 netcdf
 virtualenv /path/to/new/virtualenv/
 pip install --no-index --upgrade pip
 source /path/to/new/virtualenv/bin/activate

@@ -621,10 +621,10 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
             flux_masked = flux_Sref.copy()            
     print('flux_masked all nan : {}'.format(flux_masked.mask.all()))
     # --- ***** CHANGED iOut FOR SOMETHING ELSE
-    if (iOut_temp is None):  # or (iOut_temp == ''):
-        iOut_temp = iOut #np.arange(0,36)
-    elif iOut_temp == 'all':
-        iOut_temp = np.arange(flux.shape[0])
+    # if (iOut_temp is None):  # or (iOut_temp == ''):
+    #     iOut_temp = iOut #np.arange(0,36)
+    # elif iOut_temp == 'all':
+    iOut_temp = np.arange(flux.shape[0])
 #     else:
 #         iOut_temp = iOut_temp
 
@@ -651,7 +651,7 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
     print('master_out all nan : {}'.format(master_out.mask.all()))
     if spec_trans is None:
         hm.print_static('Building the transmission spectrum #1 \n')
-        spec_trans = flux_norm_mo/master_out
+        spec_trans = flux_norm_mo/master_out                             # comment out the division to keep the master out
         print('spec-trans all nan : {}'.format(spec_trans.mask.all()))
     if poly_time is not None:
         if noise is None:

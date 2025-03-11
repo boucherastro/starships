@@ -25,7 +25,7 @@ def main(config_dict, p, obs, visit_name, wave_mod, mod_spec, scratch_dir = None
     # set save directory
     if scratch_dir == None:
         scratch_dir = Path(os.environ["SCRATCH"])
-        scratch_dir /= Path(f'pipeline_outputs/{"".join(p.name.split())}/injected_fits/JWST_1000mbar')
+        scratch_dir /= Path(f'{config_dict["instrument"]}/Reductions/injected_fits/{"".join(p.name.split())}')
         scratch_dir.mkdir(parents=True, exist_ok=True)
     
     # getting the exposures in and out of transit
@@ -46,12 +46,7 @@ def main(config_dict, p, obs, visit_name, wave_mod, mod_spec, scratch_dir = None
     berv = obs.berv
 
     # Scale the inputted model
-    # mod_spec_scaled = (mod_spec - (p.R_pl / p.R_star)**2)* config_dict['scaling_factor']
-    
-    # ---------------
-    # test without "scaling" (only for scaling factor = 1)
-    mod_spec_scaled = (mod_spec)* config_dict['scaling_factor']
-    # ---------------
+    mod_spec_scaled = (mod_spec - (p.R_pl / p.R_star)**2)* config_dict['scaling_factor']
 
     # save a plot of the scaled model
     plot_scaled_model(wave_mod, mod_spec, mod_spec_scaled, path_fig)
@@ -64,7 +59,7 @@ def main(config_dict, p, obs, visit_name, wave_mod, mod_spec, scratch_dir = None
     interp_wavelength = interp1d(wave_mod_shifted, mod_spec_scaled, kind='cubic')
 
     # get list of all exposures
-    with open(str(config_dict['obs_dir'])+'/'+f'list_tellu_corrected{visit_name}') as f:
+    with open(str(config_dict['obs_dir'])+'/'+f'list_tcorr_{visit_name}') as f:
         exp_list = f.readlines()
 
 
@@ -87,14 +82,9 @@ def main(config_dict, p, obs, visit_name, wave_mod, mod_spec, scratch_dir = None
         
         # load the exposure
         hdul = fits.open(str(config_dict['obs_dir'])+'/'+exp.strip())
-        # and the wl file
-        wavefile = hdul[0].header['WAVEFILE']
-        with fits.open(str(config_dict['obs_dir'])+'/'+wavefile) as f:
-            wvsol = f[1].data
 
         count = hdul[1].data
-        # wv = hdul[2].data / 1000
-        wv = wvsol / 1000
+        wv = hdul[2].data / 1000
         
         # iterate over the wavelength bits
         for w in range(len(wv)):
@@ -133,20 +123,15 @@ def main(config_dict, p, obs, visit_name, wave_mod, mod_spec, scratch_dir = None
 
     # copy rest of files into scratch so we can use it as a new obs_dir
     # get list of all exposures
-    with open(str(config_dict['obs_dir'])+'/'+f'list_e2ds{visit_name}') as f:
+    with open(str(config_dict['obs_dir'])+'/'+f'list_e2ds_{visit_name}') as f:
         e2ds_list = f.readlines()
 
     for i, e2ds in enumerate(e2ds_list):
         os.system(f'cp {config_dict["obs_dir"]}/{e2ds.strip()} {scratch_dir}')
-        
-#     do the same thing for tellu recons
-    with open(str(config_dict['obs_dir'])+'/'+f'list_tellu_recon{visit_name}') as f:
-        recon_list = f.readlines()
 
-    for i, recon in enumerate(recon_list):
-        os.system(f'cp {config_dict["obs_dir"]}/{recon.strip()} {scratch_dir}')
+    # copy the e2ds and tcorr lists into the scratch
+    os.system(f'cp {config_dict["obs_dir"]}/list_tcorr_{visit_name} {scratch_dir}')
+    os.system(f'cp {config_dict["obs_dir"]}/list_e2ds_{visit_name} {scratch_dir}')
 
-    # copy the e2ds and tcorr (and recon) lists into the scratch
-    os.system(f'cp {config_dict["obs_dir"]}/list_tellu_corrected{visit_name} {scratch_dir}')
-    os.system(f'cp {config_dict["obs_dir"]}/list_e2ds{visit_name} {scratch_dir}')    
-    os.system(f'cp {config_dict["obs_dir"]}/list_tellu_recon{visit_name} {scratch_dir}')
+    
+    

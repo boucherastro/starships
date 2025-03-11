@@ -1575,6 +1575,8 @@ sys.path.append('/home/fgenest/')
 sys.path.append('/home/fgenest/starships/')
 
 import os
+os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
 from pathlib import Path
 import yaml
 import logging
@@ -2946,7 +2948,6 @@ def lnprob(theta, ):
 
             logl_i.append(logl_tr)
 
-        # logl_all_visits = np.concatenate(np.array(logl_i), axis=0)
         logl_all_visits = np.concatenate(logl_i, axis=0)
         log.debug(f'Shape of individual logl for all exposures (all visits combined): {logl_all_visits.shape}')
         total += corr.sum_logl(logl_all_visits, data_info['trall_icorr'], orders,

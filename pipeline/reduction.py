@@ -38,7 +38,6 @@ def set_save_location(pl_name, visit_name, reduction, instrument, out_dir = None
         #out_dir /= Path(f'projects/def-dlafre/shared/{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
         out_dir /= Path(f'projects/def-rdoyon/shared/{instrument}/Reductions/{reduction}/{pl_name_fname}/{visit_name}')
 
-
     # Output reductions in dedicated directory
     scratch_dir /= Path(f'{instrument}/Reductions/{reduction}/{pl_name_fname}')
 
@@ -50,9 +49,29 @@ def set_save_location(pl_name, visit_name, reduction, instrument, out_dir = None
     path_fig = out_dir / Path('Results')
     path_fig.mkdir(parents=True, exist_ok=True)
 
-    path_fig = str(path_fig) + '/'
+    # Sept 2024: not using path_fig anymore, as using a single out_dir is more flexible for the pipeline
+    # path_fig = str(path_fig) + '/' 
 
-    return scratch_dir, out_dir, path_fig
+    # instantiating the nested directories to be used later for saving plots
+    classic_ccf_dir = out_dir / Path('Results') / Path('CCF_classic')
+    classic_ccf_dir.mkdir(parents=True, exist_ok=True)
+
+    injected_ccf_dir = out_dir / Path('Results') / Path('CCF_injected')
+    injected_ccf_dir.mkdir(parents=True, exist_ok=True)
+
+    red_steps_dir = out_dir / Path('Results') / Path('Reduction_steps')
+    red_steps_dir.mkdir(parents=True, exist_ok=True)
+
+    ttest_dir = out_dir / Path('Results') / Path('T-test')
+    ttest_dir.mkdir(parents=True, exist_ok=True)
+
+    param_dir = out_dir / Path('Results') / Path('Parameters')
+    param_dir.mkdir(parents=True, exist_ok=True)
+
+    dirs_dict = {'scratch_dir': scratch_dir, 'out_dir': out_dir, 'classic_ccf_dir': classic_ccf_dir, 
+                 'injected_ccf_dir': injected_ccf_dir, 'red_steps_dir': red_steps_dir, 'param_dir': param_dir, 'ttest_dir': ttest_dir}
+
+    return dirs_dict # all output as posix path objects
 
 
 def convert_to_quantity(quantity_dict):
@@ -178,34 +197,38 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
 def save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs=[]):
     # Save sequence with only the info needed for a retrieval (to compute log likelihood).
     out_filename = f'retrieval_input' + nametag
-    pl_obs.save_single_sequences(out_filename, list_tr, path=scratch_dir, save_all=True, bad_indexs = bad_indexs)
+    pl_obs.save_single_sequences(out_filename, list_tr['1'], path=scratch_dir, save_all=True, bad_indexs = bad_indexs)
 
+    # QUICK FIX - SHOULD FIX FILE NAMING PROPERLY LATER
+    pl_obs.save_sequences(f'retrieval_inputs' + nametag, list_tr, [1], path=scratch_dir, bad_indexs=bad_indexs, save_all=True)
+    
 
 def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag): 
     visit_list = [list_tr]  # You could put multiple visits in the same figure
 
     if n_pc == config_dict['n_pc'][0]:
-        pf.plot_night_summary_NIRPS(visit_list, obs, path_fig=str(path_fig), fig_name='')
+        pf.plot_night_summary_NIRPS(visit_list, obs, path_fig=str(path_fig.parent.parent) + '/', fig_name='')
 
     sequence_obj = list_tr
 
     # plot for specified orders
     for idx_ord in config_dict['idx_ord']:
-        pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig), fig_name = nametag + f'_ord{idx_ord}')
+        pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig) + '/', fig_name = nametag + f'_ord{idx_ord}')
 
 
-def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, mask_tellu, mask_wings, visit_name):
+def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu, mask_wings, visit_name, plot = True, saved = False):
 
     nametag = f'_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
     # check if reduction already exists
     if os.path.exists(scratch_dir / f'retrieval_input{nametag}_data_trs_.npz'):
+        saved = True
         print(f"Reduction already exists for {nametag}. Loading...")
-        list_tr = pl_obs.load_single_sequences(f'retrieval_input{nametag}_data_trs_.npz', planet.name, path=scratch_dir,
+        transit = pl_obs.load_single_sequences(f'retrieval_input{nametag}_data_trs_.npz', planet.name, path=scratch_dir,
                           load_all=True, filename_end='', planet=planet, plot = False)
 
     else: # building the transit spectrum
         list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
-        list_tr = list_tr['1']
+        transit = list_tr['1']
 
     # saving the transit spectrum
 
@@ -215,9 +238,11 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, path_fig, n_pc, 
 
     else: bad_indexs = []
     
-    save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs)
+    if saved == False:
+        save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs)
 
-    # outputting plots for reduction step
-    reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag)
+    # outputting plots for reduction steps
+    if plot:
+        reduction_plots(config_dict, obs, transit, n_pc, out_dir, nametag)
 
-    return list_tr
+    return transit
