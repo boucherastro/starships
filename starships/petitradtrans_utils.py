@@ -159,14 +159,14 @@ def select_mol_list(list_mols, list_values=None, kind_res='low',
 
     species_linelists = dict()
     species_linelists['high'] = OrderedDict({
-        'H2O': 'H2O_main_iso',
+        'H2O': 'H2O_pokazatel_main_iso',
         'CO': 'CO_all_iso',
         'CO2': 'CO2_main_iso',
         'FeH': 'FeH_main_iso',
         'C2H2': 'C2H2_main_iso',
-        'CH4': 'CH4_main_iso',
+        'CH4': 'CH4_Hargreaves_main_iso',
         'HCN': 'HCN_main_iso',
-        'NH3': 'NH3_main_iso',
+        'NH3': 'NH3_coles_main_iso',
         'TiO': 'TiO_all_iso',
         'SiO': 'SiO_main_iso',
         'VO': 'VO',

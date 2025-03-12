@@ -12,7 +12,7 @@ setup(
         'emcee<=3.1.3',
         'exo-k<=1.2.0',
         'exofile>=0.2.2',
-        # 'h5py==3.7',
+        # 'h5py==3.6',
         'matplotlib<3.7',
         'numpy>=1.23.0,<1.26.0',
         'scikit-learn>=1.0.2,<=1.3.1',

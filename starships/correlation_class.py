@@ -182,7 +182,7 @@ class Correlations():
         snr = []
         courbe = []
 
-        if axs is []:
+        if axs == []:
             fig, ax = plt.subplots(1,2, figsize=(10,4))
         else:
             fig = axs[0].figure
