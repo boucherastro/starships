@@ -1405,7 +1405,10 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         divider = make_axes_locatable(ax[0])
         cax = divider.append_axes('right', size='3%', pad=0.05)
         cbar = fig.colorbar(im0, ax=ax[0], cax=cax)
-        cbar.set_label(r'$t$-test $\sigma$', fontsize=16)
+        cbar.set_label(r'$t$-test $\sigma$', fontsize=16)#, color='white')  ##################################### MATHIS CHANGE THIS BACK
+        # for spine in cbar.ax.spines.values():
+        #     spine.set_edgecolor('white')
+        # cbar.ax.tick_params(colors='white')  ##################################################################
 
         ax[0].axhline(tr.Kp.value,color='r', linestyle=':', label='Planet Rest Frame')
         ax[0].axvline(0,color='r', linestyle=':')
@@ -1418,6 +1421,13 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
                 print("The telluric residuals are not located within the x axis limits of this plot")
         
         fig.tight_layout(pad=1.0)
+        # fig.patch.set_facecolor('k') ####################### MATHIS CHANGE THIS BACK TO NORMAL
+        # ax[0].tick_params(colors='white')
+        # ax[0].xaxis.label.set_color('white')
+        # ax[0].yaxis.label.set_color('white')
+        # for spine in ax[0].spines.values():
+        #     spine.set_edgecolor('white')
+        # ax[0].title.set_color('white')  ####################
 
 
         if vrp is None:
@@ -1788,10 +1798,10 @@ def plot_airmass(list_tr, markers=['o','s','d'],
     ax[0].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[0].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
 
-    ax[0].ylabel('Airmass', fontsize=16)
-    ax[0].xlabel(r'Orbital phase ($\phi$)', fontsize=16)
-    ax[0].legend(loc='upper left', fontsize=12)
-    ax[0].tight_layout()
+    ax[0].set_ylabel('Airmass', fontsize=16)
+    ax[0].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    ax[0].legend(loc='best', fontsize=12)
+    plt.tight_layout()
 
     # if path_fig is not None:
     #     plt.savefig(path_fig+'fig_airmass{}.pdf'.format(fig_name))
