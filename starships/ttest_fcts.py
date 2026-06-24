@@ -155,11 +155,11 @@ def single_t_test(tr, corrRV, correlation, orders, ccf=None, speed_limit=4, wind
 
     in_ccf, out_ccf = get_corr_in_out_trail(tr.iIn, corrRV, ccf, tr, wind=wind, 
                                             speed_limit=speed_limit, limit_out=limit_out, 
-                                            both_side=both_side, vrp=vrp, verbose=verbose)
+                                            both_side=both_side, vrp=vrp, verbose=False)
 
     in_ccf_af, out_ccf_af = get_corr_in_out_trail(tr.iOut, corrRV, ccf, tr, wind=wind, 
                                                   speed_limit=speed_limit, limit_out=limit_out, 
-                                            both_side=both_side, vrp=vrp, verbose=verbose)
+                                            both_side=both_side, vrp=vrp, verbose=False)
     if kind == 1:
         A, B = in_ccf/np.nanstd(out_ccf), out_ccf/np.nanstd(out_ccf)
         C, D = in_ccf_af/np.std(out_ccf_af), out_ccf_af/np.std(out_ccf_af)
@@ -292,7 +292,7 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
              
                 
     if plot is True:
-        print(Kp_array.size)
+        # print(Kp_array.size)
         if Kp_array.size > 1:
 #             plt.figure()
 #             plt.plot(RV_array, t_value.squeeze())

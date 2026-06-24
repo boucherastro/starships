@@ -1,23 +1,31 @@
+# Standard libraries
+from pathlib import Path
+
+# Third-party packages
 import numpy as np
-from . import homemade as hm
-from . import analysis as a
-from . import retrieval_utils as ru
-from . import ttest_fcts as nf
-from .orbite import rv_theo_nu
-from .mask_tools import interp1d_masked
+import scipy as sp
+
+import matplotlib.pyplot as plt
+from matplotlib import cm, gridspec, set_loglevel
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.colorbar import ColorbarBase
+from matplotlib.colors import Normalize
+from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.transforms as transforms
 
-# import scipy.constants as cst
-import scipy as sp
-from astropy import units as u
 from astropy import constants as const
-
-import matplotlib.pyplot as plt
-# from itertools import islice
+from astropy import stats
+from astropy import units as u
 from astropy.table import Table, Column
 
-from pathlib import Path
+# Local modules
+from . import analysis as a
+from . import homemade as hm
+from . import retrieval_utils as ru
+from . import ttest_fcts as nf
+from .mask_tools import interp1d_masked
+from .orbite import rv_theo_nu
 
 # Initiate random number generator
 rng = np.random.default_rng()
@@ -731,8 +739,11 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
     for i in range(n_rows):
         for j in range(n_cols):
             index = i * n_cols + j
+            
             if index >= n_orders:
                 break  # Exit the loop if the index is out of bounds
+
+            fg_color = 'dimgrey'  # dummy color if none of the following if statements apply
             if index in a.bands(tr.wv, 'y'):
                 fg_color = 'goldenrod'
             if index in a.bands(tr.wv, 'j'):
@@ -749,6 +760,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
                                    ccf[:,i*n_cols+j]-np.nanmean(ccf[:,i*n_cols+j], axis=-1)[:,None], vmin=vmin, vmax=vmax)
             else:
                 ax[i,j].pcolormesh(corrRV, np.arange(ccf.shape[0]), ccf[:,i*n_cols+j], vmin=vmin, vmax=vmax)
+                
             ax[i,j].plot(vrp, np.arange(ccf.shape[0]), 'k:', alpha=0.5)
             
             ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]), color=fg_color)
@@ -756,18 +768,23 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
             shifted_corr, interp_grid, courbe, snr, _ = a.calc_snr_1d(ccf[icorr,i*n_cols+j], corrRV, \
                                                             vrp[icorr], RV_sys=RV_sys, limit_shift=limit_shift)
             snr_list.append(snr)
+            
             if kind == 'courbe':
                 ax_single[i,j].plot(interp_grid, courbe)
             else:
                 ax_single[i,j].plot(interp_grid, snr)
                 ax_single[i,j].set_ylim(-4,4)
+                
             ax_single[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*n_cols+j, mean_snr[i*n_cols+j], pix_frac[i*n_cols+j]),
                                         color=fg_color)
             ax_single[i,j].axvline(0, linestyle=':', alpha=0.5)
+            
             if vline is not None:
                 ax_single[i,j].axvline(vline, linestyle='-', alpha=0.5, color='navy')
+                
             if hline is not None:
                 ax_single[i,j].axhline(hline, linestyle='-', alpha=0.5, color='navy')
+                
             ax_single[i,j].axvline(np.mean(tr.berv), linestyle='--', color='red', alpha=0.5)
             
             if orders is not None:
@@ -786,13 +803,16 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
                     ax_single[i,j].text(0.5 * (left2 + right2), 0.4 * (bottom2 + top2), "X", horizontalalignment='center',
                                         verticalalignment='center', color="red",fontsize=65.)
 
+    plt.show()
+    
     if output_file is not None:
         output_file = Path(output_file)
         fig.savefig(output_file.with_stem(f'{output_file.stem}_2d'))
         fig_single.savefig(output_file.with_stem(f'{output_file.stem}_single'))
 
     if return_snr is True:
-        return snr_list            
+        return snr_list
+    
             
 def plot_all_orders_spectra(tr, flux=None):
     
@@ -912,7 +932,7 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar00 = fig.colorbar(im0,ax=ax0, cax=cax)
 #     ax0.set_title('B) Uncorrected Flux (Earth Rest Frame)')
-    ax0.text(tr.wv[iord][40], tr.phase[-6], 'B) Uncorrected Flux (Earth Rest Frame)',
+    ax0.text(tr.wv[iord][40], tr.phase[-3], 'B) Uncorrected Flux (Earth Rest Frame)',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 #     cbar00.set_label('Flux', fontsize=14)
     
@@ -923,7 +943,7 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar01 = fig.colorbar(im01,ax=ax01, cax=cax)
 #     ax01.set_title('C) Telluric-Corrected Flux')
-    ax01.text(tr.wv[iord][40], tr.phase[-6], 'C) Telluric-Corrected Flux',
+    ax01.text(tr.wv[iord][40], tr.phase[-3], 'C) Telluric-Corrected Flux',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
     cbar01.set_label('Flux',y=1.2, fontsize=14)
 
@@ -936,7 +956,7 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar0 = fig.colorbar(im1,ax=ax1, cax=cax)
 #     ax1.set_title('D) Masked and Normalized Flux (Shifted to Star Rest Frame)')
-    ax1.text(tr.wv[iord][40], tr.phase[-6], 'D) Normalized Flux (Shifted to Pseudo SRF)',
+    ax1.text(tr.wv[iord][40], tr.phase[-3], 'D) Normalized Flux (Shifted to Pseudo SRF)',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
     im2 = ax2.pcolormesh(tr.wv[iord], tr.phase, tr.fl_norm_mo[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
@@ -948,7 +968,7 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
     cax = divider.append_axes('right', size='3%', pad=0.05)
     fig.colorbar(im2,ax=ax2, cax=cax)
 #     ax2.set_title('E) Normalized to the Continuum Flux')
-    ax2.text(tr.wv[iord][40], tr.phase[-6],'E) Normalized to the Continuum Flux',
+    ax2.text(tr.wv[iord][40], tr.phase[-3],'E) Normalized to the Continuum Flux',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
     im3 = ax3.pcolormesh(tr.wv[iord], tr.phase, tr.spec_trans[:,iord], cmap=cmap, rasterized=True, vmin=0.955, vmax=1.035)
@@ -958,7 +978,7 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
     cax = divider.append_axes('right', size='3%', pad=0.05)
     fig.colorbar(im3,ax=ax3, cax=cax)
 #     ax3.set_title('F) Transmission Spectrum')
-    ax3.text(tr.wv[iord][40], tr.phase[-6], 'F) Transmission Spectrum',
+    ax3.text(tr.wv[iord][40], tr.phase[-3], 'F) Transmission Spectrum',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
     im4 = ax4.pcolormesh(tr.wv[iord], tr.phase, tr.final[:,iord], cmap=cmap, rasterized=True, vmin=0.955-1, vmax=1.035-1)  
@@ -968,7 +988,7 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar1 = fig.colorbar(im4,ax=ax4, cax=cax)
 #     ax4.set_title('G) PCA-Corrected Transmission Spectrum ({} PC)'.format(tr.params[5]))
-    ax4.text(tr.wv[iord][40], tr.phase[-6], 'G) PCA-Corrected Transmission Spectrum ({} PCs)'.format(tr.params[5]),
+    ax4.text(tr.wv[iord][40], tr.phase[-3], 'G) PCA-Corrected Transmission Spectrum ({} PCs)'.format(tr.params[5]),
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
 #     ax4.plot(tr.wv[iord][2044] * (1+tr.vrp/const.c), tr.phase)
@@ -981,6 +1001,8 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
         ax4.set_xlim(*xlim)
         
     fig.subplots_adjust(hspace=0)
+    plt.show()
+    
     if path_fig is not None:
         fig.savefig(path_fig+'fig_STEPS'+fig_name+'.pdf')
 
@@ -1347,7 +1369,7 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
     y = sigma[hm.nearest(Kp_array, tr.Kp.value)][(RV_array >= -15) & (RV_array <= 15)]
 
     chose = a.find_max_spline(x, y.copy() , kind='max')
-    print('T-val : Max value = {:.2f} // Max position = {:.2f}'.format(-chose[1], chose[0]))
+    print('\rT-val : Max value = {:.2f} // Max position = {:.2f}'.format(-chose[1], chose[0]))
 
     im1 = ax[1].pcolormesh(RV_array, Kp_array, np.log10(p_value), cmap='viridis_r')
 #     ax[1].set_xlabel('RV shift')
@@ -1372,7 +1394,8 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
     y = nf.pval2sigma(p_value)[hm.nearest(Kp_array, tr.Kp.value)][(RV_array >= -15) & (RV_array <= 15)]
     chose = a.find_max_spline(x, np.ma.masked_invalid(y.copy()) , kind='max')
     print('Sigma : Max value = {:.2f} // Max position = {:.2f}'.format(-chose[1], chose[0]))
-
+    
+    plt.show()
     
     return -chose[1], chose[0]
 
@@ -1380,7 +1403,7 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
 def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttest_params, ccf=None,
                         orders=np.arange(49), masked=False, logl=False, plot_trail=False, show_max=True,
                         show_rest_frame=True, Kp=None, RV=None, vrp=None, fig_name='',
-                        path_fig=None, hist=True, cmap=None, tellu_loc=None):
+                        path_fig=None, hist=True, cmap=None):
     
     '''
     Plot Kp/Vrad map, T-test and Trail.
@@ -1405,19 +1428,22 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         divider = make_axes_locatable(ax[0])
         cax = divider.append_axes('right', size='3%', pad=0.05)
         cbar = fig.colorbar(im0, ax=ax[0], cax=cax)
-        cbar.set_label(r'$t$-test $\sigma$', fontsize=16)
+        cbar.set_label(r'$t$-test $\sigma$', fontsize=16)#, color='white')  ############ USED TO MAKE A BLACK PLOT WITH WHITE BORDERS
+        # for spine in cbar.ax.spines.values():
+        #     spine.set_edgecolor('white')
+        # cbar.ax.tick_params(colors='white')  ############
 
         ax[0].axhline(tr.Kp.value,color='r', linestyle=':', label='Planet Rest Frame')
         ax[0].axvline(0,color='r', linestyle=':')
         
-        # Position of tellurics
-        if tellu_loc is not None:
-            if tellu_loc >= RV_array[0] and tellu_loc <= RV_array[-1]:  # if the telluric are within the limits of the x axis
-                ax[0].axvline(tellu_loc, linestyle=":", alpha=0.85, color="saddlebrown")
-            else:
-                print("The telluric residuals are not located within the x axis limits of this plot")
-        
         fig.tight_layout(pad=1.0)
+        # fig.patch.set_facecolor('k') ############ USED TO MAKE A BLACK PLOT WITH WHITE BORDERS
+        # ax[0].tick_params(colors='white')
+        # ax[0].xaxis.label.set_color('white')
+        # ax[0].yaxis.label.set_color('white')
+        # for spine in ax[0].spines.values():
+        #     spine.set_edgecolor('white')
+        # ax[0].title.set_color('white')  ############
 
 
         if vrp is None:
@@ -1434,7 +1460,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         y = sigma[hm.nearest(Kp_array, Kp)][(RV_array >= -15) & (RV_array <= 15)]
 
         chose = a.find_max_spline(x, y.copy() , kind='max')
-        print('T-val : Max value = {:.1f} // Max position = {:.1f}'.format(-chose[1], chose[0]))
+        print('\rT-val : Max value = {:.1f} // Max position = {:.1f}'.format(-chose[1], chose[0]))
 
         max_val = -chose[1]
         wind = chose[0]
@@ -1500,6 +1526,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 
         nf.t_test_hist(new_A, new_B, labelA, labelB, title1, ax[1])
         fig.tight_layout()
+        plt.show()
 
         if path_fig is not None:
             fig.savefig(path_fig+'fig_ttest{}.pdf'.format(fig_name))
@@ -1537,7 +1564,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         y = sigma[hm.nearest(Kp_array, Kp)][(RV_array >= -15) & (RV_array <= 15)]
 
         chose = a.find_max_spline(x, y.copy() , kind='max')
-        print('T-val : Max value = {:.1f} // Max position = {:.1f}'.format(-chose[1], chose[0]))
+        print('\rT-val : Max value = {:.1f} // Max position = {:.1f}'.format(-chose[1], chose[0]))
 
         max_val = -chose[1]
         wind = chose[0]
@@ -1598,11 +1625,12 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 
 #         nf.t_test_hist(new_A, new_B, labelA, labelB, title1, ax[1])
         fig.tight_layout()
+        plt.show()
 
         if path_fig is not None:
             fig.savefig(path_fig+'fig_ttest_map{}.pdf'.format(fig_name))
 
-    
+    plt.show()
     return sp.stats.ttest_ind(A, B, nan_policy='omit', equal_var=equal_var), fig
     
 
@@ -1788,10 +1816,10 @@ def plot_airmass(list_tr, markers=['o','s','d'],
     ax[0].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[0].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
 
-    ax[0].ylabel('Airmass', fontsize=16)
-    ax[0].xlabel(r'Orbital phase ($\phi$)', fontsize=16)
-    ax[0].legend(loc='upper left', fontsize=12)
-    ax[0].tight_layout()
+    ax[0].set_ylabel('Airmass', fontsize=16)
+    ax[0].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    ax[0].legend(loc='best', fontsize=12)
+    plt.tight_layout()
 
     # if path_fig is not None:
     #     plt.savefig(path_fig+'fig_airmass{}.pdf'.format(fig_name))
@@ -2598,3 +2626,390 @@ def scatterplot_logl(flatten_sample, flatten_logl, n_max_pts=10000, tight_ylim=T
     
     return fig, ax
 
+
+def plot_raw_spectrum(observation, wv_range, visit_name, use_median=True, exp_plot=10, ylims=None):
+    """
+    Plot 1D raw and telluric‑corrected spectra for a single night.
+
+    Parameters
+    ----------
+    observation
+        'tr' object produced by pl_obs.load_single_sequences.
+    wv_range
+        Wavelength range (min_wl, max_wl), in microns, to display along the x‑axis.
+    visit_name
+        Name of the night of observation.
+    use_median
+        If True (default), the median spectrum over all exposures is plotted.
+        If False, a single exposure given by exp_plot is plotted.
+    exp_plot
+        Exposure to plot when use_median=False (default: 10).
+        Ignored if use_median=True.
+    ylims
+        y-axis range (ymin, ymax) for the plot.
+        If None (default), the limits are based on the extent of the data.
+
+    Notes
+    -----
+    The flux is first corrected for the blaze function in each order.
+    The individual orders are then concatenated to form a spectrum so that
+    overlapping regions can be inspected visually.
+    This function does not modify the data in any way.
+    Created by Mathis B (May 2025).
+    """
+
+    # ----------------------- sanity checks ----------------------------- #
+    if wv_range[0] >= wv_range[1]:
+        raise ValueError("wavelength_range must be (min, max) with min < max.")
+
+    if not use_median and not (1 <= exp_plot < observation.uncorr.shape[0]):
+        raise IndexError("exp_plot is out of bounds for the number of exposures.")
+
+    # -------------------- blaze‑function correction -------------------- #
+    # Divide by the blaze to get a spectrum normalized at 1
+    blaze_norm = observation.blaze / np.nanmax(observation.blaze, axis=-1, keepdims=True)
+    uncorrected_flux = observation.uncorr / blaze_norm
+
+    # ------------------ build 1‑D concatenated spectra ----------------- #
+    order_indices = np.arange(observation.nord)  # array with all the orders
+
+    # Concatenate wavelength values across orders
+    wavelength = np.concatenate([observation.wv[i] for i in order_indices])
+
+    if use_median:
+        # Median across exposures, order by order
+        flux_uncorrected = np.concatenate([np.nanmedian(uncorrected_flux, axis=0)[i] for i in order_indices])
+        flux_corrected = np.concatenate([np.nanmedian(observation.flux, axis=0)[i] for i in order_indices])
+    else:
+        flux_uncorrected = np.concatenate([uncorrected_flux[exp_plot - 1, i] for i in order_indices])
+        flux_corrected = np.concatenate([observation.flux[exp_plot - 1, i] for i in order_indices])
+
+    # ----------------------- wavelength mask --------------------------- #
+    mask = (wv_range[0] < wavelength) & (wavelength < wv_range[1])
+    
+    # ---------------------------- plot --------------------------------- #
+    fig, ax = plt.subplots(figsize=(11, 4))
+    ax.scatter(wavelength[mask], flux_uncorrected[mask], s=1.2, c="k", label="Uncorrected", zorder=3)
+    ax.scatter(wavelength[mask], flux_corrected[mask], s=1.2, c="#48ACF0", label="Telluric‑corrected",zorder=4)
+
+    # --------------- labels, limits, legend ---------------------------- #
+    ax.set_xlabel("Wavelength [μm]", fontsize=13)
+    ax.set_ylabel("Flux", fontsize=13)
+
+    # Plot title
+    if use_median:
+        title = f"Raw spectrum: {visit_name} (median of exposures)"
+    else:
+        title = f"Raw spectrum: {visit_name} (exposure {exp_plot})"
+    
+    # Set limits for the y axis
+    if ylims is not None:
+        ax.set_ylim(ylims)
+    
+    ax.set_title(title, fontsize=14)
+    ax.legend(fontsize=12)
+    ax.tick_params(axis='both', labelsize=12)
+
+    plt.tight_layout()
+    plt.show()
+    
+
+def calculate_KpVsys_map(OBS_OBJECT, CCF_OBJECT, method, rv_grid, kp_grid, box_Kp=None, box_Vrad=None, clip_sigma=2, clip_iter=4):
+    """
+    Compute and plot the Kp/Vrad cross-correlation map.
+
+    This function generates a Kp/Vrad correlation map by summing the 
+    cross-correlation functions (CCFs) along the planet radial velocity trail 
+    as a function of Kp (semi-amplitude) and Vrad (systemic velocity shift). 
+    It supports two normalization methods: 
+    - 'box': standardizes using the standard deviation within a user-defined box.
+    - 'clip': standardizes using sigma-clipping over the full map.
+
+    The function produces a plot of the normalized Kp/Vrad map with annotations 
+    for the maximum signal and reference lines.
+
+    Parameters
+    ----------
+    OBS_OBJECT : Observation object (see planet_obs.py)
+        Observation object containing the phases and relevant information.
+    CCF_OBJECT : Correlations object (see correlation_class.py)
+        CCF object containing the CCF map, RV grid, and Kp/Vrad arrays.
+    method : str
+        Normalization method, either 'box' or 'clip'. Default is 'box'.
+    rv_grid : array-like
+        Array of radial velocity offsets (Vrad) in km/s over which the map is computed. 
+        Defines the x axis of the Kp/Vrad map.
+    kp_grid : array-like
+        Array of semi-amplitudes (Kp) in km/s over which the map is computed. 
+        Defines the y axis of the Kp/Vrad map.
+    box_Vrad : tuple of float, optional
+        (min_Vrad, max_Vrad) limits in km/s for the box method. Required if method='box'.
+    box_Kp : tuple of float, optional
+        (min_Kp, max_Kp) limits in km/s for the box method. Required if method='box'.
+    clip_sigma : float, optional
+        Sigma threshold for sigma clipping when method='clip'. Default is 2.
+    clip_iter : int, optional
+        Maximum number of iterations for sigma clipping. Default is 4.
+
+    Returns
+    -------
+    None
+        Displays the Kp/Vrad map with annotations. No values are returned.
+
+    Notes
+    -----
+    - The function assumes the CCF has been computed beforehand using cc.plot_ccflogl().
+    - The box normalization requires specifying a Kp and Vsys range where 
+      no signal is expected to compute the noise level.
+    - In 'clip' mode, sigma-clipping is applied globally to remove outliers 
+      before computing the noise standard deviation.
+      
+    Created by Joost Wardenier and improved by Mathis Bouffard, June 2025.
+    """
+    
+    vsys_list = rv_grid
+    Kp_list = kp_grid
+
+    ######################################
+    # 1. Build coordinate grid for plotting
+    ######################################
+    # Extend the coordinate arrays by one step for plotting with pcolormesh
+    x_coords = np.concatenate((vsys_list, [vsys_list[-1]+np.diff(vsys_list)[-1]]))
+    y_coords = np.concatenate((Kp_list, [Kp_list[-1]+np.diff(Kp_list)[-1]]))
+
+    # Get spacings (deltas) between points
+    delta_x = np.concatenate((np.diff(x_coords), [np.diff(x_coords)[-1]]))
+    delta_y = np.concatenate((np.diff(y_coords), [np.diff(y_coords)[-1]]))
+
+    # Center coordinates by half a delta
+    x_coords = x_coords - 0.5 * delta_x
+    y_coords = y_coords - 0.5 * delta_y
+
+    # Create meshgrid for plotting
+    XX_k, YY_k = np.meshgrid(x_coords, y_coords)
+
+    ######################################
+    # 2. Initialize Kp vs. Vsys map and variables
+    ######################################
+    RV_min = 1e6
+    RV_max = 1e-6
+
+    phases = OBS_OBJECT.phase           # The phase of observations
+    velocities = CCF_OBJECT.rv_grid     # The radial velocity grid
+    CCF = CCF_OBJECT.map_prf            # The cross-correlation function array
+
+    KpVsys_map = np.zeros((len(Kp_list), len(vsys_list)))  # Output map
+
+    if OBS_OBJECT.kind_trans == 'transmission':
+        selected_phases = OBS_OBJECT.phase[OBS_OBJECT.iIn]
+        idx = OBS_OBJECT.iIn[0]
+    else:
+        raise NotImplementedError("Emission has not been implemented for this function yet.")
+    
+        # Below is the code that was used before instead of this if/else block.
+        # This or the transmission code could be adapted to emission.
+        
+        # phi_min = -0.02
+        # phi_max = 0.02
+        # mask = ((phases > phi_min) & (phases < phi_max))
+        # idx = np.where(mask == True)[0][0]
+        # selected_phases = phases[mask]
+
+    ######################################
+    # 3. Fill Kp vs. Vsys map
+    ######################################
+    for i, Kp in enumerate(Kp_list):
+        for j, vsys in enumerate(vsys_list):
+            CCF_sum = 0
+            for k, norm_phase in enumerate(selected_phases):
+                # Compute the planet RV shift
+                RV = vsys + Kp * np.sin(2*np.pi*norm_phase)
+
+                # Sum the CCF for this phase and shift
+                CCF_sum = CCF_sum + np.interp(RV, velocities, CCF[idx + k, :], left=0., right=0.)
+
+                # Update min and max RV
+                if RV.max() > RV_max:
+                    RV_max = RV.max()
+                if RV.min() < RV_min:
+                    RV_min = RV.min()
+
+            # Store total summed CCF for this (Kp, vsys) point
+            KpVsys_map[i, j] = CCF_sum
+
+    # print('min RV =', RV_min, ' km/s | max RV = ', RV_max, ' km/s')
+
+    ######################################
+    # 4. Plotting the results
+    ######################################
+    fig = plt.figure(figsize=(10, 7))
+    gs = gridspec.GridSpec(100, 42)
+
+    ax1 = fig.add_subplot(gs[:96, 2:37])  # Main map
+    axc = fig.add_subplot(gs[:96, 38:40]) # Colorbar
+
+    # Choose normalization method
+    if method == 'box':
+        # Get index ranges for Kp
+        kp_mask = (Kp_list >= np.min(box_Kp)) & (Kp_list <= np.max(box_Kp))
+        kp_indices = np.where(kp_mask)[0]
+        
+        # Get index ranges for Vsys
+        vsys_mask = (vsys_list >= np.min(box_Vrad)) & (vsys_list <= np.max(box_Vrad))
+        vsys_indices = np.where(vsys_mask)[0]
+
+        submap = KpVsys_map[np.ix_(kp_indices, vsys_indices)]  # the box
+        
+        sigma = np.std(submap)
+        median = np.median(KpVsys_map)
+        KpVsys_plot = (KpVsys_map - median) / sigma
+        plot_title = 'BOX METHOD'
+        
+        # Draw rectangle outline for the selected box
+        rect_x = [box_Vrad[0], box_Vrad[1], box_Vrad[1], box_Vrad[0], box_Vrad[0]]
+        rect_y = [box_Kp[0], box_Kp[0], box_Kp[1], box_Kp[1], box_Kp[0]]
+        ax1.plot(rect_x, rect_y, color='aqua', linestyle='dashdot', linewidth=1.5, zorder=10)
+        
+    else:
+        # Sigma-clipping method
+        masked_map = stats.sigma_clip(KpVsys_map, sigma=clip_sigma, maxiters=clip_iter)
+        sigma_clip = np.std(masked_map)
+        med_clip = np.median(KpVsys_map)
+        KpVsys_plot = (KpVsys_map - med_clip) / sigma_clip
+        plot_title = 'SIGMA-CLIPPING METHOD'
+
+    # Main map
+    ax1.pcolormesh(XX_k, YY_k, KpVsys_plot, cmap='inferno')
+    max_idx = np.unravel_index(KpVsys_map.argmax(), KpVsys_map.shape)
+    x_max = vsys_list[max_idx[1]]
+    y_max = Kp_list[max_idx[0]]
+
+    # Mark the central (0,Kp) position and best-fit point
+    ax1.axvline(0, color='w', linewidth=2, linestyle='--')
+    ax1.axhline(0, color='w', linewidth=2, linestyle='--')
+    ax1.plot([x_max], [y_max], 'ko', zorder=10)
+
+    # Labels and title
+    ax1.set_title(plot_title, fontsize=25)
+    ax1.set_xlabel('$\Delta \mathrm{v_{rad}}$ (km/s)', fontsize=25)
+    ax1.set_ylabel('$\Delta \mathrm{K_{p}}$ (km/s)', fontsize=25)
+    ax1.tick_params(labelsize=20)
+
+    # Colorbar
+    cmap = cm.inferno
+    norm = Normalize(vmin=np.min(KpVsys_plot), vmax=np.max(KpVsys_plot))
+    cb = ColorbarBase(axc, cmap=cmap, norm=norm, orientation='vertical')
+    cb.set_label(label='SNR', fontsize=25)
+    cb.ax.tick_params(labelsize=20)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_model_orders(
+    obs,
+    wave_mod,
+    model_spec,
+    order_indices,
+    plot_these_orders='all',
+    save_in_pdf=False,
+    pdfname=None
+):
+    """
+    Plot model spectra for selected orders while applying the masking from the data reduction.
+
+    Parameters
+    ----------
+    obs : object
+        Observation object for a specific reduction.
+    wave_mod : array-like
+        Wavelength grid of the model spectrum.
+    model_spec : array-like
+        Model spectrum evaluated on `wave_mod`.
+    order_indices : array-like
+        Orders to highlight in green (i.e., orders included in the analysis).
+    plot_these_orders : 'all' or list/array of int, optional
+        Which orders to plot. If 'all', plot every order in `obs`.
+    save_in_pdf : bool, optional
+        If True, save the figure to a PDF file.
+    pdfname : str or None, optional
+        Name of the PDF file when `save_in_pdf=True`.
+
+    Returns
+    -------
+    None
+        Displays the figure and saves it in a pdf if `save_in_pdf=True`.
+
+    Created by Mathis Bouffard, December 2025.
+    """
+
+    fct_model = sp.interpolate.interp1d(wave_mod, model_spec, kind='cubic')
+
+    # Choose orders to plot
+    if plot_these_orders == 'all':
+        orders_plot = np.arange(obs.nord)  # plot all orders
+    else:
+        orders_plot = plot_these_orders
+    
+    n_orders = len(orders_plot)  # number of orders to plot
+
+    # Prepare PDF if needed
+    if save_in_pdf:
+        pdf = PdfPages(pdfname)
+
+    # Create figure
+    n_rows = int(np.ceil(n_orders / 3))  # number of rows for the grid, with 3 columns
+    fig, axes = plt.subplots(n_rows, 3, figsize=(12, 3.7*n_rows), sharey=False)
+    axes = axes.flatten()  # easier to index linearly
+
+    for idx, i_ord in enumerate(orders_plot):
+
+        ax = axes[idx]
+
+        wv_ord = obs.wv[i_ord]
+        mask_ord = obs.final.mask[0, i_ord]
+
+        # Compute model -- skip orders that fail
+        try:
+            model_raw = fct_model(wv_ord)
+        except ValueError:
+            ax.set_visible(False)
+            continue
+
+        # Fit & divide by polynomial
+        coeff = np.polyfit(wv_ord, model_raw, 1)
+        poly_fct = np.poly1d(coeff)
+        model_ord = np.ma.array(model_raw, mask=mask_ord)
+
+        # Plot (green if order included)
+        if i_ord in order_indices:
+            ax.plot(wv_ord, model_ord / poly_fct(wv_ord), color="limegreen")
+        else:
+            ax.plot(wv_ord, model_ord / poly_fct(wv_ord), color="dodgerblue")
+
+        ax.set_title(f"Order #{i_ord}", fontsize=10)
+
+
+    # Hide unused axes (if any)
+    for j in range(idx+1, len(axes)):
+        axes[j].set_visible(False)
+    
+    # Add a legend for the whole figure
+    legend_elements = [Line2D([0], [0], color='limegreen', lw=3, label='Orders used in the analysis'),
+                       Line2D([0], [0], color='dodgerblue', lw=3, label='Other orders')]
+
+    fig.tight_layout(rect=[0, 0, 1, 0.98])
+    
+    fig.legend(handles=legend_elements,
+               loc='upper center',
+               ncol=2,
+               fontsize=12,
+               frameon=False,
+               bbox_to_anchor=(0.5, 1.0))
+
+    # Save PDF page
+    if save_in_pdf:
+        pdf.savefig(fig, bbox_inches='tight')
+        pdf.close()
+
+    plt.show()

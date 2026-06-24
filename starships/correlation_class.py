@@ -135,6 +135,7 @@ class Correlations():
         self.logl0 = np.nansum( data[:, orders], axis=1)
         self.logl = corr.sum_logl( data, icorr, orders, N, alpha=alpha,
                                   axis=0, del_idx=index, nolog=nolog, **kwargs)
+
         
     def calc_logl_snr(self, n_pca=None, **kwargs):
 
@@ -301,6 +302,7 @@ class Correlations():
         # saving the plots
         if path_fig is not None:
             fig.savefig(path_fig+f'fig_multi_{param}_{fig_name}.pdf')
+    
     
     def get_snr_2d(self, ccf2d=None, Kp_array=None, interp_grid=None, \
                    kp_limit=70, rv_limit=15, RV_sys=0, Kp0=151):
@@ -934,7 +936,7 @@ class Correlations():
                 ccf = self.shifted_ccf
             elif kind == 'logl_corr':
                 ccf = np.ma.masked_invalid(np.ma.sum(self.data[:, orders], axis=1)).squeeze()
-                print(ccf.shape)
+                # print(ccf.shape)
 
             elif kind == "logl_sig":
                 nolog_L_sig = np.ma.masked_invalid(np.ma.sum(self.data[:, orders], axis=1)).squeeze()
@@ -966,9 +968,9 @@ class Correlations():
 #         print(ccf.mean())
         
         
-        
         return ccf
-   
+
+    
     def plot_PRF(self, tr, interp_grid=None, ccf=None, orders=None, RV=0., icorr=None, split_fig=[0], peak_center=None,
                      hlines=None, texts=None, kind='logl_corr', index=None, snr_1d=None, labels=None, clim=None, 
                      path_fig='', fig_name=None, extension='.pdf', id_pc=None, map_kind='snr', debug=False, remove_mean=False,
@@ -1069,8 +1071,9 @@ class Correlations():
             for i in range(len(split_fig))[1:][::-1]:
 
                 id_range.append([split_fig[i-1],split_fig[i]])
-    #             print(id_range)
+                
                 y.append(tr.phase[split_fig[i-1]:split_fig[i]]) #np.arange(tr.n_spec)[:split_fig]
+                
                 if map_kind == 'snr':
                     ccf_i = ccf[split_fig[i - 1]:split_fig[i]]
                     # std_i = np.nanstd(ccf[:, idx_bruit_rv][split_fig[i - 1]:split_fig[i]], axis=-1)
@@ -1083,15 +1086,19 @@ class Correlations():
                     #          np.nanstd(ccf[:,idx_bruit_rv][split_fig[i-1]:split_fig[i]], axis=-1)[:,None]))
                     # print(ccf[split_fig[i-1]:split_fig[i]].shape)
                     # print(np.nanstd(ccf[:,idx_bruit_rv][split_fig[i-1]:split_fig[i]]).shape)
-                    # print()
+                    
                 if map_kind == 'curve':
                     z.append(ccf[split_fig[i-1]:split_fig[i]])
+                
         else:
             y=tr.phase  #np.arange(split_fig, tr.n_spec)-split_fig
+            
             if map_kind == 'snr':
                 z=ccf/np.nanstd(ccf[:,idx_bruit_rv])
+                
             if map_kind == 'curve':
                 z=ccf
+            
 
         idx_mid = hm.nearest(interp_grid, RV)        
         # colum3 = np.ma.mean(ccf[:,idx_mid-1:idx_mid+2]/np.nanstd(ccf[:,idx_bruit_rv]),axis=-1)
@@ -1140,7 +1147,7 @@ class Correlations():
                                          vmax=np.nanpercentile(z[i],99.9))
                 if index is not None:
                     idx_zero = np.where((z[i] == 0).all(axis=-1) == True)[0]
-                    print(idx_zero)
+                    # print(idx_zero)
                     if i == 0:
                         idx_end =idx_zero[-1]+1
                     else:
@@ -1148,9 +1155,9 @@ class Correlations():
                             idx_zero[-1]
                         else:
                             idx_end = idx_zero[-1]+1
-                    print(idx_zero[0],idx_end)
+                    # print(idx_zero[0],idx_end)
                     ax_map[i].pcolormesh(x, y[i][idx_zero[0]:idx_end], z[i][idx_zero[0]:idx_end] , 
-                                     cmap='nipy_spectral_r', rasterized=True,)
+                                     cmap='nipy_spectral_r', rasterized=True)
                 try: 
                     id_out = tr.iOut[(tr.iOut>=id_range[i][0]) & (tr.iOut<id_range[i][1])]-id_range[i][0]
                     ax_map[i].plot(np.ones_like(y[i])[id_out]*RV, y[i][id_out],
@@ -1159,10 +1166,13 @@ class Correlations():
                     ax_map[i].axvline(RV, color='k', linestyle=':', alpha=0.8)
 
                 ax_map[i].axvline(0, linestyle=':', color='black', alpha=0.8, label="$V_{rad}$ = 0")
-                if minus_kp is False:
-                    ax_map[i].plot(berv_rv[id_range[i][0]:id_range[i][1]], y[i], '--', color='darkred', label="Tellurics")
-                else:
-                    ax_map[i].plot(berv_rv[id_range[i][0]:id_range[i][1]][::-1], y[i], '--', color='darkred', label="Tellurics")
+                
+                if tr.n_spec >= 2 * len(tr.filenames):  # if the tr object consists of more than 1 night (twice more exposures than in any of the nights)
+                    if minus_kp is False:
+                        ax_map[i].plot(berv_rv[id_range[i][0]:id_range[i][1]], y[i], '--', color='darkred', label="Tellurics")
+                    else:
+                        ax_map[i].plot(berv_rv[id_range[i][0]:id_range[i][1]][::-1], y[i], '--', color='darkred', label="Tellurics")
+                
                 if clim is not None:
                     im.set_clim(clim[0],clim[1])
 #                 ax_map[i].set_ylim(tr.phase.min(), tr.phase.max())
@@ -1173,13 +1183,16 @@ class Correlations():
             
         else:
             ax_map.set_ylabel(r'Orbital Phase', fontsize=16)
-            im = ax_map.pcolormesh(x, y, z , cmap=cmap, rasterized=True)
+            im = ax_map.pcolormesh(x, y, z , cmap=cmap, rasterized=True)  # mathis test
             ax_map.plot(np.ones_like(y)[tr.iOut]*RV, y[tr.iOut],'k.', alpha=0.5, label="Out of transit observations")
-            ax_map.axvline(0, linestyle=':', color='black', alpha=0.8, label="$V_{rad}$ = 0")
-            if minus_kp is False:
-                ax_map.plot(berv_rv, y, '--', color='darkred', label="Tellurics")
-            else:
-                ax_map.plot(berv_rv[::-1], y, '--', color='darkred', label="Tellurics")
+            ax_map.axvline(0, linestyle=':', color='black', alpha=0.8, label="$v_{rad}$ = 0")
+            
+            if tr.n_spec >= 2 * len(tr.filenames):  # if the tr object consists of more than 1 night (twice more exposures than in any of the nights)
+                if minus_kp is False:
+                    ax_map.plot(berv_rv, y, '--', color='darkred', label="Tellurics")
+                else:
+                    ax_map.plot(berv_rv[::-1], y, '--', color='darkred', label="Tellurics")
+            
             if clim is not None:
                 im.set_clim(clim[0],clim[1])
 
@@ -1249,7 +1262,24 @@ class Correlations():
                 snr_1d = [self.snr]
 
         for i,snr_i in enumerate(snr_1d):
+            # Plot S/N vs Vrad
             ax_snr.plot(interp_grid, snr_i, label=labels[i])
+            
+            # RMS mask: exclude the region where the signal might be
+            RMSmask = (interp_grid < -10) | (interp_grid > 10)
+        
+            # Compute RMS
+            rms = np.sqrt(np.mean(np.square(snr_i[RMSmask])))
+        
+            # Add text aligned to top-right
+            ax_snr.text(
+                0.995, 0.98,
+                f"RMS = {rms:.2f}",
+                transform=ax_snr.transAxes,
+                ha='right',    # left-align text
+                va='top',     # anchor at top
+                fontsize=11
+            )
 
         ax_snr.set_xlabel(r'$v_{\rm rad}$ [km s$^{-1}$]', fontsize=16)
         ax_snr.axhline(0, linestyle=':', color='k', alpha=0.5)
@@ -1268,7 +1298,7 @@ class Correlations():
         ax_snr.tick_params(axis='both', which='major', labelsize=12)
 
 
-        fig.subplots_adjust(hspace=0.05, wspace=0.03)
+        fig.subplots_adjust(hspace=0.02, wspace=0.03)
         # fig.tight_layout()
         
         if fig_name is not None:
@@ -1281,9 +1311,9 @@ class Correlations():
             ymin = np.min(tr.phase)
             ymax = np.max(tr.phase)
             diff_y = [np.diff(y[i])[0] for i in range(len(split_fig))[:-1]]
-            print(ymin,ymax)
-            print(diff_y)
-            print(np.mean(diff_y))
+            # print(ymin,ymax)
+            # print(diff_y)
+            # print(np.mean(diff_y))
             
             
             common_y = np.arange(ymin,ymax,np.mean(diff_y))
@@ -1304,9 +1334,11 @@ class Correlations():
                 pass
             plt.axvline(0, color='black',linestyle=':', alpha=0.7)
             fig2.tight_layout()
-
+            
             if (fig_name is not None) and (path_fig is not None):
                 fig2.savefig(path_fig +'fig_sum_CCF2D_'+fig_name+'.pdf')#, rasterize=True)
+                plt.show()
+        
 
         
         
@@ -1698,11 +1730,12 @@ class Correlations():
             print('In-transit t-val = {:.2f} / p-val {:.2e} / sig = {:.2f}'.format(t_in, p_in, nf.pval2sigma(p_in)))
             print('Out-of-transit t-val = {:.2f} / p-val {:.2e} / sig = {:.2f}'.format(t_out, p_out, nf.pval2sigma(p_out)))
         self.ttest_val = t_in
+
         
     def ttest_map(self, tr, kind='corr', vrp=None, orders=np.arange(49), 
                   kp0=0, RV_limit=100, kp_step=5, rv_step=1, RV=None, 
                   fig_name='', path_fig=None, speed_limit=2.5, ccf=None, peak_center=None, hist=True,
-                  cmap=None, tellu_loc=None, **kwargs):
+                  cmap=None, **kwargs):
         
         if kind == 'corr':
             if ccf is None:
@@ -1735,7 +1768,7 @@ class Correlations():
                 peak_ccf[n] = fct(peak_rv)
             rv_grid = peak_rv
             ccf = peak_ccf
-            print(peak_rv[[0,-1]])
+            # print(peak_rv[[0,-1]])
             RV_array = rv_grid
         else:
             rv_grid = self.rv_grid
@@ -1755,13 +1788,15 @@ class Correlations():
         
         if Kp_array.size > 1 :
             self.plot_ttest_map(tr, vrp=vrp, kind=kind, orders=orders, fig_name=fig_name,
-                                cmap=cmap, hist=hist, path_fig=path_fig, tellu_loc=tellu_loc)
+                                cmap=cmap, hist=hist, path_fig=path_fig)
+
+        return None
         
         
         
     def plot_ttest_map(self, tr, 
                        RV=None, kind='corr', vrp=None, orders=np.arange(49), fig_name='',
-                       cmap=None, hist=True, path_fig=None, tellu_loc=None):
+                       cmap=None, hist=True, path_fig=None):
         
         Kp_array, RV_array, t_value, ttest_params = self.ttest_map_kp, self.ttest_map_rv, \
                                                     self.ttest_map_tval, self.ttest_map_params
@@ -1783,9 +1818,11 @@ class Correlations():
                 
         (t_in, p_in), fig = pf.plot_ttest_map_hist(tr, self.rv_grid, ccf.copy(), Kp_array, RV_array, t_value, ttest_params,
                                orders=orders, plot_trail=False, masked=True, ccf=ccf.copy(),
-                              vrp=vrp, RV=RV, fig_name=fig_name, path_fig=path_fig, hist=hist, cmap=cmap, tellu_loc=tellu_loc)
-        print(t_in, p_in, nf.pval2sigma(p_in))
+                              vrp=vrp, RV=RV, fig_name=fig_name, path_fig=path_fig, hist=hist, cmap=cmap)
+        # print(t_in, p_in, nf.pval2sigma(p_in))
+        
         return fig
+        
         
 def plot_ccf_timeseries(t, rv_star, correlation, plot_gauss=True, plot_spline=True, x0_estim=0,
                     orders=np.arange(49), rv_limit=30, berv=False, RV=0, limit_rv=2, iOrd=None, plot=True):
@@ -1846,7 +1883,6 @@ def plot_ccf_timeseries(t, rv_star, correlation, plot_gauss=True, plot_spline=Tr
     #     ax[0].set_xlim(-2,2)
         ax[0].axvline(0, linestyle=':', alpha=0.5, color='k')
 
-    #     plt.figure()
         if plot_gauss is True:
             ax[1].errorbar(t.phase, pos_ga, yerr=pos_err_ga, marker='o')
         if plot_spline is True:
@@ -1903,17 +1939,19 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
 
     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='log(L) abs', vlines=vlines, fig_name = 'abs' + fig_name,
                              path_fig=None, param = param,  axs = [axs[1,0], axs[1,1]])
+    
     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic', title=r'$\log_{10}(\Delta$BIC)',
                              vlines=vlines, fig_name = 'BIC' + fig_name, path_fig=None, param = param,  axs = [axs[2,0], axs[2,1]])
 
     if param != None: 
         plt.tight_layout()
         plt.savefig(str(path_fig) + f'fig_multi_{param}'+fig_name+'.pdf')
+        plt.show()
         
         print("CCF SNR peak at Vrad*:", ccf_obj.npc_val)
         print("log(L) abs peak at Vrad*:", logl_obj.npc_max_abs)
         print("log_10(ΔBIC) peak at Vrad*:", logl_obj.npc_bic)
-        print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
+        # print(2 * (logl_obj.npc_max_abs - logl_obj.npc_max_abs[0]))
 
     if id_pc0 is not None and plot_prf:
 
@@ -1972,22 +2010,3 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                                                     fig_name=label, path_fig=path_fig)
     return ccf_obj, logl_obj
 
-# def plot_ccflogl_test(t, ccf_map, logl_map, n_pcas, corrRV0, indexs, Kp_array, RV=0.0, orders=np.arange(49)):
-#     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
-#                                  n_pcas=n_pcas, kp_array=Kp_array)
-#     ccf_obj.calc_logl(t, orders=orders, index=indexs, N=None, nolog=False, icorr=t.iIn)
-#     ccf_obj.plot_multi_npca(RV_sys=RV, title='CCF SNR')
-#
-#     logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
-#                                   n_pcas=n_pcas, kp_array=Kp_array)
-#     logl_obj.calc_logl(t, orders=orders, index=indexs, N=t.N, nolog=True,  icorr=t.iIn)
-#     # logl_obj.plot_multi_npca(RV_sys=t1.RV_sys, title='logL SNR')
-#
-#     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='abs', title='logL abs')
-#     logl_obj.plot_multi_npca(RV_sys=RV, kind='courbe', kind_courbe='bic',
-#                                   title=r'$\log_{10} \Delta$ BIC')
-#
-#     print(ccf_obj.npc_val)
-#     print(logl_obj.npc_max_abs)
-#     print(logl_obj.npc_bic)
-#     print(2*(logl_obj.npc_max_abs-logl_obj.npc_max_abs[0]))

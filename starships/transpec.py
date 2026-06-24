@@ -580,7 +580,7 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
                           poly_time=None, kind_mo="median", cont=False, cbp=False,
                           tresh=3., tresh_lim=1., last_tresh=3, last_tresh_lim=1, noise=None, somme=False, norm=True,
                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
-                          spec_trans=None, clean_ts=None, unberv_it=True, counting = True):
+                          spec_trans=None, clean_ts=None, unberv_it=True, counting=True, debug=False):
     
     rebuilt=np.ma.empty_like(flux)
     ratio=np.ma.empty_like(flux)
@@ -589,20 +589,23 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
     
     if cbp is False:
         if flux_norm is None:
-            hm.print_static('Normalizing by median. \n')
+            hm.print_static('Normalizing by median.\n')
             flux_norm = flux/np.ma.median(np.clip(flux,0,None),axis=-1)[:,:,None]
     else:
         if flux_norm is None:
             flux_norm = clean_bad_pixels_time(np.mean(wave,axis=0), flux, tresh=tresh)#, plot=False, , tresh_lim=tresh_lim)
+    
+    flux_norm = np.ma.masked_invalid(flux_norm)  # make sure the array has no NaNs that aren't masked
+    
     if mask_var is True:
-        hm.print_static('Masking high variance pixels (quick fix for OH lines). \n')
+        hm.print_static('Masking high variance pixels (quick fix for OH lines).\n')
         new_mask = [ext.get_mask_noise(f, tresh, tresh_lim, gwidth=0.01, poly_ord=5) for f in flux_norm.swapaxes(0, 1)]
         new_mask = new_mask | flux_norm.mask
         flux_norm = np.ma.array(flux_norm, mask=new_mask)
         
-    print('flux_norm all nan : {}'.format(flux_norm.mask.all()))    
+    if debug: hm.print_static('flux_norm all nan : {}'.format(flux_norm.mask.all()))    
     if flux_Sref is None:
-        hm.print_static('Shifting everything in the stellar ref. frame and normalizing by the median \n')
+        hm.print_static('Shifting everything in the stellar ref. frame and normalizing by the median.\n')
         if unberv_it is True:
             print('Spectra ', end="")
             flux_Sref = unberv(wave, flux_norm, berv, vr, counting = counting)
@@ -611,15 +614,15 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         else:
             flux_Sref = flux_norm
             tellu_Sref = tellu
-    print('flux_Sref all nan : {}'.format(flux_Sref.mask.all()))
+    if debug: hm.print_static('flux_Sref all nan : {}'.format(flux_Sref.mask.all()))
     if flux_masked is None:
         if mask_tellu is True:
-            hm.print_static('Masking deep tellurics. \n')
+            hm.print_static('Masking deep tellurics.\n')
             flux_masked = mask_deep_tellu(flux_Sref, path=path, tellu=tellu_Sref, #tellu_list='list_tellu_recon',
                                           limit_mask=lim_mask, limit_buffer=lim_buffer, plot=False)
         else:
             flux_masked = flux_Sref.copy()            
-    print('flux_masked all nan : {}'.format(flux_masked.mask.all()))
+    if debug: hm.print_static('flux_masked all nan : {}'.format(flux_masked.mask.all()))
     # --- ***** CHANGED iOut FOR SOMETHING ELSE
     # if (iOut_temp is None):  # or (iOut_temp == ''):
     #     iOut_temp = iOut #np.arange(0,36)
@@ -633,7 +636,7 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         iOut_temp = np.arange(flux.shape[0])
     
     if master_out is None:
-        hm.print_static('Building the master out #1 \n')
+        hm.print_static('Building the master out #1.\n')
         if flux_norm_mo is None:
             flux_norm_mo, master_out, ratio = build_master_out(wave, flux_masked, iOut_temp, 
                                             box=mo_box, gauss_box=mo_gauss_box, kind_mo=kind_mo, 
@@ -647,12 +650,12 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
             flux_norm_mo, master_out, ratio = build_master_out(wave, flux_masked, iOut_temp, master_out=master_out,
                                             box=mo_box, gauss_box=mo_gauss_box, 
                                                                clip_ratio=clip_ratio, cont=cont)
-    print('flux_norm_mo all nan : {}'.format(flux_norm_mo.mask.all()))
-    print('master_out all nan : {}'.format(master_out.mask.all()))
+    if debug: hm.print_static('flux_norm_mo all nan : {}'.format(flux_norm_mo.mask.all()))
+    if debug: hm.print_static('master_out all nan : {}'.format(master_out.mask.all()))
     if spec_trans is None:
-        hm.print_static('Building the transmission spectrum #1 \n')
+        hm.print_static('Building the transmission spectrum #1.\n')
         spec_trans = flux_norm_mo/master_out                             # comment out the division to keep the master out
-        print('spec-trans all nan : {}'.format(spec_trans.mask.all()))
+        if debug: hm.print_static('spec-trans all nan : {}'.format(spec_trans.mask.all()))
     if poly_time is not None:
         if noise is None:
             noise = np.tile(np.sqrt(np.ma.median(np.clip(flux,0,None),axis=-1)[:,:,None]),(1,1,npix))
@@ -660,7 +663,7 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
 #         for iOrd in range(nord):
 #             spec_trans[:,iOrd] = ext.col_remove(spec_trans[:,iOrd])
         # --- Polynomial fit on time --- #
-        hm.print_static('Removing 2nd ord polynome in time \n')
+        hm.print_static('Removing 2nd ord polynome in time.\n')
         recon_time = np.ones_like(spec_trans)*np.nan
         x = poly_time
         z_t = np.zeros((nord, npix, 3))
@@ -687,21 +690,21 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         recon_time = np.ones_like(spec_trans)
 
     if clean_ts is None:
-        hm.print_static('Removing the static noise with PCA and sigma cliping \n')
+        hm.print_static('Removing the static noise with PCA and sigma cliping.\n')
 #         print(n_pca, n_comps)
-        print(spec_trans.shape)
+        # print(spec_trans.shape)
         if clip_ts is not None:
             spec_trans = sigma_clip(spec_trans, clip_ts)
-            print('spec_trans all nan : {}'.format(spec_trans.mask.all()))
+            if debug: hm.print_static('spec_trans all nan : {}'.format(spec_trans.mask.all()))
         #*** mean normalize again??***
         clean_ts, rebuilt, pca = remove_dem_pca_all(spec_trans, n_pcs=n_pca, n_comps=n_comps, plot=plot)
-        print('clean_ts all nan : {}'.format(clean_ts.mask.all()))
+        if debug: hm.print_static('clean_ts all nan : {}'.format(clean_ts.mask.all()))
     if norm is True:
-        hm.print_static('Removing the mean \n')
+        hm.print_static('Removing the mean.\n')
         ts_norm = quick_norm(clean_ts, somme=False, take_all=False)
 
         if last_mask is True:
-            print('Removing the remaining high variance pixels. \n')
+            hm.print_static('Removing the remaining high variance pixels.\n')
             if last_tresh != tresh_lim:
                 mask_last = [ext.get_mask_noise(f, last_tresh, last_tresh_lim, gwidth=0.01) for f in ts_norm.swapaxes(0,1)]
                 mask_last = mask_last | ts_norm.mask
@@ -710,7 +713,7 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
                 final_ts = sigma_clip(ts_norm, last_tresh)
                 mask_last = final_ts.mask
             
-            hm.print_static('Removing the mean. \n')
+            hm.print_static('Removing the mean.\n')
             final_ts = quick_norm(final_ts, somme=somme, take_all=False)
         else:
             mask_last = ts_norm.mask

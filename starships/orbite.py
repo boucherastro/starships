@@ -48,12 +48,14 @@ def t2trueanom(P, t, t0=0, e=0):
     while (correction >= 0.001).all():
         correction = (E - (M + e * np.sin(E))) / (1 - e * np.cos(E))
         E = E - correction
-
+    
     # --- True anomaly [rad]
     argument = np.sqrt((1 + e) / (1 - e)) * np.tan(E / 2)
+    
     nu = 2 * np.arctan(argument)
     # nu2 = np.arccos((np.cos(E) - e) / (1 - e * np.cos(E)))
     # nu = nu2
+    
     return np.array(nu)
 
 
@@ -175,7 +177,7 @@ def position(nu, e=0, i=cst.pi / 2, w=0, omega=0, ap=None, Rstar=None,
         else:
             ap = const.au
 
-    r = ap * (1 - e * e) / (1 + e * np.cos(nu))
+    r = ap * (1 - e * e) / (1 + e * np.cos(nu))  # r = ap when e = 0
     if isinstance(r, u.Quantity):  # SI units
         r = r.to(u.m)
 
@@ -210,7 +212,7 @@ def transit(Rs, Rp, sep, z=None, nu=None, r=None, vr=None, i_tperi=None, w=None)
 
     if z is None:  # No distinction between transit and eclipse
         z = np.zeros_like(np.array(sep)) - 1
-
+    
     out = np.where(sep >= (Rs + Rp))[0]
     limb = np.where(
             (sep < (Rs + Rp)) &

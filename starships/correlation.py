@@ -542,6 +542,7 @@ def unload_data(data_obj, kind_obj,
         wave, vrp, icorr, clip_ts = data_obj.wave, data_obj.vrp, data_obj.icorr, data_obj.clip_ts
         t_start, RV_const, sep = data_obj.t_start, data_obj.RV_const, data_obj.sep
 #         nu = data_obj.nu
+    
     return spec_trans, pca, final, N, noise, alpha, ratio, \
             params0, wave, vrp, icorr, clip_ts, t_start, RV_const, sep, scaling
 
@@ -564,6 +565,7 @@ def calc_logl_injred(data_obj, kind_obj, planet, Kp_array, corrRV, n_pcas, wave_
                                                       final=final, spec_trans=spec_trans, 
                                                       noise=noise, ratio=ratio,
                                                       pca=pca, alpha=alpha, inj_alpha=inj_alpha)
+    
 
     n_spec, nord, _ = final.shape                   # change final for spec_trans to use step F of reduction in the correlation
 #     if get_bl is True:
@@ -1046,9 +1048,11 @@ def save_logl_seq(filename, corr, logl, wave_mod, model, n_pcas, Kp_array, corrR
     np.savez(filename, corr=corr, logl=logl, wave_mod=wave_mod, model=model,
              n_pcas=n_pcas, Kp_array=Kp_array, corrRV0=corrRV0, kind_trans=kind_trans)
     try:
-        print('Saved correl at :', filename.with_suffix(".npz"))
+        print('\nSaved correl at :', filename.with_suffix(".npz"))
     except AttributeError:
-        print('Saved correl at :', filename + ".npz")
+        print('\nSaved correl at :', filename + ".npz")
+    
+    print("-------------------------\n")
 
 
 def load_logl_seq(filename):

@@ -20,6 +20,7 @@ from scipy.sparse import find, diags, csr_matrix
 import matplotlib.pyplot as plt
 import logging
 import matplotlib as mpl
+from IPython.display import clear_output
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -45,7 +46,7 @@ interp1d_masked.iprint = False
 
 
 def gauss(x, mean=0, sigma=1, FWHM=None):
-       
+    
     if FWHM is not None:
         sigma = fwhm2sigma(FWHM)  # FWHM / (2 * np.sqrt(2 * np.log(2)))
         
@@ -803,7 +804,8 @@ def print_static(*var):
 
 #     print("\r", end="")
 #     print(*var, end="")
-    print(*var, end='\r', flush=True)
+#     print(*var)
+    print('\r', *var, flush=True, end="")
 
 # ----------------------------------------------------------------
 

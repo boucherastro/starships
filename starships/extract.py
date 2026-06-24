@@ -487,6 +487,7 @@ def get_mask_tell(tell, tresh, pad_tresh, pad_masked=False):
 from scipy.optimize import least_squares
 from astropy.convolution import convolve, Gaussian1DKernel
 
+
 def polyfit_robust(y, order, x=None, loss='soft_l1', f_scale=0.01, **kwargs):
     
     if x is None:
@@ -494,9 +495,11 @@ def polyfit_robust(y, order, x=None, loss='soft_l1', f_scale=0.01, **kwargs):
         
     guess = np.polyfit(x, y, order)
     f_res = lambda coeff:(y - np.poly1d(coeff)(x))/y
+    
     coeff = least_squares(f_res, guess, loss=loss, f_scale=f_scale, **kwargs).x
     
     return coeff
+
 
 def poly_out(y, order, x=None, ind_fit=slice(None), **kwargs):
     if x is None:
@@ -506,12 +509,17 @@ def poly_out(y, order, x=None, ind_fit=slice(None), **kwargs):
     return np.poly1d(coeff)(x)
 
 
-
 def get_mask_noise(flux_array, tresh, pad_tresh, gwidth=1, poly_ord=7, 
                    iplot=False, inverse=False, noise=None):
+    
     if noise is None:
+        # If there is only one non-masked exposure in a pixel column, mask the full column
+        mask_single = (~flux_array.mask).sum(axis=0) == 1
+        flux_array = np.ma.array(flux_array, mask=(flux_array.mask | mask_single[None,:]))
+        
         # Noise is the std dev along time axis
         noise = np.ma.std(flux_array,axis=0)
+        
     # Don’t compute anything if all masked
     if (noise.mask.all()) or (4088-noise.mask.sum() < 41):
         return noise.mask
@@ -528,6 +536,7 @@ def get_mask_noise(flux_array, tresh, pad_tresh, gwidth=1, poly_ord=7,
 #         for n in range(noise.shape[0]):
 #             noise_floor[n] = poly_out(noise[n], poly_ord, ind_fit=~noise[n].mask)
 #     else:
+    
     noise_floor = poly_out(noise, poly_ord, ind_fit=~noise.mask)
     # Plot noise
     if iplot:

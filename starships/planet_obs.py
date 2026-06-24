@@ -218,6 +218,7 @@ def fits2wavenew(image, hdr):
     # return wave grid
     return wavesol
 
+
 def val_cheby(coeffs, xvector,  domain):
     """
     Using the output of fit_cheby calculate the fit to x  (i.e. y(x))
@@ -350,6 +351,7 @@ def read_all_sp_spirou_CADC(path, filename, file_list):
     return headers_princ, headers_image, headers_tellu, np.array(wv), \
             np.array(count), np.array(blaze), np.array(recon), filenames
 
+
 def read_all_sp_nirps_apero_CADC(path,filename,file_list):
     
     """
@@ -392,6 +394,7 @@ def read_all_sp_nirps_apero_CADC(path,filename,file_list):
     
     return headers_princ, headers_image, headers_tellu, np.array(wv), \
             np.array(count), np.array(blaze), np.array(recon), filenames
+
 
 def read_all_sp_igrins(path, file_list, blaze_path=None, input_type='data'):
 
@@ -533,6 +536,7 @@ def read_all_sp_nirps_apero(path, file_list, wv_default=None, blaze_default=None
 
     return headers, np.array(wv), np.array(count), np.array(blaze), filenames
 
+
 def read_all_sp_nirps_geneva(path, file_list, wv_default=None, blaze_default=None,
                              blaze_path=None, debug=False, cheby=False):
     """
@@ -665,11 +669,11 @@ def gen_rv_sequence(self, p, plot=False, K=None):
 
 
 def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=False):
+
     self.nu = o.t2trueanom(p.period, self.t.to(u.d), t0=p.t_peri, e=p.excent)
 
     rp, x, y, z, self.sep, p.bRstar = o.position(self.nu, e=p.excent, i=p.incl, w=p.w, omega=p.omega,
                                                  Rstar=p.R_star, P=p.period, ap=p.ap, Mp=p.M_pl, Mstar=p.M_star)
-
 
     self.phase = ((self.t - p.mid_tr) / p.period).decompose().value
     self.phase -= np.round(self.phase.mean())
@@ -684,27 +688,30 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
         T0 = p.mid_tr + 0.5 * p.period.to(u.d)
         z = None
     
-    print(p.mid_tr)
+    # print(p.mid_tr)
     
     i_peri = np.searchsorted(self.t, p.mid_tr)
 
     p.b = (p.bRstar / p.R_star).decompose()
+
+
     out, part, total = o.transit(p.R_star, p.R_pl + p.H, self.sep,
                                  z=z, nu=self.nu, r=np.array(rp.decompose()), i_tperi=i_peri, w=p.w)
+
     #         print(out,part,total)
 
     
         
     if kind_trans == 'transmission':
-        print('Transmission')
+        # print('Transmission')
         self.iOut = out
-        self.part = part
-        self.total = total
+        self.part = part    # partial transit
+        self.total = total  # total transit
         self.iIn = np.sort(np.concatenate([part, total]))
     #             print(self.iIn.size, self.iOut.size)
 
     elif kind_trans == 'emission':
-        print('Emission')
+        # print('Emission')
         self.iOut = total
         self.part = part
         self.total = out
@@ -753,10 +760,11 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
         ax[0].set_ylabel('Airmass')
         # ax[1].set_ylabel('ADC1 angle')
         ax[1].set_xticks(np.array(self.t), np.arange(1, np.shape(self.t)[0] + 1))
-        ax[1].set_xlabel("Exposition")
+        ax[1].set_xlabel("Exposure")
         ax[1].set_ylabel('Mean SNR')
         ax[0].legend()
         ax[1].legend()
+        plt.show()
 
     self.alpha = hm.calc_tr_lightcurve(p, coeffs, self.t, T0, ld_model=ld_model, kind_trans=kind_trans)
     #         self.alpha = np.array([(hm.circle_overlap(p.R_star.to(u.m), p.R_pl.to(u.m), sep) / \
@@ -789,7 +797,7 @@ class Observations():
                  tellu=np.array([]), uncorr=np.array([]), 
                  name='', path='',filenames=[], planet=None, CADC=False, pl_kwargs=None, instrument='SPIRou-APERO'):
         
-        self.name = name
+        self.name = name  # planet name
         self.path = Path(path)
         
         # --- Get the system parameters from the ExoFile
@@ -824,99 +832,99 @@ class Observations():
                     list_tcorr='list_tellu_corrected', list_recon='list_tellu_recon',
                     read_sp=None, **kwargs):
         """
-        Retrieve all the relevent data in path 
+        Retrieve all the relevant data in path 
         (tellu corrected, tellu recon and uncorrected spectra from lists of files)
         Georgia Mraz--debugged CADC function on May 22nd 2024
         """
 
-            # TODO Remove CADC references -> Use an instrument/reduction configuration instead
-            self.CADC = CADC
+        # TODO Remove CADC references -> Use an instrument/reduction configuration instead
+        self.CADC = CADC
 
-            # get the appropriate function to read spectra from the instrument's dictionary
-            # if read function is not specified as an argument
-            if not read_sp:
-                read_sp = self.instrument['read_all_sp']
+        # get the appropriate function to read spectra from the instrument's dictionary
+        # if read function is not specified as an argument
+        if not read_sp:
+            read_sp = self.instrument['read_all_sp']
 
-            if CADC:
-                log.info('Fetching data')
-                
-                if self.instrument_name == 'SPIRou-APERO':
-                    headers, headers_image, headers_tellu, \
-                    wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr, 'list_tellu_corrected')
+        if CADC:
+            log.info('Fetching data')
 
-                    self.headers_image, self.headers_tellu = headers_image, headers_tellu
-                    log.info("Fetching the uncorrected spectra")
-                    _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds, 'list_e2ds')
+            if self.instrument_name == 'SPIRou-APERO':
+                headers, headers_image, headers_tellu, \
+                wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr, 'list_tellu_corrected')
 
-                if self.instrument_name == 'NIRPS-APERO':
-                    headers, headers_image, headers_tellu, \
-                    wave, count, blaze, tellu, filenames = read_all_sp_nirps_apero_CADC(path, list_tcorr, 'list_tellu_corrected')
-                
-                    self.headers_image, self.headers_tellu = headers_image, headers_tellu
-                    log.info("Fetching the uncorrected spectra")
-                    _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_nirps_apero_CADC(path, list_e2ds, 'list_e2ds')
+                self.headers_image, self.headers_tellu = headers_image, headers_tellu
+                log.info("Fetching the uncorrected spectra")
+                _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds, 'list_e2ds')
 
-                else:
-                    log.info('Fetching data')
-                    headers, headers_image, headers_tellu, \
-                    wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr, 'list_tellu_corrected')
-                
-                    self.headers_image, self.headers_tellu = headers_image, headers_tellu
-                    log.info("Fetching the uncorrected spectra")
-                    _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds,'list_e2ds')
+            elif self.instrument_name == 'NIRPS-APERO':
+                headers, headers_image, headers_tellu, \
+                wave, count, blaze, tellu, filenames = read_all_sp_nirps_apero_CADC(path, list_tcorr, 'list_tellu_corrected')
+
+                self.headers_image, self.headers_tellu = headers_image, headers_tellu
+                log.info("Fetching the uncorrected spectra")
+                _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_nirps_apero_CADC(path, list_e2ds, 'list_e2ds')
 
             else:
+                log.info('Fetching data')
+                headers, headers_image, headers_tellu, \
+                wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr, 'list_tellu_corrected')
+
+                self.headers_image, self.headers_tellu = headers_image, headers_tellu
                 log.info("Fetching the uncorrected spectra")
-                log.info(f"File: {list_e2ds}")
+                _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds,'list_e2ds')
 
-                headers, wave, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, **kwargs)
+        else:
+            log.info("Fetching the uncorrected spectra")
+            log.info(f"File: {list_e2ds}")
 
-                if list_tcorr is None:
-                    log.info('No telluric correction available')
-                    count = count_uncorr.copy()
-                    blaze = blaze_uncorr.copy()
-                    filenames = filenames_uncorr
+            headers, wave, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, **kwargs)
 
-                else:
-                    log.info('Fetching data')
-                    log.info(f"File: {list_tcorr}")
-                    headers, wave, count, blaze, filenames = read_sp(path, list_tcorr, **kwargs)
+            if list_tcorr is None:
+                log.info('No telluric correction available')
+                count = count_uncorr.copy()
+                blaze = blaze_uncorr.copy()
+                filenames = filenames_uncorr
 
-                #             self.headers = headers
-                #             self.wave = np.array(wv)
-                #             self.count = np.ma.masked_invalid(count)
-                #             self.blaze = np.ma.masked_array(blaze)
-                #             self.filenames  = filenames
+            else:
+                log.info('Fetching data')
+                log.info(f"File: {list_tcorr}")
+                headers, wave, count, blaze, filenames = read_sp(path, list_tcorr, **kwargs)
+
+            #             self.headers = headers
+            #             self.wave = np.array(wv)
+            #             self.count = np.ma.masked_invalid(count)
+            #             self.blaze = np.ma.masked_array(blaze)
+            #             self.filenames  = filenames
 
 
-                if list_recon is None:
-                    log.info('No reconstruction available')
-                    tellu = np.ones_like(count)
+            if list_recon is None:
+                log.info('No reconstruction available')
+                tellu = np.ones_like(count)
 
-                else:
-                    log.info("Fetching the tellurics")
-                    log.info(f"File: {list_recon}")
-                    _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
-                    # tellu = read_sp(path, list_recon, input_type='recon', **kwargs)
+            else:
+                log.info("Fetching the tellurics")
+                log.info(f"File: {list_recon}")
+                _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
+                # tellu = read_sp(path, list_recon, input_type='recon', **kwargs)
 
-            self.headers = headers
-            self.wave = np.array(wave)
-            self.count = np.ma.masked_invalid(count)
-            self.blaze = np.ma.masked_invalid(blaze)
-            self.filenames = filenames
-            self.filenames_uncorr = filenames_uncorr
+        self.headers = headers
+        self.wave = np.array(wave)
+        self.count = np.ma.masked_invalid(count)
+        self.blaze = np.ma.masked_invalid(blaze)
+        self.filenames = filenames
+        self.filenames_uncorr = filenames_uncorr
 
-            self.tellu = np.ma.masked_invalid(tellu)
-            if np.mean(count_uncorr) < 0:
-                print('Mean below 0 = {}, flipping sign'.format(np.mean(count_uncorr))) 
-                count_uncorr = -count_uncorr
-            count_uncorr = np.ma.masked_invalid(np.clip(count_uncorr, 0,None))
+        self.tellu = np.ma.masked_invalid(tellu)
+        if np.mean(count_uncorr) < 0:
+            print('Mean below 0 = {}, flipping sign'.format(np.mean(count_uncorr))) 
+            count_uncorr = -count_uncorr
+        count_uncorr = np.ma.masked_invalid(np.clip(count_uncorr, 0,None))
 
-            self.uncorr = count_uncorr
+        self.uncorr = count_uncorr
 
-            self.uncorr_fl = self.uncorr/(blaze_uncorr/np.nanmax(blaze_uncorr, axis=-1)[:,:,None])
-                
-            self.path = Path(path)
+        self.uncorr_fl = self.uncorr/(blaze_uncorr/np.nanmax(blaze_uncorr, axis=-1)[:,:,None])
+
+        self.path = Path(path)
             
         
     def select_transit(self, transit_tag, bloc=None):
@@ -1021,7 +1029,7 @@ class Observations():
             else:
                 # print('CADC correct')
                 
-                print((self.headers_image.get_all('EXTSN002')))
+                # print((self.headers_image.get_all('EXTSN002')))
                 
                 
 #                 obs_date = [date+' '+hour for date,hour in zip(self.headers_image.get_all('DATE-OBS')[0], \
@@ -1307,7 +1315,7 @@ class Observations():
         
 
         if (self.noise is None) or (change_noise is True):
-            print('Calculating noise with {} PCs'.format(params[5]))
+            hm.print_static('Calculating noise with {} PCs'.format(params[5]))
             self.sig_col = np.ma.std(self.final, axis=0)[None,:,:]  #self.final  # self.spec_trans
             self.noise = self.sig_col*self.scaling
         
@@ -1320,17 +1328,17 @@ class Observations():
             self.RV_sys = RV
             
         self.berv = -self.berv0
-        self.mid_id = int(np.ceil(self.n_spec/2)-1)
+        self.mid_id = int(np.ceil(self.n_spec / 2) - 1)
         self.mid_berv = self.berv[self.mid_id]
         self.mid_vr = self.vr[self.mid_id].value
         self.mid_vrp = self.vrp[self.mid_id].value
 
-        self.berv = (self.berv-self.berv[self.mid_id])
-        self.vr = (self.vr-self.vr[self.mid_id]).to(u.km / u.s).value
-        self.vrp = (self.vrp-self.vrp[self.mid_id]).to(u.km / u.s).value
-        self.planet.RV_sys=0*u.km/u.s
+        self.berv = self.berv - self.mid_berv
+        self.vr = (self.vr - self.vr[self.mid_id]).to(u.km / u.s).value
+        self.vrp = (self.vrp - self.vrp[self.mid_id]).to(u.km / u.s).value
+        self.planet.RV_sys = 0*u.km/u.s
 
-        self.RV_const = self.mid_berv+self.mid_vr+self.RV_sys
+        self.RV_const = self.mid_berv + self.mid_vr + self.RV_sys
 
 
 #         self.build_trans_spec(**kwargs)
@@ -1669,7 +1677,7 @@ class Planet():
         self.gp = const.G * self.M_pl / self.R_pl**2
 
 
-        # # - Paramètres atmosphériques approximatifs
+        # --- Paramètres atmosphériques approximatifs
         self.mu = 2.3 * const.u
         self.H = (const.k_B * self.Tp / (self.mu * self.gp)).decompose()
         self.all_params = parametres
@@ -2282,7 +2290,7 @@ def load_single_data_dict(path, filename, load_all=False, filename_end='', data_
     return data_trs
     
 
-def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=False):
+def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=False, print_out=True):
 
     filename = Path(filename)
     path = Path(path)
@@ -2291,7 +2299,10 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
         bad_indexs = []
 
     out_filename = Path(f'{filename.name}_data_info.npz')
-    print(path / out_filename)
+
+    if print_out:
+        print(path / out_filename)
+        
     np.savez(path / out_filename,
              trall_alpha_frac = list_tr[str(do_tr[-1])].alpha_frac,
              trall_icorr = list_tr[str(do_tr[-1])].icorr,
@@ -2301,7 +2312,10 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
 
     for i_tr, tr_key in enumerate(list(list_tr.keys())[:np.nonzero(np.array(do_tr) < 10)[0].size]):
         out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
+
         print(path / out_filename)
+        print("-------------------------\n")
+        
         if save_all is False:
             np.savez(path / out_filename,
                  components_ = list_tr[tr_key].pca.components_,
@@ -2404,14 +2418,18 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
                  bad_indexs=bad_indexs
                  )
 
+    return None
+
         
 def load_sequences(filename, do_tr, path='', load_all=False):
 
-    filename = Path(filename)
-    path = Path(path)
+    # Combine and separate
+    full_path = path / filename
+    filename = Path(full_path).name
+    path = Path(full_path).parent
 
     if len(do_tr) > 1 :
-        out_filename = Path(f'{filename.name}_data_info.npz')
+        out_filename = Path(f'{filename}_data_info.npz')
         log.info(f'Reading: {path / out_filename}')
         data_info_file = np.load(path / out_filename)
         data_info = {}
@@ -2428,7 +2446,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
     for i_tr, tr_key in enumerate(do_tr[:np.nonzero(np.array(do_tr) < 10)[0].size]):
         data_trs[str(i_tr)] = {}
 
-        out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
+        out_filename = Path(f'{filename}_data_trs_{i_tr}.npz')
         log.info(f'Reading: {path / out_filename}')
         data_tr = np.load(path / out_filename)
 
@@ -2440,7 +2458,7 @@ def load_sequences(filename, do_tr, path='', load_all=False):
                 data_info['trall_N'] = data_tr['N']
                 data_info['bad_indexs'] = data_tr['bad_indexs']
             except KeyError:
-                out_filename = Path(f'{filename.name}_data_info.npz')
+                out_filename = Path(f'{filename}_data_info.npz')
                 log.info(f'Reading: {path / out_filename}')
                 data_info_file = np.load(path / out_filename)
                 data_info = {}

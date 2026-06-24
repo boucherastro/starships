@@ -380,6 +380,9 @@ def update_dissociation_abundance_profile(profile, specie_name, pressures, tempe
 
 
 def calc_MMW3(abundances):
+    '''
+    Calculates the mean molecular mass of the molecules in the abundances dictionary, weighted by their abundances.
+    '''
     # MMW = np.zeros_like(abundances[abundances.keys()[0]])
     for i, key in enumerate(abundances.keys()):
         mol = key.split('_')[0]
@@ -497,13 +500,20 @@ def gen_abundances(species_list, VMRs, pressures, temperatures, verbose=False,
 
     if plot:
         cmap = cm.get_cmap('tab20')
-        plt.figure()
+        plt.figure(figsize=(8,5))
+        
         for i, key in enumerate(profile.keys()):
-            #             print(key)
-            plt.plot(np.log10(profile[key]), np.log10(pressures), label=key, color=cmap.colors[i])
+            plt.plot(profile[key] * np.ones_like(pressures), pressures, label=key.split('_')[0], color=cmap.colors[i])
+            
         plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        plt.ylim(2, -6)
-        plt.xlim(-12, 1)
+        plt.xscale("log")
+        plt.yscale("log")
+        plt.ylim(max(pressures), min(pressures))  # invert y axis to have outer space at the top
+        plt.xlabel("Volume mixing ratio")
+        plt.ylabel("Pressure [bar]")
+        plt.title("Vertical profiles of molecular abundances in model atmosphere", pad=12)
+        plt.show()
+        
 
     for mol, specie_name in zip(species, species_list):
         abundances[specie_name] = mass_fraction(mol, profile[specie_name], mmw=MMW)
