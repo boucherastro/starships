@@ -1,0 +1,278 @@
+# ============================================================
+# stellar_fit_inputs_example.yaml
+# ============================================================
+# Example configuration file for fitting a stellar spectrum
+# with starships.stellar_fit.
+#
+# Usage:
+#
+#   Step 1 — Download PHOENIX files (login node only, requires internet):
+#       python -m starships.stellar_fit download this_file.yaml
+#
+#   Step 2 — Run the fit (compute node, no internet needed):
+#       python -m starships.stellar_fit this_file.yaml
+#   or via sbatch:
+#       sbatch run_stellar_fit.sh   (which calls the line above)
+#
+#   In Python (e.g. for testing or post-processing):
+#       import starships.stellar_fit as sf
+#       sf.setup_stellar_fit("this_file.yaml")
+#       result, theta_best, theta_dict = sf.run_minimize()
+#       dynesty_results = sf.run_dynesty()
+#
+# Typical workflow:
+#   1. Copy and edit this file for your system.
+#   2. Download PHOENIX files on the login node (step 1 above).
+#   3. Run run_minimize() to get a quick point estimate.
+#   4. Run run_dynesty() for the full posterior distribution.
+#   5. Analyse results in the analysis notebook.
+# ============================================================
+
+
+# ============================================================
+# --- Star and data ---
+# ============================================================
+
+# Name of the star (used for output path organisation)
+star_name: 'WASP-33'
+
+# Path to the .npz reduction file produced by starships.
+# This file must contain: mast_out, mask_mast_out, wave, noise, RV_const.
+data_file: '~/scratch/DataAnalysis/SPIRou/Reductions/WASP-33/my_reduction.npz'
+
+# Maximum fraction of masked pixels allowed **in the interior** of a spectral
+# order (between the first and last valid pixel). Edge masking at order
+# boundaries is excluded from this count — it is expected and does not affect
+# the usable spectral range.
+# Orders exceeding this fraction are discarded.
+bad_pix_frac: 0.2
+
+# Minimum number of valid (unmasked) pixels required in an order.
+# Orders below this threshold are discarded even if their interior bad-pixel
+# fraction is fine. 800 pixels is a safe default for SPIRou (4088 px/order).
+min_valid_pixels: 800
+
+
+# ============================================================
+# --- PHOENIX stellar atmosphere model ---
+# ============================================================
+
+# Resolution at which the PHOENIX spectra are pre-convolved.
+# Should match (or exceed) your instrument's spectral resolution.
+# For SPIRou: R ≈ 70 000.
+#
+# IMPORTANT: If you are fitting slowly-rotating stars (vsini < ~10 km/s),
+# set this value significantly higher than the instrument resolution
+# (e.g., 300 000) so that the rotational broadening kernel is accurately
+# resolved before convolving with the instrument profile.
+phoenix_resolution: 70000
+
+# Oversampling factor for the internal PHOENIX grid.
+# Higher values give a more accurate interpolation at the cost of memory.
+phoenix_oversampling: 6
+
+# Number of FWHM to include on each side of the convolution kernel.
+# 7 is a safe default.
+phoenix_n_fwhm: 7
+
+# Interpolation method between PHOENIX grid points.
+# 'linear' is recommended — higher order is much slower with little benefit.
+phoenix_method: 'linear'
+
+
+# ============================================================
+# --- Polynomial continuum correction ---
+# ============================================================
+
+# Number of Chebyshev polynomial terms used per order to correct the
+# continuum shape (blaze function, normalisation residuals, etc.).
+# The polynomial operates in log-flux space, so it is multiplicative in flux.
+# n_poly = 4 means terms T_0, T_1, T_2, T_3 (degree 0 to 3).
+#   - T_0: overall flux scaling (handles normalisation)
+#   - T_1: linear slope (tilted blaze)
+#   - T_2, T_3: curvature terms
+# Increase if the blaze residuals are complex; decrease if you have few pixels.
+n_poly: 4
+
+
+# ============================================================
+# --- Rotational broadening ---
+# ============================================================
+
+# Resolving power used to build the uniform wavelength grid for
+# pyasl.fastRotBroad. Setting this equal to phoenix_resolution is safe.
+# A finer grid (higher value) improves accuracy at the cost of speed.
+rot_broad_samp: 70000
+
+
+# ============================================================
+# --- Output paths ---
+# ============================================================
+
+# Base directory for all output files.
+# If null, uses $SCRATCH on Narval, or $HOME otherwise.
+base_dir: null
+
+# Directory where the result files will be saved.
+# If null, defaults to <base_dir>/DataAnalysis/StellarFit/<star_name>/
+walker_path: null
+
+# Identifier for this run (used in output file names).
+# If null, defaults to "stellar_fit_<star_name>".
+run_name: null
+
+# Name of the output results file (without extension; .pkl will be added).
+# If null, defaults to "results_<run_name>".
+walker_file_out: null
+
+
+# ============================================================
+# --- Nested sampling (dynesty) ---
+# ============================================================
+
+# Number of live points for dynesty.
+# More live points → more accurate posterior and evidence estimate, but slower.
+# Recommended: 400–500 for 6 parameters.
+n_live_points: 400
+
+# Number of parallel worker processes for likelihood evaluation.
+# Dynesty evaluates the likelihood on multiple live points simultaneously
+# when n_workers > 1. On Linux (Narval), worker processes inherit the
+# module state (data arrays, PHOENIX grid, etc.) automatically via fork,
+# so no extra setup is needed in the worker processes.
+#
+# To use parallelism on Narval, add to your sbatch script:
+#   #SBATCH --cpus-per-task=8
+# and set n_workers to the same value here.
+#
+# Typical speedup: roughly proportional to n_workers, up to ~8–16 workers.
+# Beyond that, the overhead of scheduling live points limits the gain.
+n_workers: 1
+
+# How often to write a progress line to the log (in dynesty iterations).
+# Unlike dynesty's default progress bar (which uses \r and only shows the
+# last line in an sbatch log file), these are permanent timestamped lines.
+# Increase if the log file grows too large; decrease for finer monitoring.
+log_every: 50
+
+# Bounding method for dynesty's DynamicNestedSampler.
+# 'multi' (default): multiple ellipsoids — efficient for the elongated
+#   teff–vsini degeneracy typical of stellar spectra.
+# 'balls': overlapping spheres — can handle more irregular, multimodal
+#   posteriors but is less efficient for elongated distributions.
+dynesty_bound: multi
+
+# Sampling method within each bound.
+# 'rwalk' (default): random walk within the bound — good for 5–7 parameters.
+# 'rslice': random slice sampling — often better when parameters are
+#   strongly correlated (e.g., tight teff–vsini degeneracy).
+dynesty_sample: rwalk
+
+
+# ============================================================
+# --- Point estimate (scipy.optimize) ---
+# ============================================================
+
+# Number of independent minimisation attempts.
+# The best result (lowest −log L) among all attempts is returned.
+# If special_init is set with good starting values, 1 or 2 restarts suffice.
+# More restarts are useful only if the parameter space is highly multimodal
+# and special_init is left to null.
+n_restarts: 2
+
+# Optional: starting point overrides for the minimiser.
+# Any parameter listed here will start from this fixed value
+# instead of being drawn randomly from the prior.
+# Providing good starting points (from prior knowledge or the literature)
+# can greatly accelerate convergence.
+# Set to null to draw all starting points from the prior.
+special_init:
+  teff: 7400.0    # effective temperature in K (e.g. from photometry)
+  logg: 4.3       # log g from spectral classification
+  vsini: 86.0     # projected rotation from the literature
+  v_shift: 0.0    # systemic RV (often close to 0 after BERV removal)
+
+
+# ============================================================
+# --- Custom priors ---
+# ============================================================
+
+# Path to a Python file defining custom prior functions.
+# Set to null if all priors are standard (uniform or gaussian).
+# See the retrieval_inputs_example.yaml for the expected file format.
+custom_prior_file: null
+
+
+# ============================================================
+# --- Fixed parameters ---
+# ============================================================
+# Parameters that are held constant during the fit.
+# They are included in theta_dict passed to the model function,
+# so they can be accessed by the likelihood.
+
+fixed_params:
+  # Linear limb-darkening coefficient for the rotation kernel.
+  # 0 = uniform disk (solid-body rotation profile)
+  # 0.6 = typical solar-type value
+  alpha: 0.0
+
+
+# ============================================================
+# --- Free parameters and priors ---
+# ============================================================
+# Each entry has the format: param_name: [prior_type, arg1, arg2, ...]
+#
+# Supported prior types:
+#
+#   uniform [low, high]
+#       Flat prior. Good default when you have no external constraints.
+#
+#   gaussian [mu, sigma]
+#       Symmetric Gaussian prior centred on mu with standard deviation sigma.
+#       Use when the literature gives a symmetric error bar.
+#
+#   split_gaussian [mu, sigma_lo, sigma_hi]
+#       Asymmetric Gaussian (split-normal). sigma_lo controls the spread
+#       BELOW mu; sigma_hi the spread ABOVE mu. Use when the literature
+#       reports asymmetric error bars such as "Teff = 8980 +90/-260 K":
+#           teff: [split_gaussian, 8980, 260, 90]
+#       (note: sigma_lo=260 because the "-260" bar is on the low side)
+#
+#   combined_split_gaussian [mu1, s_lo1, s_hi1, mu2, s_lo2, s_hi2, ...]
+#       Product of multiple split-Gaussian priors (one per reference). Use
+#       when several independent publications constrain the same parameter.
+#       The priors are multiplied (log-priors are summed), which assumes the
+#       measurements are independent. Example combining two Teff references:
+#           teff: [combined_split_gaussian,
+#                  8980, 260, 90,     # Talens 2018: 8980 +90/-260 K
+#                  8720, 260, 250]    # Lund 2017:   8720 +250/-260 K
+#       Append more triplets (mu, sigma_lo, sigma_hi) for additional references.
+#
+# Note: for all Gaussian-type priors (gaussian, split_gaussian,
+# combined_split_gaussian), run_minimize() will automatically start from the
+# prior mode (the literature value) rather than a random draw.
+# This is almost always a much better starting point than uniform sampling.
+
+params_prior:
+
+  # Effective temperature (K)
+  # WASP-33 is an A-type star; adjust the range for your target.
+  teff: [uniform, 6500, 8500]
+
+  # Log surface gravity (cgs)
+  logg: [uniform, 3.5, 5.0]
+
+  # Metallicity [Fe/H]
+  metal: [uniform, -2.0, 1.0]
+
+  # Projected rotational velocity (km/s)
+  # Use a Gaussian prior if vsini is known from the literature:
+  #   vsini: [gaussian, 86.0, 5.0]
+  vsini: [uniform, 0.1, 140.0]
+
+  # Linear limb-darkening coefficient for the rotation kernel (0 to 1)
+  epsilon: [uniform, 0.01, 0.99]
+
+  # Systemic radial velocity shift (km/s)
+  # This accounts for any residual velocity not removed during reduction.
+  v_shift: [uniform, -50, 50]

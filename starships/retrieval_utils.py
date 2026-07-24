@@ -2721,13 +2721,161 @@ def ordered_prior(theta_dict, key, prior_inputs):
     
     return out
 
-default_prior_init_func = {'gaussian': init_gaussian_prior,
-                            'uniform': init_uniform_prior,
-                            'log_uniform': init_uniform_prior}
+def split_gaussian_prior(theta_dict, key, prior_inputs):
+    """Asymmetric (split-normal) Gaussian prior.
 
-default_prior_func = {'gaussian': gaussian_prior,
-                      'uniform': uniform_prior,
-                      'log_uniform': uniform_prior}
+    The split-normal has different spreads below and above its mode. This is
+    useful for literature measurements with asymmetric error bars, such as
+    "Teff = 8980 +90/-260 K" which would be expressed as::
+
+        teff: [split_gaussian, 8980, 260, 90]
+
+    where the format is [type, mu, sigma_lo, sigma_hi]. Note: sigma_lo
+    controls the spread BELOW mu, sigma_hi ABOVE mu. So "+90/-260" means
+    sigma_hi=90, sigma_lo=260.
+
+    Parameters
+    ----------
+    theta_dict : dict
+        Current parameter values.
+    key : str
+        Parameter name to evaluate.
+    prior_inputs : tuple
+        (mu, sigma_lo, sigma_hi) — mode, spread below mode, spread above mode.
+
+    Returns
+    -------
+    float
+        Log of the (unnormalised) split-normal PDF at x = theta_dict[key].
+    """
+    x = theta_dict[key]
+    mu = float(prior_inputs[0])
+    sigma_lo = float(prior_inputs[1])
+    sigma_hi = float(prior_inputs[2])
+    # The only difference from a Gaussian is which sigma applies
+    sigma = sigma_lo if x < mu else sigma_hi
+    return -0.5 * ((x - mu) / sigma) ** 2
+
+
+def init_split_gaussian_prior(prior_inputs, n_wlkr):
+    """Sample initial walker positions from a split-normal distribution.
+
+    Each walker is placed on the low side (x < mu) with probability proportional
+    to sigma_lo, and on the high side with probability proportional to sigma_hi —
+    which matches the probability mass of each half of the split-normal PDF.
+
+    Parameters
+    ----------
+    prior_inputs : tuple
+        (mu, sigma_lo, sigma_hi)
+    n_wlkr : int
+        Number of walkers.
+
+    Returns
+    -------
+    np.ndarray, shape (n_wlkr, 1)
+    """
+    mu = float(prior_inputs[0])
+    sigma_lo = float(prior_inputs[1])
+    sigma_hi = float(prior_inputs[2])
+    # Assign each walker to the low or high half based on relative sigma
+    p_lo = sigma_lo / (sigma_lo + sigma_hi)
+    below = np.random.random(size=n_wlkr) < p_lo
+    samples = np.where(
+        below,
+        mu - np.abs(np.random.normal(0.0, sigma_lo, size=n_wlkr)),
+        mu + np.abs(np.random.normal(0.0, sigma_hi, size=n_wlkr)),
+    )
+    return samples[:, None]
+
+
+def combined_split_gaussian_prior(theta_dict, key, prior_inputs):
+    """Product of multiple split-normal priors (one per literature reference).
+
+    When several publications independently measure the same stellar parameter
+    with asymmetric error bars, this prior combines them by multiplying their
+    PDFs — equivalent to summing their log-priors.
+
+    YAML format for two references::
+
+        teff: [combined_split_gaussian,
+               8980, 260, 90,     # Talens 2018: 8980 +90/-260 K
+               8720, 260, 250]    # Lund 2017:   8720 +250/-260 K
+
+    The flat list of triplets is (mu1, s_lo1, s_hi1, mu2, s_lo2, s_hi2, ...).
+    Any number of references can be combined by appending more triplets.
+
+    Parameters
+    ----------
+    theta_dict : dict
+        Current parameter values.
+    key : str
+        Parameter name to evaluate.
+    prior_inputs : tuple
+        Flat triplets: (mu1, s_lo1, s_hi1, mu2, s_lo2, s_hi2, ...)
+
+    Returns
+    -------
+    float
+        Sum of all individual log-priors (= log of the combined PDF, up to
+        a normalisation constant).
+    """
+    x = theta_dict[key]
+    n_refs = len(prior_inputs) // 3
+    total = 0.0
+    for i in range(n_refs):
+        mu = float(prior_inputs[3 * i])
+        sigma_lo = float(prior_inputs[3 * i + 1])
+        sigma_hi = float(prior_inputs[3 * i + 2])
+        sigma = sigma_lo if x < mu else sigma_hi
+        total += -0.5 * ((x - mu) / sigma) ** 2
+    return total
+
+
+def init_combined_split_gaussian_prior(prior_inputs, n_wlkr):
+    """Sample initial walker positions from the combined split-normal prior.
+
+    Delegates to init_split_gaussian_prior using the most constraining
+    reference (the one with the smallest average sigma).
+
+    Parameters
+    ----------
+    prior_inputs : tuple
+        Flat triplets: (mu1, s_lo1, s_hi1, mu2, s_lo2, s_hi2, ...)
+    n_wlkr : int
+        Number of walkers.
+
+    Returns
+    -------
+    np.ndarray, shape (n_wlkr, 1)
+    """
+    n_refs = len(prior_inputs) // 3
+    # Use the tightest reference as the sampling distribution
+    best_i = min(
+        range(n_refs),
+        key=lambda i: (float(prior_inputs[3*i+1]) + float(prior_inputs[3*i+2])) / 2.0,
+    )
+    mu = prior_inputs[3 * best_i]
+    sigma_lo = prior_inputs[3 * best_i + 1]
+    sigma_hi = prior_inputs[3 * best_i + 2]
+    return init_split_gaussian_prior([mu, sigma_lo, sigma_hi], n_wlkr)
+
+
+default_prior_init_func = {
+    'gaussian': init_gaussian_prior,
+    'uniform': init_uniform_prior,
+    'log_uniform': init_uniform_prior,
+    'split_gaussian': init_split_gaussian_prior,
+    'combined_split_gaussian': init_combined_split_gaussian_prior,
+}
+
+default_prior_func = {
+    'gaussian': gaussian_prior,
+    'uniform': uniform_prior,
+    'log_uniform': uniform_prior,
+    'split_gaussian': split_gaussian_prior,
+    'combined_split_gaussian': combined_split_gaussian_prior,
+}
 
 
 def load_custom_prior(custom_prior_file):
