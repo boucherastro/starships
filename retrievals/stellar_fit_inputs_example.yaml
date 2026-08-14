@@ -149,12 +149,6 @@ n_live_points: 400
 # Beyond that, the overhead of scheduling live points limits the gain.
 n_workers: 1
 
-# How often to write a progress line to the log (in dynesty iterations).
-# Unlike dynesty's default progress bar (which uses \r and only shows the
-# last line in an sbatch log file), these are permanent timestamped lines.
-# Increase if the log file grows too large; decrease for finer monitoring.
-log_every: 50
-
 # Bounding method for dynesty's DynamicNestedSampler.
 # 'multi' (default): multiple ellipsoids — efficient for the elongated
 #   teff–vsini degeneracy typical of stellar spectra.
@@ -276,3 +270,22 @@ params_prior:
   # Systemic radial velocity shift (km/s)
   # This accounts for any residual velocity not removed during reduction.
   v_shift: [uniform, -50, 50]
+
+  # Noise scaling factor — log(s), where s multiplies the formal uncertainties.
+  #
+  # When the data pipeline underestimates noise (common with SPIRou), the
+  # posterior credible intervals are overconfident. Fitting log_noise_s allows
+  # the sampler to self-calibrate the uncertainty level.
+  #
+  # The likelihood becomes:  −χ²_profile / (2s²)  −  n_pixels × log(s)
+  # The penalty term −n × log(s) prevents s from growing without bound.
+  #
+  # Interpretation of the posterior on s = exp(log_noise_s):
+  #   s ≈ 1   → formal uncertainties are accurate
+  #   s ≈ 2   → uncertainties underestimated by a factor of 2
+  #   s < 1   → uncertainties overestimated (rare)
+  #
+  # Suggested prior: uniform over log_noise_s ∈ [−0.5, 2.0], i.e. s ∈ [0.6, 7.4].
+  # A narrower range (e.g. [0, 1.5]) is fine if you expect moderate inflation.
+  # Remove or comment out this line to fix s = 1 (no scaling).
+  log_noise_s: [uniform, -0.5, 2.0]

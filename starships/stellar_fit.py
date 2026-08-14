@@ -32,6 +32,9 @@ Workflow:
              import starships.stellar_fit as sf
              sf.setup_stellar_fit("my_config.yaml")
              models = sf.make_model_with_best_poly(theta_dict)
+    4. Save the best-fit stellar spectrum for use as `star_spectrum` in a
+       starships.retrieval config:
+             sf.save_stellar_spectrum(theta_dict, "star_spectrum.npz")
 
 Dependencies:
     - starships.phoenix_models.PhoenixInterpGrid
@@ -59,7 +62,7 @@ from scipy.interpolate import UnivariateSpline
 from scipy.optimize import minimize
 
 from starships.homemade import calc_shift
-from starships.convolution import add_dv_pad_to_wv_range
+from starships.convolution import add_dv_pad_to_wv_range, get_wv_constant_res
 from starships import retrieval_utils as ru
 
 # ---------------------------------------------------------------------------
@@ -126,6 +129,11 @@ global prior_init_func_dict  # dict: prior_type → walker-init function
 global run_name, base_dir
 global walker_path, walker_file_out
 global n_live_points
+
+# Controls dynesty's progress bar. Set to True/False to override auto-detection.
+# When None (default), the bar is shown only if stdout is a terminal (isatty).
+# In notebooks, set:  sf.verbose_dynesty = True  before calling run_dynesty().
+verbose_dynesty = None
 
 # Precomputed inverse-CDF tables for combined_split_gaussian priors
 # (populated by _build_prior_icdf_tables during setup)
@@ -882,7 +890,7 @@ def _build_chebyshev_basis(n_pixels, n_coeffs):
     return basis
 
 
-def _profile_logl_one_order(idx_ord, model_norm):
+def _profile_logl_one_order(idx_ord, model_norm, log_noise_s=0.0):
     """Profile log-likelihood for a single spectral order.
 
     For a given normalised stellar model, this function analytically finds
@@ -893,12 +901,23 @@ def _profile_logl_one_order(idx_ord, model_norm):
     including polynomial coefficients as free parameters in the sampler,
     we solve for them exactly at each likelihood evaluation.
 
+    A global noise scaling factor s = exp(log_noise_s) inflates the formal
+    uncertainties by s. The optimal polynomial coefficients are unchanged by
+    this scaling (the normal equations cancel s²), so only the final log-
+    likelihood needs to be adjusted:
+
+        logl(s) = −χ²_profile / (2s²)  +  log_norm  −  n_valid × log(s)
+
     Parameters
     ----------
     idx_ord : int
         Spectral order index.
     model_norm : np.ndarray, shape (n_pixels,)
         Normalised model flux for this order (NaN at masked pixels).
+    log_noise_s : float
+        Natural log of the noise scaling factor (default 0 → s = 1, no scaling).
+        Fit this as a free parameter when formal uncertainties may be under-
+        or over-estimated.
 
     Returns
     -------
@@ -941,9 +960,21 @@ def _profile_logl_one_order(idx_ord, model_norm):
     # The second term is the variance explained by the optimal polynomial.
     chi2_profile = np.dot(W, log_residual ** 2) - np.dot(b, c_opt)
 
-    # --- Full Gaussian log-likelihood ---------------------------------------
+    # --- Full Gaussian log-likelihood with optional noise scaling -----------
+    # log_norm uses the original (unscaled) uncertainties — the s dependence
+    # is captured by the two correction terms below.
     log_norm = -0.5 * np.sum(np.log(2.0 * np.pi * sigma_log ** 2))
-    logl = -0.5 * chi2_profile + log_norm
+
+    if log_noise_s == 0.0:
+        # Fast path: no scaling, avoids two exp/log evaluations per order
+        logl = -0.5 * chi2_profile + log_norm
+    else:
+        # chi2_profile / s² = chi2_profile * exp(−2 * log_noise_s)
+        # n_valid * log(s) = n_valid * log_noise_s
+        n_valid = np.sum(~mask)
+        logl = (-0.5 * chi2_profile * np.exp(-2.0 * log_noise_s)
+                + log_norm
+                - n_valid * log_noise_s)
 
     return logl
 
@@ -966,6 +997,9 @@ def profile_log_likelihood(theta_dict):
     logl : float
         Total profile log-likelihood, or −∞ if any order fails.
     """
+    # Extract noise scaling (optional parameter; defaults to s=1 if absent)
+    log_noise_s = theta_dict.get('log_noise_s', 0.0)
+
     total_logl = 0.0
 
     for idx_ord in range(ref_wave.shape[0]):
@@ -975,7 +1009,7 @@ def profile_log_likelihood(theta_dict):
         if not np.any(np.isfinite(model_norm)):
             return -np.inf
 
-        logl_ord = _profile_logl_one_order(idx_ord, model_norm)
+        logl_ord = _profile_logl_one_order(idx_ord, model_norm, log_noise_s)
 
         if not np.isfinite(logl_ord):
             return -np.inf
@@ -1076,9 +1110,10 @@ def lnprob(theta, debug=False):
     if debug:
         log.info(f"[debug] Prior OK (lp={lp:.4f}). Evaluating likelihood at {theta_dict}")
         total = 0.0
+        log_noise_s_debug = theta_dict.get('log_noise_s', 0.0)
         for idx_ord in range(ref_wave.shape[0]):
             model_norm = _generate_stellar_model_ord(idx_ord, **theta_dict)
-            logl_ord = _profile_logl_one_order(idx_ord, model_norm)
+            logl_ord = _profile_logl_one_order(idx_ord, model_norm, log_noise_s_debug)
             finite = np.isfinite(logl_ord)
             log.info(f"  order {idx_ord:2d}: logl={logl_ord:.2f}  {'OK' if finite else '<<< -inf'}")
             if np.isfinite(logl_ord):
@@ -1347,71 +1382,7 @@ def _sample_starting_point(bounds):
 # Full posterior: dynesty nested sampling
 # ===========================================================================
 
-def _make_dynesty_log_callback(log_every=200):
-    """Return a dynesty print_func that writes to the Python logger.
-
-    Dynesty's default progress display uses a carriage return (\\r) to
-    overwrite the current line. This works in an interactive terminal but
-    produces a single-line or garbled output in HPC log files (sbatch output
-    is redirected to a file, not a terminal). This callback replaces it with
-    timestamped log.info() lines that are permanently appended to the log,
-    one line every log_every iterations.
-
-    The callback also always logs when dlogz drops below 1.0 so that the
-    approach to convergence is visible regardless of the log_every interval.
-
-    Parameters
-    ----------
-    log_every : int
-        Number of dynesty iterations between log lines.
-
-    Returns
-    -------
-    callable
-        A function with the signature expected by dynesty's print_func.
-    """
-    _iters_since_log = [0]
-
-    def _callback(results, niter, ncall, dlogz=None, **_kwargs):
-        _iters_since_log[0] += 1
-        # Log at the requested cadence OR when nearing convergence
-        near_convergence = (dlogz is not None and dlogz < 1.0)
-        if _iters_since_log[0] < log_every and not near_convergence:
-            return
-        _iters_since_log[0] = 0
-
-        # Extract fields defensively: at the very start of DynamicNestedSampler
-        # the results object may not yet have logz/logl fully populated.
-        try:
-            logz_arr = getattr(results, 'logz', None) or results.get('logz', [])
-            logz = float(logz_arr[-1]) if len(logz_arr) > 0 else float('nan')
-        except Exception:
-            logz = float('nan')
-
-        try:
-            logzerr_arr = getattr(results, 'logzerr', None) or results.get('logzerr', [])
-            logzerr = float(logzerr_arr[-1]) if len(logzerr_arr) > 0 else float('nan')
-        except Exception:
-            logzerr = float('nan')
-
-        try:
-            logl_arr = getattr(results, 'logl', None) or results.get('logl', [])
-            loglstar = float(logl_arr[-1]) if len(logl_arr) > 0 else float('nan')
-        except Exception:
-            loglstar = float('nan')
-
-        eff = 100.0 * niter / max(ncall, 1)
-        dlogz_str = f"  dlogz={dlogz:.3f}" if dlogz is not None else ""
-        log.info(
-            f"[dynesty]  iter={niter:7d}  ncall={ncall:8d}  "
-            f"eff={eff:5.2f}%  logz={logz:.2f}±{logzerr:.3f}  "
-            f"loglstar={loglstar:.2f}{dlogz_str}"
-        )
-
-    return _callback
-
-
-def run_dynesty(n_live=500, save_file=None, n_workers=1, log_every=200,
+def run_dynesty(n_live=500, save_file=None, n_workers=1,
                 bound='multi', sample='rwalk', **dynesty_kwargs):
     """Sample the posterior with dynesty dynamic nested sampling.
 
@@ -1443,11 +1414,6 @@ def run_dynesty(n_live=500, save_file=None, n_workers=1, log_every=200,
 
         and set ``n_workers: 8`` in your YAML config.
         Default is 1 (single-threaded).
-    log_every : int
-        Write a progress line to the log every this many iterations.
-        Unlike dynesty's default ``\\r``-based progress bar (which overwrites
-        itself and is invisible in sbatch log files), these are permanent
-        timestamped ``log.info()`` lines. Default 200.
     bound : str
         Bounding method for dynesty. ``'multi'`` (multiple ellipsoids, default)
         is well suited to the elongated teff–vsini degeneracy in stellar
@@ -1483,19 +1449,26 @@ def run_dynesty(n_live=500, save_file=None, n_workers=1, log_every=200,
         f"bound='{bound}'  sample='{sample}'  n_workers={n_workers}"
     )
 
-    log_callback = _make_dynesty_log_callback(log_every=log_every)
-
-    # run_nested kwargs shared by all code paths below:
+    # run_nested kwargs shared by all code paths below.
     # pfrac=1.0 tells dynesty to allocate all effort to posterior estimation
     # rather than splitting between posterior and evidence (the default).
-    # This is the right setting when you care about parameter values, not logZ.
+    #
+    # print_progress is enabled only when stdout is connected to a real terminal
+    # (interactive session or notebook). When stdout is redirected — as in an
+    # sbatch job — dynesty's \r-based progress bar produces garbled output, so
+    # we suppress it. The "Starting dynesty..." and "Dynesty done." log lines
+    # are always emitted and serve as progress markers in HPC logs.
+    import sys
+    if verbose_dynesty is None:
+        interactive = sys.stdout.isatty()
+    else:
+        interactive = bool(verbose_dynesty)
     run_kwargs = dict(
         nlive_init=n_live,
         nlive_batch=n_live,
         wt_kwargs={'pfrac': 1.0},
         stop_kwargs={'pfrac': 1.0},
-        print_progress=True,
-        print_func=log_callback,
+        print_progress=interactive,
     )
 
     if n_workers > 1:
@@ -1625,6 +1598,160 @@ def make_model_with_best_poly(theta_dict, return_poly=False):
     return models_corrected
 
 
+def save_stellar_spectrum(theta_dict, save_dir=None, save_name=None, wv_range=None, apply_rotation=True):
+    """Build the best-fit PHOENIX stellar spectrum and save it for use in starships.retrieval.
+
+    This is the function to call after a fit to produce the ``star_spectrum``
+    .npz file consumed by ``starships.retrieval`` (the ``star_spectrum`` entry
+    of the retrieval YAML config). The spectrum is saved in the star's rest
+    frame: ``v_shift`` (systemic RV) is *not* applied, since
+    ``starships.retrieval`` evaluates the stellar spectrum directly on the
+    rest-frame wavelength grid of the atmosphere model and applies
+    systemic/orbital Doppler shifts separately later in the pipeline (see
+    ``petitradtrans_utils.retrieval_model_plain``). Rotational broadening
+    (``vsini``, ``epsilon``) *is* intrinsic to the star and is applied here.
+
+    The .npz stores the physical resolving power (``resolution``) and the
+    wavelength-grid oversampling factor (``oversampling``) as two separate
+    fields, rather than a single combined "sampling resolution" -- this
+    matches the vocabulary already used by
+    ``phoenix_models.convert_phoenix_at_resolution`` and is meant to be
+    forward-compatible with a planned rework of how
+    ``starships.retrieval`` handles the stellar spectrum's resolution
+    (currently it only reads a single ``sampling_res`` key, so that key is
+    also written here -- as ``resolution * oversampling`` -- for backward
+    compatibility with the current code).
+
+    Parameters
+    ----------
+    theta_dict : dict
+        Stellar parameters, as produced by `unpack_theta()` or built by hand.
+        Must contain ``teff``, ``logg``, ``metal``, ``alpha``, ``vsini``,
+        ``epsilon``. ``v_shift`` is accepted but ignored (see note above).
+        Extra keys (e.g. from `fixed_params`) are ignored.
+    save_dir : str or Path, optional
+        Directory where the .npz file will be saved. If None (default), uses the current directory.
+    save_name : str, optional
+        Name for the saved .npz file. If None (default), a default name is generated based on the stellar parameters.
+    wv_range : list of float, optional
+        [wv_min, wv_max] in µm for the saved spectrum. If None (default),
+        reuses the wavelength range already covered by the fit's PHOENIX
+        grid (the global `phoenix_interp`, built by `setup_stellar_fit()`).
+        Give an explicit range to cover a broader band than what was used
+        for the fit (e.g. the full instrument range for the planet retrieval).
+    apply_rotation : bool
+        If True (default), apply rotational broadening (`vsini`, `epsilon`)
+        via `pyasl.fastRotBroad` before saving. Set to False to save the
+        non-rotating PHOENIX spectrum (see the note on convolution order at
+        the top of this module: rotation should only be skipped/reconsidered
+        for slowly-rotating stars where vsini is not >> instrument FWHM).
+
+    Returns
+    -------
+    wave : np.ndarray
+        Wavelength grid (µm), sampled at constant resolving power
+        `phoenix_resolution * phoenix_oversampling`.
+    flux : np.ndarray
+        Stellar flux (PHOENIX native units, erg/s/cm^2/cm).
+    """
+    _check_dependencies()
+    if apply_rotation and theta_dict.get('vsini', 0) > 0 and not _PYASL_AVAILABLE:
+        raise ImportError(
+            "PyAstronomy is required for rotational broadening. "
+            "Install it with: pip install PyAstronomy"
+        )
+        
+    if save_dir is None:
+        save_dir = Path.cwd()
+        log.info(f"No save_dir specified; using current directory: {save_dir}")
+    else:
+        save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    params = dict(teff=theta_dict['teff'], logg=theta_dict['logg'],
+                  metal=theta_dict['metal'], alpha=theta_dict.get('alpha', 0.0))
+    
+    
+    if save_name is None:
+        save_name = (f"starspec_teff{params['teff']:.0f}"
+                     f"_logg{params['logg']:.2f}"
+                     f"_metal{params['metal']:.2f}"
+                     f"_alpha{params['alpha']:.2f}"
+                     f"_vsini{theta_dict.get('vsini', 0):.0f}"
+                     f"_eps{theta_dict.get('epsilon', 0):.2f}.npz")
+        log.info(f"No save_name specified; using default: {save_name}")
+    
+    log.info(f"Generating stellar spectrum for: ")
+    for key, val in params.items():
+        log.info(f"  {key} = {val}")
+
+    if wv_range is None:
+        # Reuse the grid already built for the fit (last axis of the interpolator)
+        grid = phoenix_interp
+        wave = phoenix_interp.fct_interp.grid[-1]
+    else:
+        # Rebuild a grid over the requested range. Parameters are passed as
+        # scalars (not [min, max]), so no interpolation axes are built -- this
+        # is a single-point evaluation, not a grid meant to be reused for a fit.
+        grid = PhoenixInterpGrid(
+            wv_range=wv_range, resolution=phoenix_resolution,
+            oversampling=phoenix_oversampling, n_fwhm=phoenix_n_fwhm,
+            method=phoenix_method, query=False, **params,
+        )
+        wave = get_wv_constant_res(wv_range=wv_range,
+                                   resolution=phoenix_resolution * phoenix_oversampling)
+
+    if apply_rotation and theta_dict.get('vsini', 0) > 0:
+        # Same approach as _generate_stellar_model_ord(): evaluate the PHOENIX
+        # spectrum on a uniform-Δλ grid (required by pyasl.fastRotBroad),
+        # convolve with the rotation profile, then spline back onto the
+        # constant-R output grid. Pad the uniform grid so the rotation kernel
+        # (width ~ vsini) does not pull in edge artefacts near wave's bounds.
+        log.info(f"Applying rotational broadening: vsini={theta_dict['vsini']:.2f} km/s, "
+                 f"epsilon={theta_dict['epsilon']:.2f}")
+        vsini = theta_dict['vsini']
+        wv_min, wv_max = add_dv_pad_to_wv_range(3 * vsini, [float(wave[0]), float(wave[-1])])
+        delta_wv = wv_min / rot_broad_samp
+        wv_uniform = np.arange(wv_min, wv_max, delta_wv)
+
+        flux_uniform = grid(wv_uniform, **params)
+        nan_mask = ~np.isfinite(flux_uniform)
+        if nan_mask.any():
+            valid_idx = np.where(~nan_mask)[0]
+            flux_uniform[:valid_idx[0]] = flux_uniform[valid_idx[0]]
+            flux_uniform[valid_idx[-1] + 1:] = flux_uniform[valid_idx[-1]]
+
+        flux_uniform = pyasl.fastRotBroad(wv_uniform * 1000.0, flux_uniform,
+                                          theta_dict['epsilon'], vsini)
+        flux = UnivariateSpline(wv_uniform, flux_uniform, k=3, s=0)(wave)
+    else:
+        vsini = False
+        flux = grid(wave, **params)
+
+    # Save the spectrum and metadata to a .npz file
+    save_path = save_dir / save_name
+    np.savez(
+        save_path.as_posix(),
+        wave=wave,
+        flux=flux,
+        resolution=phoenix_resolution,
+        oversampling=phoenix_oversampling,
+        **params,  # Also save the stellar parameters in the .npz for reference (teff, logg, metal, alpha)
+        vsini=vsini,  # =False if rotation was skipped, else the vsini value used
+        # Backward-compat with the current starships.retrieval, which only
+        # reads a single combined 'sampling_res' key.
+        sampling_res=phoenix_resolution * phoenix_oversampling,
+        
+    )
+    log.info(
+        f"Stellar spectrum saved to {save_path} "
+        f"(R={phoenix_resolution}, oversampling={phoenix_oversampling}, "
+        f"{wave[0]:.3f}-{wave[-1]:.3f} µm)"
+    )
+
+    return wave, flux
+
+
 # ===========================================================================
 # PHOENIX file download (must be run on a login node, not a compute node)
 # ===========================================================================
@@ -1721,6 +1848,81 @@ def download_phoenix_files(input_parameters):
 
 
 # ===========================================================================
+# Entry point helpers — SLURM ID and config archiving
+# ===========================================================================
+
+def get_slurm_id():
+    """Return the SLURM job ID as a string, or None if not running under SLURM.
+
+    For array jobs (``sbatch --array``), combines the array job ID and task
+    ID with an underscore — e.g. ``'12345678_3'``. For regular jobs, returns
+    just the job ID — e.g. ``'12345678'``. Returns None when called outside
+    of a SLURM environment (login node, local machine, notebook).
+    """
+    if 'SLURM_ARRAY_JOB_ID' in os.environ:
+        keys = ['SLURM_ARRAY_JOB_ID', 'SLURM_ARRAY_TASK_ID']
+    else:
+        keys = ['SLURM_JOB_ID']
+    try:
+        return '_'.join(os.environ[k] for k in keys)
+    except KeyError:
+        log.info("SLURM job ID not found — running outside of SLURM.")
+        return None
+
+
+def _save_run_config(input_parameters, slurm_id=None):
+    """Archive the input configuration alongside the results.
+
+    Saves a copy of the YAML config to ``walker_path`` with the SLURM job ID
+    embedded in the filename. This makes it trivial to find the inputs that
+    produced a given results file:
+
+        inputs_stellar_fit_KELT-20_12345678.yaml   ←→   results_stellar_fit_KELT-20_12345678.pkl
+
+    The saved YAML is a snapshot of the actual parameters used, enriched with
+    a few extra fields (slurm_id, results_file) for traceability.
+
+    This function is called automatically by ``main()`` and should not need to
+    be called manually from notebooks (which manage their own files).
+
+    Parameters
+    ----------
+    input_parameters : str, Path, or dict
+        Original input config (file path or dict). File paths are read and
+        re-written so that extra metadata fields can be added.
+    slurm_id : str or None
+        SLURM job ID string (from ``get_slurm_id()``), embedded in the filename.
+        If None (local run), the file is saved without a job-ID suffix.
+    """
+    import shutil
+
+    # Build output filename:  inputs_<run_name>[_<slurm_id>].yaml
+    stem = f"inputs_{run_name}"
+    if slurm_id is not None:
+        stem = f"{stem}_{slurm_id}"
+    out_path = Path(walker_path) / f"{stem}.yaml"
+    Path(walker_path).mkdir(parents=True, exist_ok=True)
+
+    # Load the config (file or dict) and add traceability fields
+    if isinstance(input_parameters, dict):
+        cfg = {k: (str(v) if isinstance(v, Path) else v)
+               for k, v in input_parameters.items()}
+    else:
+        with open(Path(input_parameters).expanduser(), 'r') as f:
+            cfg = yaml.load(f, Loader=yaml.FullLoader)
+
+    # Add metadata that makes it easy to match inputs ↔ results
+    cfg['slurm_id'] = slurm_id
+    cfg['results_file'] = str(Path(walker_path) / f"{walker_file_out}.pkl")
+
+    with open(out_path, 'w') as f:
+        yaml.dump(cfg, f, sort_keys=False)
+
+    log.info(f"Input config archived to: {out_path}")
+    return out_path
+
+
+# ===========================================================================
 # Entry point
 # ===========================================================================
 
@@ -1732,8 +1934,10 @@ def main(yaml_file):
 
     Steps:
       1. Load config and data.
-      2. Quick minimisation to find the best-fit point estimate.
-      3. Full posterior with dynesty.
+      2. Append the SLURM job ID to output filenames (prevents overwriting).
+      3. Archive the input YAML alongside the results for reproducibility.
+      4. Quick minimisation to find the best-fit point estimate.
+      5. Full posterior with dynesty.
 
     Parameters
     ----------
@@ -1744,7 +1948,23 @@ def main(yaml_file):
     -------
     dynesty_results : dynesty.results.Results
     """
+    global run_name, walker_file_out
+
     setup_stellar_fit(yaml_file)
+
+    # Append the SLURM job ID to all output filenames so that re-submitting
+    # the same YAML never overwrites a previous run's results.
+    # Without this, results_stellar_fit_KELT-20.pkl would be silently replaced
+    # every time the script is submitted, making it impossible to compare runs.
+    slurm_id = get_slurm_id()
+    if slurm_id is not None:
+        run_name = f"{run_name}_{slurm_id}"
+        walker_file_out = f"{walker_file_out}_{slurm_id}"
+        log.info(f"SLURM job {slurm_id}: outputs will include _{slurm_id} suffix.")
+
+    # Archive the input config BEFORE starting the run, so the inputs are
+    # always traceable even if the job is killed or crashes partway through.
+    _save_run_config(yaml_file, slurm_id=slurm_id)
 
     log.info("=== Step 1: Point estimate (minimisation) ===")
     run_minimize()
@@ -1754,7 +1974,6 @@ def main(yaml_file):
         n_live=n_live_points,
         save_file=f"{walker_file_out}.pkl",
         n_workers=globals().get('n_workers', 1),
-        log_every=globals().get('log_every', 200),
         bound=globals().get('dynesty_bound', 'multi'),
         sample=globals().get('dynesty_sample', 'rwalk'),
     )

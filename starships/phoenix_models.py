@@ -399,18 +399,31 @@ def interp_phoenix_grid(teff=7500, logg=4.5, metal=0.0, alpha=0.0,
     free_param_keys = [key_list[i] for i in free_idx]
     out_dims = [grids_length[i] for i in free_idx]
 
+    # Load the native PHOENIX wavelength grid once — it is identical for all
+    # parameter combinations and needed to validate wv_range before the main loop.
+    wave_file = get_phoenix_wv_grid(query=query)
+    hdu = fits.open(wave_file)
+    native_wv_grid = hdu[0].data / 1e4  # Angstrom → µm
+    hdu.close()
+
+    # Validate the requested wavelength range against the actual PHOENIX data.
+    # We check the native grid (not just PHOENIX_RESOLUTION) so the error
+    # message always reflects what is truly available locally.
+    wv_range = list(wv_range)
+    native_wv_min = float(native_wv_grid[0])
+    native_wv_max = float(native_wv_grid[-1])
+    if wv_range[0] < native_wv_min or wv_range[-1] > native_wv_max:
+        raise ValueError(
+            f"Requested wv_range=[{wv_range[0]:.4f}, {wv_range[-1]:.4f}] µm exceeds "
+            f"the PHOENIX HiRes wavelength coverage available locally "
+            f"[{native_wv_min:.4f}, {native_wv_max:.4f}] µm. "
+            f"Adjust wv_range to stay within these bounds."
+        )
+
     output_flux_grid = None
-    native_wv_grid = None
 
     for p_idx in product(*param_grid_idx):
         param = {key: param_grids[key][idx] for key, idx in zip(key_list, p_idx)}
-
-        # Load wavelength grid once (same for all PHOENIX models)
-        if native_wv_grid is None:
-            wave_file = get_phoenix_wv_grid(query=query)
-            hdu = fits.open(wave_file)
-            native_wv_grid = hdu[0].data / 1e4  # Angstrom → µm
-            hdu.close()
 
         # Load the flux for this parameter combination.
         # param contains scalar values (one grid point), so we resolve the
