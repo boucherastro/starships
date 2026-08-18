@@ -38,7 +38,7 @@ from starships.analysis import bands, resamp_model
 import starships.planet_obs as pl_obs
 from starships.planet_obs import Observations, Planet
 import starships.petitradtrans_utils as prt
-from starships.homemade import unpack_kwargs_from_command_line, pop_kwargs_with_message
+from starships.homemade import unpack_kwargs_from_command_line, pop_kwargs_with_message, calc_shift
 from starships import retrieval_utils as ru
 from starships.retrieval_inputs import convert_cmd_line_to_types
 
@@ -1173,6 +1173,19 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
                 # Downgrade the model
                 wv_out, model_out = prt.prepare_model(wv_out, model_out, prt_res[mode], Raf=Raf,
                                                     rot_ker=rot_ker, **rot_kwargs)
+
+        elif mode == 'low':
+            # --- Applying the Doppler shift due to the star's systemic velocity ---
+            # Unlike high-res (where `data_tr['RV_const']` already bakes in RV_sys,
+            # BERV and the mean orbital velocity at mid-transit, see `norv_sequence`
+            # in planet_obs.py), the low-res model is generated at rest and never
+            # shifted otherwise. Low-res data is usually averaged over a whole
+            # transit, so there is no per-exposure BERV/orbital term to track here:
+            # only the (fixed) systemic velocity matters, plus the same `rv`
+            # residual parameter used in high-res, so a Joint Retrieval fits a
+            # single shared RV offset for both resolutions.
+            dv_shift = planet.RV_sys.to(u.km / u.s).value + theta_dict.get('rv', 0.0)
+            wv_out = wv_out * calc_shift(dv_shift, kind='rel')
 
         wv_all.append(wv_out)
         model_all.append(model_out)
