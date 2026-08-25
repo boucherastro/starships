@@ -2308,7 +2308,7 @@ def plot_spectra_sample_GTC(wave, spectra_stats_list, colorsOrder=None, wv_range
     return fig, ax
 
 
-def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None,
+def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None, label=None,
                       vlines=True, hlines=True, linestyle='--', color='grey', **kwargs):
     """Plot horizontal and vertical line at a given position.
     Leave a hole at this position so the lines don't overplot at the wanted position."""
@@ -2327,7 +2327,8 @@ def plot_x_y_position(x, y, x_hole=0.2, y_hole=0.2, ax=None, fig=None,
     kwargs['linestyle'] = linestyle
     kwargs['color'] = color
     if vlines:
-        ax.vlines(x, y_min, y - y_hole, **kwargs)
+        # Add label only to the first vertical line, so that it appears in the legend only once.
+        ax.vlines(x, y_min, y - y_hole, label=label, **kwargs)
         ax.vlines(x, y + y_hole, y_max, **kwargs)
     if hlines:
         ax.hlines(y, x_min, x - x_hole, **kwargs)
@@ -3000,6 +3001,7 @@ def plot_posterior_2d(posterior, x_axis, y_axis, margin_x, margin_y,
         # Find the maximum sigma that still encloses only the primary peak,
         # then draw a single contour at that level.
         sigma_iso = find_isolated_peak_sigma(posterior, x_axis, y_axis)
+        log.info(f'Auto sigma level: {sigma_iso:.2f}σ (isolated primary peak)')
         sigma_levels = np.array([sigma_iso]) if sigma_iso > 0 else np.array([1.])
     if sigma_levels is not None:
         sigma_levels = np.asarray(sigma_levels, dtype=float)
