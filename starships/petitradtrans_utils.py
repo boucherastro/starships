@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 try:
     from petitRADTRANS import Radtrans
@@ -18,6 +20,7 @@ import astropy.constants as const
 from molmass import Formula
 
 from .analysis import resamp_model
+from .convolution import degrade_and_resample
 from .spectrum import RotKerTransitCloudy
 
 from astropy.table import Table
@@ -1007,18 +1010,57 @@ def gen_cases_file(planet, temps, cloudTop, haze, P0, MMW, R_pl, species, cases_
 #                        'CH4_main_iso':[-6, -10]})
 
 
-def prepare_model(modelWave0, modelTD0, Rbf, Raf=64000, rot_params=None, rot_ker=None,
-                  **kwargs):
-    
+def prepare_model(modelWave0: np.ndarray, modelTD0: np.ndarray, Rbf: float, Raf: float = 64000,
+                  rot_params: Optional[list] = None, rot_ker=None, **kwargs):
+    """Degrade a PRT model spectrum to the target resolution, optionally with wind broadening.
+
+    Parameters
+    ----------
+    modelWave0 : np.ndarray
+        Model wavelength grid.
+    modelTD0 : np.ndarray
+        Model flux (or transit depth) values, same shape as `modelWave0`.
+    Rbf : float
+        Native/physical resolving power of the model spectrum.
+    Raf : float
+        Target resolving power.
+    rot_params : list, optional
+        [radius, M_pl, T_eq, [wind]] passed to `RotKerTransitCloudy` to build a wind
+        broadening kernel, if `rot_ker` is not already given.
+    rot_ker : object, optional
+        Pre-built rotation/wind-broadening kernel object (as used by
+        `spectrum.py::resampling`). If given (or built from `rot_params`), the
+        legacy kernel-aware resampling path is used instead of the unified Gaussian
+        convolution engine -- convolution.py does not support arbitrary kernel
+        objects yet (Chantier A Phase 3 will unify this).
+    kwargs
+        Forwarded to `RotKerTransitCloudy` when building a kernel from `rot_params`.
+
+    Returns
+    -------
+    wv_out : np.ndarray
+    model_out : np.ndarray
+    """
     if rot_ker is None and rot_params is not None:
         rot_ker = RotKerTransitCloudy(rot_params[0], rot_params[1], rot_params[2],
                                       np.array(rot_params[3]) / u.day, Raf,
                                       step_smooth=250., v_mid=0., **kwargs)
 
-    resampled = np.ma.masked_invalid(resamp_model(modelWave0[:-1], modelTD0[:-1], Rbf,
-                                                  Raf=Raf, rot_ker=rot_ker))
-    
-    return modelWave0[:-1][15:-15], resampled[15:-15]
+    wv_trim, flux_trim = modelWave0[:-1], modelTD0[:-1]
+
+    if rot_ker is None:
+        # Plain Gaussian degradation -- use the corrected convolution engine
+        # (Chantier A Phase 1 -- see convolution.py::degrade_and_resample).
+        resampled = degrade_and_resample(wv_trim, flux_trim, resolution=Raf,
+                                          input_resolution=Rbf, sample=wv_trim)
+    else:
+        # Rotation-kernel-aware path (wind broadening): left untouched, to be
+        # unified with the CitrusRotationKernel/degrade_ker machinery in Phase 3.
+        resampled = resamp_model(wv_trim, flux_trim, Rbf, Raf=Raf, rot_ker=rot_ker)
+
+    resampled = np.ma.masked_invalid(resampled)
+
+    return wv_trim[15:-15], resampled[15:-15]
 
 
 def get_Fe_from_metallicity(VMR, Fe_to_H):

@@ -12,6 +12,7 @@ import os
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 from pathlib import Path
+from typing import Optional, Tuple
 import yaml
 import logging
 import numpy as np
@@ -34,7 +35,8 @@ from starships.mask_tools import interp1d_masked
 # %%
 interp1d_masked.iprint = False
 import starships.correlation as corr
-from starships.analysis import bands, resamp_model
+from starships.analysis import bands
+from starships.convolution import degrade_and_resample
 import starships.planet_obs as pl_obs
 from starships.planet_obs import Observations, Planet
 import starships.petitradtrans_utils as prt
@@ -65,8 +67,12 @@ import gc
 try:
     from petitRADTRANS.physics import guillot_global, guillot_modif
 except ModuleNotFoundError:
-    from petitRADTRANS.nat_cst import guillot_global, guillot_modif
-    
+    try:
+        from petitRADTRANS.nat_cst import guillot_global, guillot_modif
+    except ModuleNotFoundError:
+        print('petitRADTRANS is not installed on this system')
+
+
 # other newly implemented TP profiles
 from starships.extra_TP_profiles import madhu_seager
 
@@ -976,8 +982,27 @@ def init_stellar_spectrum_if_not_done(mode):
     return None
                
 
-def init_stellar_spectrum(mode, wl_range=None):
+def init_stellar_spectrum(mode: str, wl_range: Optional[Tuple[float, float]] = None):
+    """Prepare an interpolator for the stellar spectrum, degraded to the model resolution.
 
+    Relies on the module-level globals `star_wv`/`star_flux`/`star_res` (the stellar
+    model loaded at package init) and `kind_trans`/`prt_res` (retrieval config).
+
+    Parameters
+    ----------
+    mode : str
+        'high' or 'low', selects which PRT resolution (`prt_res[mode]`) to degrade to.
+    wl_range : tuple of float, optional
+        (wv_min, wv_max) to restrict the stellar spectrum to. If None, uses
+        `wv_range_{mode}` (the full list of wavelength ranges for this mode).
+
+    Returns
+    -------
+    scipy.interpolate.interp1d or str
+        Interpolator for the degraded stellar flux as a function of wavelength, or
+        the string 'blackbody' if no stellar spectrum is available (a blackbody at
+        Teff is used downstream in that case).
+    """
     if wl_range is None:
         wv_range_list = globals()[f'wv_range_{mode}']
     else:
@@ -991,10 +1016,16 @@ def init_stellar_spectrum(mode, wl_range=None):
         log.info(f'Interpolating the stellar spectrum for mode = {mode}.')
         # Only interpolate over the valid wavelength ranges in the list of wavelength ranges
         is_in_range = (star_wv >= np.min(wv_range_list) - 0.1) & (star_wv <= np.max(wv_range_list) + 0.1)
-        resamp_star = resamp_model(star_wv[is_in_range], star_flux[is_in_range], star_res, Raf=Raf)
+        sample = star_wv[is_in_range]
+        # `star_res` is the stellar model's native/physical resolution (Rbf); degrade
+        # it to the model resolution `Raf` with the unified convolution engine
+        # (Chantier A Phase 1 -- see convolution.py::degrade_and_resample).
+        resamp_star = degrade_and_resample(sample, star_flux[is_in_range],
+                                            resolution=Raf, input_resolution=star_res,
+                                            sample=sample)
         resamp_star = np.ma.masked_invalid(resamp_star)
-        fct_star = interp1d(star_wv[is_in_range], resamp_star)
-        
+        fct_star = interp1d(sample, resamp_star)
+
     else:
         log.info('No stellar spectrum provided. A blackbody at Teff will be used.')
         fct_star = 'blackbody'
@@ -1217,14 +1248,41 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
     return wv_out, model_out
 
 
-def prepare_photometry(wv_mod, spec_mod, model_res, data_info, mod_sampling=None, integrate_fct='simpson'):
-    
+def prepare_photometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_res: float, data_info: dict,
+                        mod_sampling: Optional[float] = None, integrate_fct: str = 'simpson'):
+    """Degrade a model spectrum to instrument resolution and integrate it over photometric bands.
+
+    Parameters
+    ----------
+    wv_mod : np.ndarray
+        Model wavelength grid.
+    spec_mod : np.ndarray
+        Model flux values, same shape as `wv_mod`.
+    model_res : float
+        Native/physical resolving power of the model spectrum (`Rbf`).
+    data_info : dict
+        Photometric data description, with keys 'wv_range', 'res', 'wave',
+        'response_fcts' (one response function per band).
+    mod_sampling : float, optional
+        Unused by the degradation step itself; kept for interface consistency with
+        `prepare_spectrophotometry`. Defaults to `model_res`.
+    integrate_fct : str
+        Name of the `scipy.integrate` function used to integrate the response
+        function over each band.
+
+    Returns
+    -------
+    wv_band : np.ndarray
+        Central wavelength of each photometric band.
+    mod_out : np.ndarray
+        Model flux integrated over each band's response function.
+    """
     if mod_sampling is None:
         mod_sampling = model_res
-        
+
     if isinstance(integrate_fct, str):
         integrate_fct = getattr(scipy.integrate, integrate_fct)
-    
+
     # Get the values needed from the data_info dictionary
     info_keys = ['wv_range', 'res', 'wave', 'response_fcts']
     wv_rng, instru_res, wv_band, fct_band = (data_info[key] for key in info_keys)
@@ -1232,9 +1290,12 @@ def prepare_photometry(wv_mod, spec_mod, model_res, data_info, mod_sampling=None
     # First downgrade to a lower resolution to make sure the spectrum is smooth
     cond = (wv_mod >= wv_rng[0]) & (wv_mod <= wv_rng[-1])
     wv_mod_sub, spec_mod_sub = wv_mod[cond], spec_mod[cond]
-    kwargs = dict(Raf=instru_res, Rbf=model_res, sample=wv_mod_sub)
-    _, resamp_prt = spectrum.resampling(wv_mod_sub, spec_mod_sub, **kwargs)
-    
+    # Pass the full wv_mod/spec_mod (not the wv_rng-cropped _sub arrays) so
+    # degrade_and_resample has margin to pad internally without clipping wv_mod_sub's
+    # edges (Chantier A Phase 1 -- see convolution.py::degrade_and_resample).
+    resamp_prt = degrade_and_resample(wv_mod, spec_mod, resolution=instru_res,
+                                       input_resolution=model_res, sample=wv_mod_sub)
+
     # Apply the response function to the spectrum
     mod_out = list()
     for fct_i in fct_band:
@@ -1248,25 +1309,50 @@ def prepare_photometry(wv_mod, spec_mod, model_res, data_info, mod_sampling=None
     return wv_band, mod_out
 
 
-def prepare_spectrophotometry(wv_mod, spec_mod, model_res, data_info, mod_sampling=None):
-    
+def prepare_spectrophotometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_res: float, data_info: dict,
+                               mod_sampling: Optional[float] = None):
+    """Degrade a model spectrum to instrument resolution and project it onto a spectrophotometric grid.
+
+    Parameters
+    ----------
+    wv_mod : np.ndarray
+        Model wavelength grid.
+    spec_mod : np.ndarray
+        Model flux values, same shape as `wv_mod`.
+    model_res : float
+        Native/physical resolving power of the model spectrum (`Rbf`).
+    data_info : dict
+        Spectrophotometric data description, with keys 'wv_range', 'res', 'wave'.
+    mod_sampling : float, optional
+        Sampling density (in resolving power) used for the box-binning step before
+        the final interpolation. Defaults to `model_res`.
+
+    Returns
+    -------
+    wv_grid : np.ndarray
+        Instrument wavelength grid (from `data_info['wave']`).
+    mod : np.ndarray
+        Model flux projected onto `wv_grid`.
+    """
     if mod_sampling is None:
         mod_sampling = model_res
-    
+
     # Get the values needed from the data_info dictionary
     wv_rng, instru_res, wv_grid = (data_info[key] for key in ['wv_range', 'res', 'wave'])
-    
+
     # TODO: Add the possibility to use unequal spectral bins
     # The binning function spectrum.box_binning needs to be replaced
     # because it assumes evenly spaced grid for now.
     # The function that reads the spectrophotometry should also
     # be changed to be able to read bin limits.
-    
-    # Downgrade to instrument resolution
+
+    # Downgrade to instrument resolution. Pass the full wv_mod/spec_mod (not the
+    # wv_rng-cropped array) so degrade_and_resample has margin to pad internally
+    # without clipping wv_mod[cond]'s edges (Chantier A Phase 1).
     cond = (wv_mod >= wv_rng[0]) & (wv_mod <= wv_rng[-1])
-    kwargs = dict(Raf=instru_res, Rbf=model_res, sample=wv_mod[cond])
-    _, resamp_prt = spectrum.resampling(wv_mod[cond], spec_mod[cond], **kwargs)
-    
+    resamp_prt = degrade_and_resample(wv_mod, spec_mod, resolution=instru_res,
+                                       input_resolution=model_res, sample=wv_mod[cond])
+
     # Bin the spectrum and interpolate
     # TODO: replace the binning function, which is just a box convolution for now.
     binned_prt = spectrum.box_binning(resamp_prt, mod_sampling / instru_res)

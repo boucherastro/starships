@@ -227,3 +227,93 @@ def resample_constant_res(wv, flux, wv_range=None, resolution=None, kind='cubic'
     wv_resampled = get_wv_constant_res(wv, wv_range=wv_range, resolution=resolution)
     flux_resampled = flux_spl(wv_resampled)
     return wv_resampled, flux_resampled
+
+
+def degrade_and_resample(wv: np.ndarray, flux: np.ndarray, resolution: float,
+                          input_resolution: float, sample: np.ndarray,
+                          n_fwhm: int = 7, kind: str = 'cubic') -> np.ndarray:
+    """Degrade a spectrum to a target resolving power and evaluate it on a given grid.
+
+    This chains resample_constant_res() and gauss_convolve() -- the same two-step
+    pattern already used by phoenix_models.convert_phoenix_at_resolution() to degrade
+    PHOENIX stellar spectra -- and adds the interpolation back onto an arbitrary
+    output grid needed by the retrieval pipeline's model-preparation functions
+    (init_stellar_spectrum, prepare_photometry, prepare_spectrophotometry,
+    petitradtrans_utils.prepare_model, retrieval_utils.downgrade_mod).
+
+    The key difference with the older spectrum.py::resampling()/analysis.py::resamp_model()
+    engine: gauss_convolve() measures the *actual* sampling resolution of the
+    intermediate grid from the array itself (get_res_from_grid()), instead of
+    trusting a caller-supplied number as if it were the true input sampling density.
+    That conflation (documented in spectrum.py::resampling()'s own docstring) is what
+    produced ~30% kernel-width errors whenever the target and input resolutions were
+    of the same order of magnitude (e.g. the final degradation to instrument
+    resolution) -- this function is the fix.
+
+    Note for future work (Chantier A Phase 2/3, not implemented here): this is the
+    natural place to plug in an extra kernel -- a simple (region-less) rotation
+    profile, or a box kernel representing the RV smearing accumulated over an
+    exposure's integration time -- by convolving `flux_resamp` with it between the
+    resample_constant_res() and gauss_convolve() calls below.
+
+    Parameters
+    ----------
+    wv : np.ndarray
+        Input wavelength grid. Does not need to be sampled at constant resolution,
+        and does not need to be cropped to `sample`'s range -- a wavelength pad is
+        added internally (see Notes) so it is best to pass the widest array
+        available, to leave room for that pad.
+    flux : np.ndarray
+        Input flux values, same shape as `wv`.
+    resolution : float
+        Target (output) resolving power.
+    input_resolution : float
+        Native/physical resolving power of the input spectrum. Used to build the
+        intermediate constant-resolution grid before convolving -- this is what
+        `spectrum.py::resampling()` calls `Rbf`.
+    sample : np.ndarray
+        Wavelength grid to evaluate the degraded spectrum on.
+    n_fwhm : int
+        Passed to gauss_convolve(); also used to size the wavelength pad added
+        around `sample`'s range before resampling.
+    kind : str
+        Interpolation kind used both for the initial resampling and for the final
+        evaluation on `sample`.
+
+    Returns
+    -------
+    np.ndarray
+        Degraded flux evaluated at `sample`. Points too close to the edge of the
+        available input data (not enough margin for a full convolution kernel) come
+        back as NaN -- consistent with how the rest of the codebase already handles
+        invalid values (np.ma.masked_invalid), rather than the old engine's silent
+        zero-padded edge approximation.
+
+    Notes
+    -----
+    A wavelength pad of `n_fwhm` resolution elements (at `resolution`) is added
+    around `sample`'s range before resampling, so that the edge trimming done by
+    gauss_convolve()'s default 'valid' mode does not clip any of the requested
+    `sample` points. The pad is clipped to whatever is actually available in `wv`.
+    """
+    wv_min, wv_max = np.min(sample), np.max(sample)
+    pad = n_fwhm * wv_min / resolution
+    wv_range = (max(wv_min - pad, np.min(wv)), min(wv_max + pad, np.max(wv)))
+
+    cond = (wv >= wv_range[0]) & (wv <= wv_range[1])
+    # get_wv_constant_res() (used internally by resample_constant_res()) can return
+    # a grid extending up to one resolution element beyond `wv_range` by
+    # construction -- pass bounds_error=False here so that harmless overshoot
+    # (trimmed away below by gauss_convolve()'s 'valid' mode) does not raise.
+    wv_resamp, flux_resamp = resample_constant_res(wv[cond], flux[cond], wv_range=wv_range,
+                                                    resolution=input_resolution, kind=kind,
+                                                    bounds_error=False, fill_value=np.nan)
+    wv_conv, flux_conv = gauss_convolve(wv_resamp, flux_resamp, resolution, n_fwhm=n_fwhm)
+
+    # A single leftover NaN (e.g. the get_wv_constant_res() overshoot above, if not
+    # fully trimmed away by gauss_convolve()'s 'valid' mode) would otherwise corrupt
+    # the *entire* cubic spline built below, since interp1d(kind='cubic') fits one
+    # global spline rather than a local window -- drop non-finite points first.
+    finite = np.isfinite(flux_conv)
+    fct = interp1d(wv_conv[finite], flux_conv[finite], kind=kind, bounds_error=False, fill_value=np.nan)
+    return fct(sample)

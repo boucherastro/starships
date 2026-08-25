@@ -11,6 +11,7 @@ from functools import partial
 from starships import homemade as hm
 from starships import analysis as a
 from starships import spectrum as spectrum
+from starships.convolution import degrade_and_resample
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 import astropy.units as u
@@ -949,8 +950,42 @@ def calc_best_mod_any(params, planet, atmos_obj, temp_params, P0=10e-3, scatt=Fa
 #     return wave_low, np.array(model_rp_low)[0]/1e6*scale
 
 
-def downgrade_mod(wlen, flux_lambda, down_wave, Rbf=1000, Raf=75):
-    _, resamp_prt = spectrum.resampling(wlen, flux_lambda, Raf=Raf, Rbf=Rbf, sample=wlen)
+def downgrade_mod(wlen: np.ndarray, flux_lambda: np.ndarray, down_wave: np.ndarray,
+                   Rbf: float = 1000, Raf: float = 75) -> np.ndarray:
+    """Degrade a model spectrum to a target resolution and project it onto a new wavelength grid.
+
+    Uses the unified convolution engine (Chantier A Phase 1 -- see
+    convolution.py::degrade_and_resample), which fixes a ~30% kernel-width error the
+    older spectrum.py::resampling() engine had whenever `Raf` and `Rbf` were of the
+    same order of magnitude.
+
+    Parameters
+    ----------
+    wlen : np.ndarray
+        Model wavelength grid.
+    flux_lambda : np.ndarray
+        Model flux values, same shape as `wlen`.
+    down_wave : np.ndarray
+        Wavelength grid to project the degraded spectrum onto.
+    Rbf : float
+        Native/physical resolving power of the model spectrum.
+    Raf : float
+        Target resolving power.
+
+    Returns
+    -------
+    np.ndarray
+        Degraded flux evaluated at `down_wave`.
+
+    Notes
+    -----
+    Since `sample` here equals the full input grid `wlen` (no extra margin is
+    available beyond it), points within about one resolution element of `wlen`'s
+    edges may come back as NaN if `down_wave` extends into that margin -- see
+    `degrade_and_resample`'s docstring.
+    """
+    resamp_prt = degrade_and_resample(wlen, flux_lambda, resolution=Raf,
+                                       input_resolution=Rbf, sample=wlen)
     binned_prt_hst = spectrum.box_binning(resamp_prt, Rbf / Raf)
     fct_prt = interp1d(wlen, binned_prt_hst)
 
