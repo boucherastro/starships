@@ -1911,7 +1911,6 @@ def save_single_sequences(filename, tr, path='',
              singular_values_ = tr.pca.singular_values_,
              mean_ = tr.pca.mean_,
              n_components_ = tr.pca.n_components_,
-             n_features_ = tr.pca.n_features_,
              n_samples_ = tr.pca.n_samples_,
              noise_variance_ = tr.pca.noise_variance_,
              n_features_in_ = tr.pca.n_features_in_,
@@ -1972,7 +1971,6 @@ def save_single_sequences(filename, tr, path='',
              singular_values_ = tr.pca.singular_values_,
              mean_ = tr.pca.mean_,
              n_components_ = tr.pca.n_components_,
-             n_features_ = tr.pca.n_features_,
              n_samples_ = tr.pca.n_samples_,
              noise_variance_ = tr.pca.noise_variance_,
              n_features_in_ = tr.pca.n_features_in_,
@@ -2294,6 +2292,29 @@ def load_single_data_dict(path, filename, load_all=False, filename_end='', data_
     
 
 def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=False):
+    """Save one ``.npz`` file per transit in `list_tr`, plus a shared `_data_info.npz`.
+
+    Companion function to `load_sequences`, which reads back the files written here.
+
+    Parameters
+    ----------
+    filename : str or Path
+        Base name used to build the output file names (`{filename}_data_info.npz`,
+        `{filename}_data_trs_{i}.npz`).
+    list_tr : dict
+        Transit objects to save, keyed by transit index (as a string).
+    do_tr : list or array
+        Transit indices to include, in the same order as `list_tr`. Indices >= 10
+        are excluded (reserved for another use elsewhere in the pipeline).
+    path : str or Path, optional
+        Output directory.
+    bad_indexs : list, optional
+        Exposure indices to flag as bad. Defaults to an empty list.
+    save_all : bool, optional
+        If True, also save the intermediate reduction products (normalized flux,
+        reconstructed telluric/stellar model, etc.), needed for diagnostic plots
+        but not for the retrieval itself.
+    """
 
     filename = Path(filename)
     path = Path(path)
@@ -2321,11 +2342,15 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
                  singular_values_ = list_tr[tr_key].pca.singular_values_,
                  mean_ = list_tr[tr_key].pca.mean_,
                  n_components_ = list_tr[tr_key].pca.n_components_,
-                 n_features_ = list_tr[tr_key].pca.n_features_,
                  n_samples_ = list_tr[tr_key].pca.n_samples_,
                  noise_variance_ = list_tr[tr_key].pca.noise_variance_,
                  n_features_in_ = list_tr[tr_key].pca.n_features_in_,
                  RV_const = list_tr[tr_key].RV_const,
+                 # Individual components of RV_const, kept separately for traceability
+                 # (RV_const = mid_berv + mid_vr + RV_sys, see Transit.norv_sequence()).
+                 RV_sys = list_tr[tr_key].RV_sys,
+                 mid_berv = list_tr[tr_key].mid_berv,
+                 mid_vr = list_tr[tr_key].mid_vr,
                  params = list_tr[tr_key].params,
                  wave = list_tr[tr_key].wave,
                  vrp = list_tr[tr_key].vrp,
@@ -2335,10 +2360,10 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
                  t_start = list_tr[tr_key].t_start, #.value,
                  flux = list_tr[tr_key].final/list_tr[tr_key].noise,
                  s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
-                 mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask, 
+                 mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask,
                  mask_noise = (list_tr[tr_key].noise).mask,
                  mask_s2f = (np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1)).mask,
-                 mask_N = (list_tr[tr_key].N).mask, 
+                 mask_N = (list_tr[tr_key].N).mask,
                  ratio = list_tr[tr_key].ratio,
                  reconstructed = list_tr[tr_key].reconstructed,
                  mast_out = list_tr[tr_key].mast_out,
@@ -2364,11 +2389,15 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
                  singular_values_ = list_tr[tr_key].pca.singular_values_,
                  mean_ = list_tr[tr_key].pca.mean_,
                  n_components_ = list_tr[tr_key].pca.n_components_,
-                 n_features_ = list_tr[tr_key].pca.n_features_,
                  n_samples_ = list_tr[tr_key].pca.n_samples_,
                  noise_variance_ = list_tr[tr_key].pca.noise_variance_,
                  n_features_in_ = list_tr[tr_key].pca.n_features_in_,
                  RV_const = list_tr[tr_key].RV_const,
+                 # Individual components of RV_const, kept separately for traceability
+                 # (RV_const = mid_berv + mid_vr + RV_sys, see Transit.norv_sequence()).
+                 RV_sys = list_tr[tr_key].RV_sys,
+                 mid_berv = list_tr[tr_key].mid_berv,
+                 mid_vr = list_tr[tr_key].mid_vr,
                  params = list_tr[tr_key].params,
                  wave = list_tr[tr_key].wave,
                  vrp = list_tr[tr_key].vrp,
@@ -2378,16 +2407,16 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
                  t_start = list_tr[tr_key].t_start, #.value,
                  flux = list_tr[tr_key].final/list_tr[tr_key].noise,
                  s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
-                 mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask, 
+                 mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask,
                  mask_noise = (list_tr[tr_key].noise).mask,
                  mask_s2f = (np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1)).mask,
-                 mask_N = (list_tr[tr_key].N).mask, 
+                 mask_N = (list_tr[tr_key].N).mask,
                  ratio = list_tr[tr_key].ratio,
                  reconstructed = list_tr[tr_key].reconstructed,
                  mast_out = list_tr[tr_key].mast_out,
                  mask_ratio = (list_tr[tr_key].ratio).mask,
                  mask_reconstructed = (list_tr[tr_key].reconstructed).mask,
-                 mask_mast_out = (list_tr[tr_key].mast_out).mask, 
+                 mask_mast_out = (list_tr[tr_key].mast_out).mask,
                  spec_trans = list_tr[tr_key].spec_trans,
                  final = list_tr[tr_key].final,
                  mask_spec_trans = list_tr[tr_key].spec_trans.mask,
@@ -2417,6 +2446,31 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
 
         
 def load_sequences(filename, do_tr, path='', load_all=False):
+    """Load the `.npz` files written by `save_sequences` back into plain dicts.
+
+    Parameters
+    ----------
+    filename : str or Path
+        Base name used to build the input file names, must match what was passed
+        to `save_sequences`.
+    do_tr : list or array
+        Transit indices to load. Indices >= 10 are excluded (see `save_sequences`).
+    path : str or Path, optional
+        Input directory.
+    load_all : bool, optional
+        If True, also load the intermediate reduction products saved when
+        `save_sequences` was called with `save_all=True`.
+
+    Returns
+    -------
+    data_info : dict
+        Quantities shared across all transits (alpha_frac, icorr, N, bad_indexs).
+    data_trs : dict
+        One entry per transit index (as a string), each a dict of arrays/PCA object.
+        `RV_sys`/`mid_berv`/`mid_vr` are the individual components of `RV_const`
+        (`RV_const = mid_berv + mid_vr + RV_sys`); they are set to None when reading
+        an older file saved before these were tracked individually.
+    """
 
     filename = Path(filename)
     path = Path(path)
@@ -2475,6 +2529,18 @@ def load_sequences(filename, do_tr, path='', load_all=False):
 
         data_trs[str(i_tr)]['pca'] = pca
         data_trs[str(i_tr)]['RV_const'] = data_tr['RV_const']
+        # RV_sys/mid_berv/mid_vr were added later than RV_const (their sum) — fall back to
+        # None for older .npz files that don't have them, instead of raising a KeyError.
+        try:
+            data_trs[str(i_tr)]['RV_sys'] = data_tr['RV_sys']
+            data_trs[str(i_tr)]['mid_berv'] = data_tr['mid_berv']
+            data_trs[str(i_tr)]['mid_vr'] = data_tr['mid_vr']
+        except KeyError:
+            log.info(f"RV_sys/mid_berv/mid_vr not found in {out_filename.name} (older save format). "
+                     "Only the combined RV_const is available for this transit.")
+            data_trs[str(i_tr)]['RV_sys'] = None
+            data_trs[str(i_tr)]['mid_berv'] = None
+            data_trs[str(i_tr)]['mid_vr'] = None
         data_trs[str(i_tr)]['params'] = data_tr['params']
         data_trs[str(i_tr)]['wave'] = data_tr['wave']
         data_trs[str(i_tr)]['vrp'] = data_tr['vrp']*u.km/u.s
