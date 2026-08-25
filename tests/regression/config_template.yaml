@@ -62,7 +62,7 @@ datasets:
   wasp33b_night1:
     npz_path: "/path/to/reduced/wasp33b_night1_data_trs_<params>.npz"
     model_path: "/path/to/starships_analysis/WASP-33b/Spectra/take3_HRR_modif_disso_31254924_all.npz"
-    planet_name: "WASP-33 b"
+    pl_name: "WASP-33 b"
     expected_peak_rv: 0.0       # expected Vsys (km/s) — adjust to known value
     expected_peak_rv_tol: 10.0  # tolerance (km/s)
     kp_ref: 231.0               # reference Kp (km/s)
@@ -70,7 +70,7 @@ datasets:
   wasp33b_night2:
     npz_path: "/path/to/reduced/wasp33b_night2_data_trs_<params>.npz"
     model_path: "/path/to/starships_analysis/WASP-33b/Spectra/take3_HRR_modif_disso_31254924_all.npz"
-    planet_name: "WASP-33 b"
+    pl_name: "WASP-33 b"
     expected_peak_rv: 0.0
     expected_peak_rv_tol: 10.0
     kp_ref: 231.0
@@ -79,7 +79,7 @@ datasets:
   # wasp127b_night1:
   #   npz_path: "/path/to/reduced/wasp127b_night1_data_trs_<params>.npz"
   #   model_path: "/path/to/wasp127b_model.npz"
-  #   planet_name: "WASP-127 b"
+  #   pl_name: "WASP-127 b"
   #   expected_peak_rv: 0.0
   #   expected_peak_rv_tol: 15.0
   #   kp_ref: 120.0
