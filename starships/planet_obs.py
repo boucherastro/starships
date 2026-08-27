@@ -2354,6 +2354,10 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
                  params = list_tr[tr_key].params,
                  wave = list_tr[tr_key].wave,
                  vrp = list_tr[tr_key].vrp,
+                 # Stellar reflex-motion excursion per exposure (recentered around the
+                 # mid-transit exposure by Transit.norv_sequence(), same convention as vrp) --
+                 # needed to Doppler-shift Fstar independently from Fp (Chantier A Phase 2).
+                 vr = list_tr[tr_key].vr,
                  sep = list_tr[tr_key].sep,
                  noise = list_tr[tr_key].noise,
                  N = list_tr[tr_key].N,
@@ -2401,6 +2405,10 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
                  params = list_tr[tr_key].params,
                  wave = list_tr[tr_key].wave,
                  vrp = list_tr[tr_key].vrp,
+                 # Stellar reflex-motion excursion per exposure (recentered around the
+                 # mid-transit exposure by Transit.norv_sequence(), same convention as vrp) --
+                 # needed to Doppler-shift Fstar independently from Fp (Chantier A Phase 2).
+                 vr = list_tr[tr_key].vr,
                  sep = list_tr[tr_key].sep,
                  noise = list_tr[tr_key].noise,
                  N = list_tr[tr_key].N,
@@ -2469,7 +2477,9 @@ def load_sequences(filename, do_tr, path='', load_all=False):
         One entry per transit index (as a string), each a dict of arrays/PCA object.
         `RV_sys`/`mid_berv`/`mid_vr` are the individual components of `RV_const`
         (`RV_const = mid_berv + mid_vr + RV_sys`); they are set to None when reading
-        an older file saved before these were tracked individually.
+        an older file saved before these were tracked individually. `vr` is the
+        per-exposure stellar reflex-motion excursion (same recentering convention as
+        `vrp`); it is set to None when reading an older file that predates it.
     """
 
     filename = Path(filename)
@@ -2544,6 +2554,14 @@ def load_sequences(filename, do_tr, path='', load_all=False):
         data_trs[str(i_tr)]['params'] = data_tr['params']
         data_trs[str(i_tr)]['wave'] = data_tr['wave']
         data_trs[str(i_tr)]['vrp'] = data_tr['vrp']*u.km/u.s
+        # Per-exposure stellar reflex-motion excursion (Chantier A Phase 2), added later than
+        # vrp -- fall back to None for older .npz files that don't have it.
+        try:
+            data_trs[str(i_tr)]['vr'] = data_tr['vr']*u.km/u.s
+        except KeyError:
+            log.info(f"vr not found in {out_filename.name} (older save format). "
+                     "Per-exposure stellar RV is unavailable for this transit.")
+            data_trs[str(i_tr)]['vr'] = None
         data_trs[str(i_tr)]['sep'] = data_tr['sep']*u.m
         data_trs[str(i_tr)]['noise'] = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
         data_trs[str(i_tr)]['N'] = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
@@ -2556,15 +2574,19 @@ def load_sequences(filename, do_tr, path='', load_all=False):
                                                    mask=data_tr['mask_ratio'])
         data_trs[str(i_tr)]['reconstructed'] = np.ma.array(data_tr['reconstructed'], 
                                                            mask=data_tr['mask_reconstructed'])
-        data_trs[str(i_tr)]['mast_out'] = np.ma.array(data_tr['mast_out'], 
+        data_trs[str(i_tr)]['mast_out'] = np.ma.array(data_tr['mast_out'],
                                                       mask=data_tr['mask_mast_out'])
+        # alpha_frac (per-exposure eclipse/transit light-curve fraction, Chantier A Phase 2) is
+        # saved unconditionally by save_sequences() (both save_all branches) -- load it
+        # unconditionally too, instead of gating it behind load_all like the diagnostic-only
+        # reduction products below.
+        data_trs[str(i_tr)]['alpha_frac'] = data_tr['alpha_frac']
 
         if load_all:
             data_trs[str(i_tr)]['final'] = np.ma.array(data_tr['final'],
                                                        mask=data_tr['mask_final'])
             data_trs[str(i_tr)]['spec_trans'] = np.ma.array(data_tr['spec_trans'],
                                                             mask=data_tr['mask_spec_trans'])
-            data_trs[str(i_tr)]['alpha_frac'] = data_tr['alpha_frac']
             data_trs[str(i_tr)]['icorr'] = data_tr['icorr']
             data_trs[str(i_tr)]['clip_ts'] = data_tr['clip_ts']
             data_trs[str(i_tr)]['scaling'] = data_tr['scaling']

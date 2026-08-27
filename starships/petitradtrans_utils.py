@@ -1079,8 +1079,38 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                           gravity, P0, cloud, R_pl, R_star, C_to_O=None, Fe_to_H=None,
                           kappa_factor=None, gamma_scat=None, vmrh2he=None, plot_abundance=False,
                           kind_trans='transmission', dissociation=False, fct_star=None,
-                          contribution=False, specie_2_lnlst=None, save_abundances = False, 
-                          abundances = None, MMW = None, VMR = None, **kwargs):
+                          contribution=False, specie_2_lnlst=None, save_abundances = False,
+                          abundances = None, MMW = None, VMR = None,
+                          return_fp_fstar: bool = False, **kwargs):
+    """Compute a single petitRADTRANS model spectrum (transmission depth or emission ratio).
+
+    See the module for the full parameter list (mirrors petitRADTRANS's `calc_transm`/
+    `calc_flux` inputs plus abundance-generation options); only the addition made for
+    Chantier A Phase 2 is documented in detail below.
+
+    Parameters
+    ----------
+    return_fp_fstar : bool, default False
+        If True and ``kind_trans == 'emission'``, return the planet flux (``Fp``, scaled
+        by ``R_pl**2/R_star**2``) and the stellar flux (``Fstar``) separately instead of
+        the combined ``Fp/Fstar`` ratio. This is what lets a caller Doppler-shift the
+        planet and star components independently per exposure (`model_sequence.py`)
+        instead of shifting the already-combined ratio as one rigid object (the cause of
+        Chantier A bug #2 -- the star's tiny reflex RV getting dragged at the planet's
+        orbital velocity). Ignored (no effect on the return value) in transmission, since
+        there is no separate stellar flux there -- ``Fstar`` is returned as `None` for
+        interface consistency. Default `False` keeps every existing caller's behaviour
+        unchanged.
+
+    Returns
+    -------
+    wave : np.ndarray
+        Wavelength grid, in microns.
+    out : np.ndarray or tuple
+        Default (``return_fp_fstar=False``): the transmission depth or Fp/Fstar ratio, as
+        before. If ``return_fp_fstar=True``: ``(Fp, Fstar)`` in emission (``Fstar=None``
+        in transmission, and the single value is the transmission depth).
+    """
     if vmrh2he is None:
         vmrh2he = [0.85, 0.15]
     if kappa_factor is not None:
@@ -1149,6 +1179,9 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
                                  contribution=contribution,
                                  **kwargs)
         out = atmos_object.transm_rad ** 2 / R_star ** 2
+        # No separate stellar flux in transmission -- kept `None` for a uniform
+        # (wave, Fp, Fstar) interface with the emission branch below.
+        fp_out, fstar_out = out, None
     elif kind_trans == "emission":
         #         bb_mod = bb(planet.Teff)
         atmos_object.calc_flux(temperatures, abundances, gravity, MMW,
@@ -1166,14 +1199,28 @@ def retrieval_model_plain(atmos_object, species, planet, pressures, temperatures
         else:
             star_spectrum = fct_star(wave) * (u.erg / u.cm ** 2 / u.s / u.cm)
 
-        out = ((atmos_object.flux * (u.erg / u.cm ** 2 / u.s / u.Hz) *
-                const.c / (wave * u.um) ** 2).to(u.erg / u.cm ** 2 / u.s / u.cm) *
-               (R_pl ** 2 / R_star ** 2) / star_spectrum).decompose()
-        
+        # Planet flux, scaled by (R_pl/R_star)**2 -- same units as `star_spectrum`
+        # (u.erg/u.cm**2/u.s/u.cm), so that fp_out / fstar_out reproduces the combined
+        # ratio `out` exactly (kept for backward compatibility) while also being usable
+        # on its own (Chantier A Phase 2: Doppler-shifting Fp and Fstar independently
+        # instead of the already-combined ratio).
+        fp_out = ((atmos_object.flux * (u.erg / u.cm ** 2 / u.s / u.Hz) *
+                   const.c / (wave * u.um) ** 2).to(u.erg / u.cm ** 2 / u.s / u.cm) *
+                  (R_pl ** 2 / R_star ** 2))
+        fstar_out = star_spectrum
+        out = (fp_out / fstar_out).decompose()
+
+    wave_out = nc.c / atmos_object.freq / 1e-4
+
+    if return_fp_fstar:
+        if save_abundances:
+            return wave_out, fp_out, fstar_out, abundances, MMW, VMR
+        return wave_out, fp_out, fstar_out
+
     if save_abundances:
-        return nc.c / atmos_object.freq / 1e-4, out, abundances, MMW, VMR
-    
-    else: return nc.c / atmos_object.freq / 1e-4, out  # .decompose()#, MMW
+        return wave_out, out, abundances, MMW, VMR
+
+    return wave_out, out  # .decompose()#, MMW
 
 # def retrieval_model_plain_retrieval_version(atmos_object, species, planet, pressures, temperatures,
 #                           gravity, P0, cloud, \

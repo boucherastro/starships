@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from starships.correlation import calc_logl_BL_ord
+from starships import logl_grid
 
 
 class TestCalcLogLBLOrd:
@@ -97,3 +98,84 @@ class TestCalcLogLBLOrd:
         logl_auto = calc_logl_BL_ord(flux, model, N)
         logl_pre  = calc_logl_BL_ord(flux, model, N, s2f=s2f_precomputed)
         np.testing.assert_allclose(logl_auto, logl_pre, rtol=1e-12)
+
+
+class TestLoglFromChi2Terms:
+    """`logl_grid.py::_logl_from_chi2_terms` (Chantier A Phase 2) -- coeur logL
+    extrait de `get_logl`, sans dépendance aux globals du module, pour que
+    `retrieval.py::lnprob` puisse le réutiliser tel quel plutôt que de dépendre de
+    l'ancien `correlation.py::calc_logl_BL_ord`. Les deux formules sont
+    mathématiquement identiques (voir `TestCalcLogLBLOrd.test_consistency_with_chi2map_formulation`
+    ci-dessus) -- ce test vérifie seulement que l'extraction elle-même n'a rien cassé."""
+
+    def test_matches_calc_logl_bl_ord(self):
+        """Même exemple à la main que TestCalcLogLBLOrd.test_known_value."""
+        flux  = np.array([1.0, 2.0, 3.0])
+        model = np.array([1.5, 1.5, 1.5])
+        N = 3
+        ct = np.sum(flux * model)
+        st = np.sum(model ** 2)
+        sf = np.sum(flux ** 2)
+
+        result = logl_grid._logl_from_chi2_terms(ct, st, sf, N, alpha=1.0, kind='BL')
+        expected = calc_logl_BL_ord(flux, model, N, alpha=1.0)
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_invalid_kind_raises(self):
+        with pytest.raises(ValueError):
+            logl_grid._logl_from_chi2_terms(1.0, 1.0, 1.0, 3, kind='not-a-kind')
+
+
+class TestGetLoglRefactor:
+    """`get_logl` (Chantier A Phase 2 refactor: now delegates to
+    `_logl_from_chi2_terms` instead of duplicating the chi2->logL formula inline) --
+    verifies the refactor didn't change its output, for both the scalar-alpha and the
+    vectorised-alpha-array code paths."""
+
+    def _set_grid_globals(self, monkeypatch, ct, st, sf, N, uncert_sum=None):
+        # get_logl() reads its terms from module globals (fork-multiprocessing
+        # pattern, see module docstring) -- monkeypatch them directly rather than
+        # going through the full setup_logl_grid()/compute_logl_grid() workflow.
+        # `uncert_sum` is indexed unconditionally (regardless of `kind`), so it must
+        # be a valid array even for a 'BL' test that never actually uses its values.
+        if uncert_sum is None:
+            uncert_sum = np.ma.zeros(np.shape(N))
+        monkeypatch.setattr(logl_grid, 'cross_terms', ct, raising=False)
+        monkeypatch.setattr(logl_grid, 'squared_terms', st, raising=False)
+        monkeypatch.setattr(logl_grid, 's2f', sf, raising=False)
+        monkeypatch.setattr(logl_grid, 'N', N, raising=False)
+        monkeypatch.setattr(logl_grid, 'uncert_sum', uncert_sum, raising=False)
+
+    def test_scalar_alpha_matches_hand_computed_value(self, monkeypatch):
+        """Même exemple à la main que TestCalcLogLBLOrd.test_known_value, mais à
+        travers get_logl() (termes déjà "sommés sur les pixels", shape (1, 1) pour
+        1 exposition/1 ordre)."""
+        flux  = np.array([1.0, 2.0, 3.0])
+        model = np.array([1.5, 1.5, 1.5])
+        ct = np.array([[np.sum(flux * model)]])
+        st = np.array([[np.sum(model ** 2)]])
+        sf = np.array([[np.sum(flux ** 2)]])
+        N = np.array([[3]])
+        self._set_grid_globals(monkeypatch, ct, st, sf, N)
+
+        result = logl_grid.get_logl(alpha=1.0, kind='BL')
+        expected = -3 / 2 * np.log(2.75 / 3)
+        np.testing.assert_allclose(result[0, 0], expected, rtol=1e-12)
+
+    def test_vectorised_alpha_matches_scalar_loop(self, monkeypatch):
+        """Le chemin vectorisé (alpha = tableau + sum_axis) doit reproduire, pour
+        chaque valeur d'alpha, le même résultat que l'appel scalaire équivalent."""
+        rng = np.random.default_rng(3)
+        n_exp, n_ord = 4, 2
+        ct = np.ma.array(rng.normal(size=(n_exp, n_ord)))
+        st = np.ma.array(np.abs(rng.normal(size=(n_exp, n_ord))) + 0.1)
+        sf = np.ma.array(np.abs(rng.normal(size=(n_exp, n_ord))) + 0.1)
+        N = np.ma.array(np.full((n_exp, n_ord), 100))
+        self._set_grid_globals(monkeypatch, ct, st, sf, N)
+
+        alpha_array = np.array([0.5, 1.0, 1.5])
+        result_vectorised = logl_grid.get_logl(alpha=alpha_array, kind='BL', sum_axis=(-2, -1))
+
+        for i, a in enumerate(alpha_array):
+            result_scalar = logl_grid.get_logl(alpha=float(a), kind='BL', sum_axis=(-2, -1))
+            np.testing.assert_allclose(result_vectorised[i], result_scalar, rtol=1e-10)

@@ -28,6 +28,11 @@ Extra keys to add to the retrieval YAML
     n_processes_per_cpu: 3
     apply_alpha: true                            # true = modulate template by alpha_frac (realistic);
                                                  # false = uniform injection (all frames equal weight)
+    use_real_stellar_rv: false                   # Chantier A Phase 2, Fp/Fstar-separated model files
+                                                 # only: true = Doppler-shift Fstar at the star's real
+                                                 # per-exposure reflex velocity (needs `vr` in the high-res
+                                                 # .npz); false (default) = keep the star fixed beyond its
+                                                 # RV_const baseline (negligible reflex motion in practice)
 
 Output filenames encode the grid parameters so that different grids for the
 same model do not overwrite each other::
@@ -56,6 +61,7 @@ from astropy import units as u
 
 import starships.planet_obs as pl_obs
 from starships import correlation as corr
+from starships import model_sequence as model_seq
 from starships.orbite import rv_theo_t
 from starships.planet_obs import Observations
 
@@ -74,7 +80,7 @@ global kind_trans, orders
 # logl_grid-specific
 global rv_grid, kp_grid, logl_kind
 global logl_grid_output_path, n_processes_per_cpu
-global apply_alpha
+global apply_alpha, use_real_stellar_rv
 # Derived in setup_logl_grid
 global obs, planet, Kp_scale
 
@@ -83,6 +89,9 @@ global data_trs, data_info_list, idx_orders, axis_sum
 
 # --- From load_model ---
 global wv_high, model_high
+# Fp/Fstar kept separate (Chantier A Phase 2) -- None if the loaded model .npz uses
+# the older, combined-ratio-only format (see load_model()).
+global Fp_high, Fstar_high
 
 # --- Workers (set per-visit before Pool.map) ---
 global _current_data_tr, _current_alpha_frac
@@ -118,7 +127,7 @@ def setup_logl_grid(input_parameters, **kwargs):
             globals()[key] = input_params[key]
 
     # Defaults for optional logl_grid keys
-    global rv_grid, kp_grid, logl_kind, n_processes_per_cpu, apply_alpha
+    global rv_grid, kp_grid, logl_kind, n_processes_per_cpu, apply_alpha, use_real_stellar_rv
     if 'rv_grid' not in globals():
         rv_grid = None
     if 'kp_grid' not in globals():
@@ -126,6 +135,12 @@ def setup_logl_grid(input_parameters, **kwargs):
     logl_kind = input_params.get('logl_kind', 'BL')
     n_processes_per_cpu = input_params.get('n_processes_per_cpu', 3)
     apply_alpha = bool(input_params.get('apply_alpha', True))
+    # Chantier A Phase 2: same option as retrieval.py::setup_retrieval -- Doppler-shift
+    # Fstar at the star's real per-exposure reflex velocity (needs `vr` in the loaded
+    # .npz, see planet_obs.py::save_sequences) instead of keeping it fixed. Default
+    # False: negligible next to the planet's orbital velocity and the BERV for
+    # essentially every target (Antoine-confirmed approximation).
+    use_real_stellar_rv = bool(input_params.get('use_real_stellar_rv', False))
 
     # Build planet / obs
     global obs, planet, Kp_scale
@@ -166,21 +181,43 @@ def load_logl_grid_data():
 # ---------------------------------------------------------------------------
 
 def load_model(model_path):
-    """Load a model spectrum NPZ. Sets ``wv_high`` and ``model_high`` globals."""
-    global wv_high, model_high
+    """Load a model spectrum NPZ.
+
+    Sets ``wv_high``/``model_high`` globals (combined ratio, as before). If the file
+    also has ``fp_mod``/``fstar_mod`` keys -- the format written when the model was
+    generated with Fp/Fstar kept separate (Chantier A Phase 2, see
+    `model_sequence.py::precompute_theta_model`) -- also sets ``Fp_high``/
+    ``Fstar_high``, which `_get_chi2_detailed` then uses to fix bug #2 (star's reflex
+    RV getting dragged at the planet's orbital velocity). Older model files without
+    those keys still work exactly as before, just without the fix (``Fp_high``/
+    ``Fstar_high`` stay `None`).
+    """
+    global wv_high, model_high, Fp_high, Fstar_high
     model_file = np.load(model_path)
     try:
         wv_high = model_file['wave']
     except KeyError:
         wv_high = model_file['wave_mod']
-    try:
-        model_high = model_file['spec']
-    except KeyError:
-        model_high = model_file['mod_spec']
+
+    if 'fp_mod' in model_file and 'fstar_mod' in model_file:
+        Fp_high = model_file['fp_mod']
+        Fstar_high = model_file['fstar_mod']
+        # Kept for anything downstream that still expects the combined ratio
+        # (diagnostics, plotting) -- computed here rather than saved twice.
+        model_high = Fp_high / Fstar_high
+    else:
+        Fp_high = None
+        Fstar_high = None
+        try:
+            model_high = model_file['spec']
+        except KeyError:
+            model_high = model_file['mod_spec']
+
     model_file.close()
     if not np.isfinite(model_high[100:-100]).all():
         raise ValueError(f'NaN found in model spectrum: {model_path}')
-    log.info(f'Model loaded: {Path(model_path).name}')
+    log.info(f'Model loaded: {Path(model_path).name}'
+            + (' (Fp/Fstar separated)' if Fp_high is not None else ' (combined ratio only)'))
 
 
 # ---------------------------------------------------------------------------
@@ -204,32 +241,58 @@ _current_apply_alpha = True
 
 
 def _get_chi2_detailed(theta):
-    """Worker: compute chi2 terms for one (v_sys, kp) grid point."""
+    """Worker: compute chi2 terms for one (v_sys, kp) grid point.
+
+    Uses the Fp/Fstar-separated engine (`model_sequence.py`, Chantier A Phase 2,
+    fixes bug #2) when the loaded model has `Fp_high`/`Fstar_high` (see `load_model`);
+    falls back to the old combined-ratio path (`correlation.py::gen_model_sequence_noinj`)
+    for older model files that only have the combined ratio.
+    """
     v_sys, kp = theta
     data_tr = _current_data_tr
 
+    # Planet's velocity relative to the star (not to the observer -- see
+    # model_sequence.py / retrieval.py::lnprob for the same composition).
     vrp_orb = rv_theo_t(
         kp, data_tr['t_start'] * u.d, planet.mid_tr, planet.period, plnt=True
     ).value
 
     n_pc = int(data_tr['params'][5])
-    velocities = v_sys + vrp_orb - vrp_orb * Kp_scale + data_tr['RV_const']
-
     alpha_arg = _current_alpha_frac if _current_apply_alpha else np.ones_like(_current_alpha_frac)
 
-    model_seq = corr.gen_model_sequence_noinj(
-        velocities,
-        data_wave=data_tr['wave'],
-        data_sep=data_tr['sep'],
-        data_pca=data_tr['pca'],
-        data_npc=n_pc,
-        planet=planet,
-        model_wave=wv_high[20:-20],
-        model_spec=model_high[20:-20],
-        kind_trans=kind_trans,
-        alpha=alpha_arg,
-    )
-    return _calc_chi2_terms(model_seq, data_tr)
+    if Fp_high is not None:
+        # Chantier A Phase 2: Fp/Fstar kept separate, Doppler-shifted independently
+        # per exposure -- fixes bug #2 (star's tiny reflex RV dragged at the
+        # planet's orbital velocity by the old rigid combined-ratio shift below).
+        # Same defaults/composition as retrieval.py::lnprob: star assumed fixed
+        # beyond its RV_const baseline unless use_real_stellar_rv is set and the
+        # loaded data actually has a per-exposure `vr` (older .npz files don't).
+        if use_real_stellar_rv and data_tr.get('vr') is not None:
+            vr_orb = data_tr['vr'].to(u.km / u.s).value
+        else:
+            vr_orb = 0.0
+
+        model_seq_arr = model_seq.build_model_sequence(
+            wv_high[20:-20], Fp_high[20:-20], data_tr['wave'], vrp_orb,
+            Fstar=Fstar_high[20:-20], vr_orb=vr_orb, alpha=alpha_arg,
+            kind_trans=kind_trans, RV=v_sys + data_tr['RV_const'])
+    else:
+        # Older model file (combined ratio only, see load_model) -- old path,
+        # unchanged, same bug as before for this particular model file.
+        velocities = v_sys + vrp_orb - vrp_orb * Kp_scale + data_tr['RV_const']
+        model_seq_arr = corr.gen_model_sequence_noinj(
+            velocities,
+            data_wave=data_tr['wave'],
+            data_sep=data_tr['sep'],
+            data_pca=data_tr['pca'],
+            data_npc=n_pc,
+            planet=planet,
+            model_wave=wv_high[20:-20],
+            model_spec=model_high[20:-20],
+            kind_trans=kind_trans,
+            alpha=alpha_arg,
+        )
+    return _calc_chi2_terms(model_seq_arr, data_tr)
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +408,8 @@ def compute_logl_grid(rv_array=None, kp_array=None, n_process=None):
         f'({len(rv_array)} × {len(kp_array)})'
     )
     log.info(f'apply_alpha = {apply_alpha}  (template modulated by alpha_frac: {apply_alpha})')
+    log.info(f'use_real_stellar_rv = {use_real_stellar_rv} '
+            f'(Fp/Fstar engine only, ignored for older combined-ratio-only model files)')
 
     _current_apply_alpha = apply_alpha
 
@@ -571,6 +636,7 @@ def compute_and_save_logl_grid(output_path, file_stem,
         f'({len(rv_array)} × {len(kp_array)})'
     )
     log.info(f'apply_alpha = {apply_alpha}')
+    log.info(f'use_real_stellar_rv = {use_real_stellar_rv}')
 
     _current_apply_alpha = apply_alpha
 
@@ -718,6 +784,66 @@ def load_logl_results(file_list, path=None):
     _loaded_extra = combined
 
 
+def _chi2_from_terms(ct, st, sf, alpha=1.):
+    """chi2(alpha) = sf - 2*alpha*ct + alpha**2*st (Brogi & Line 2019, eq. 6-ish).
+
+    The one-line formula both `_logl_from_chi2_terms` (below) and
+    `retrieval.py::lnprob` (Chantier A Phase 2) need -- `lnprob` needs the *raw* chi2
+    (not yet converted to logL), because it sums chi2 across several visits first
+    (`correlation.py::sum_logl`) and only takes the log once, at the very end, not
+    once per visit. See `_logl_from_chi2_terms` for the parameter meanings.
+    """
+    return sf - 2 * alpha * ct + alpha ** 2 * st
+
+
+def _logl_from_chi2_terms(ct, st, sf, N, alpha=1., beta=1., kind='BL', uncert_sum=None):
+    """Compute logL from pre-summed chi2 terms -- globals-free core, shared.
+
+    Chantier A Phase 2: factored out of `get_logl` below (which reads its terms from
+    this module's globals, populated by the Kp-Vsys grid scan) so that
+    `retrieval.py::lnprob` can compute a logL with the *exact same formula* from terms
+    it computes fresh at every MCMC step (see `model_sequence.py`), instead of
+    depending on the older, less clearly documented `correlation.py::calc_logl_BL_ord`.
+    `get_logl` itself keeps all its grid-slicing/summing logic -- only the final
+    "chi2 terms -> logL" conversion lives here now.
+
+    Parameters
+    ----------
+    ct : np.ma.array
+        Cross term, sum(model/noise * flux/noise) -- "R" in `correlation.py`'s
+        notation, "f_x_g" in `_calc_chi2_terms` below.
+    st : np.ma.array
+        Squared model term, sum((model/noise)**2) -- "s2g".
+    sf : np.ma.array
+        Squared data term, sum((flux/noise)**2) -- "s2f", model-independent
+        (precomputed once per visit, not recomputed at every grid point/MCMC step).
+    N : np.ma.array or int
+        Number of valid (unmasked) pixels contributing to the sum.
+    alpha : float or np.ndarray, broadcastable against `ct`/`st`/`sf`/`N`
+        Model scaling factor (fit or fixed at 1 for "as-is" injection).
+    beta : float
+        Noise scaling factor, Gibson ('G') prescription only.
+    kind : {'BL', 'G'}
+        LogL prescription: 'BL' = Brogi & Line (no explicit noise scaling fitted),
+        'G' = Gibson et al. (explicit `beta`).
+    uncert_sum : np.ma.array, optional
+        sum(log(noise)) -- only needed for `kind='G'`.
+
+    Returns
+    -------
+    np.ma.array
+        Same broadcast shape as `sf - alpha*ct + alpha**2*st`.
+    """
+    chi2 = _chi2_from_terms(ct, st, sf, alpha=alpha)
+    if kind == 'BL':
+        return -N / 2 * np.ma.log(chi2 / N)
+    elif kind == 'G':
+        cst = -N / 2 * np.ma.log(2. * np.pi) - N * np.log(float(beta)) - uncert_sum
+        return cst - 0.5 * chi2 / float(beta) ** 2
+    else:
+        raise ValueError(f"logl kind must be 'BL' or 'G', got {kind!r}")
+
+
 def get_logl(alpha=1., beta=1., kind='BL', idx_orders=None, idx_exposure=None, sum_axis=None):
     """Compute logL from the loaded grid terms.
 
@@ -770,33 +896,25 @@ def get_logl(alpha=1., beta=1., kind='BL', idx_orders=None, idx_exposure=None, s
         st_sum = np.ma.sum(st,  axis=sum_axis)
         sf_sum = np.ma.sum(sf,  axis=sum_axis)
         n_sum  = np.ma.sum(N_i, axis=sum_axis)
+        # Add a leading "alpha axis" so alpha_arr broadcasts against the (already
+        # summed) spatial dimensions -- the actual chi2->logL math is shared with the
+        # scalar path below via `_logl_from_chi2_terms`.
         alpha_bcast = alpha_arr.reshape((-1,) + (1,) * ct_sum.ndim)
-        chi2        = sf_sum - 2*alpha_bcast*ct_sum + alpha_bcast**2*st_sum
-        if kind == 'BL':
-            return -n_sum / 2 * np.ma.log(chi2 / n_sum)
-        elif kind == 'G':
-            us_sum = np.ma.sum(us, axis=sum_axis)
-            cst = -n_sum/2 * np.ma.log(2.*np.pi) - n_sum*np.log(float(beta)) - us_sum
-            return cst - 0.5 * chi2 / float(beta)**2
-        else:
-            raise ValueError(f"logl kind must be 'BL' or 'G', got {kind!r}")
+        us_sum = np.ma.sum(us, axis=sum_axis) if kind == 'G' else None
+        return _logl_from_chi2_terms(ct_sum, st_sum, sf_sum, n_sum, alpha=alpha_bcast,
+                                     beta=beta, kind=kind, uncert_sum=us_sum)
 
     # --- Scalar / original path (backward compatible) ---
-    chi2_val = sf - 2 * alpha_arr * ct + alpha_arr**2 * st
-
     if sum_axis is not None:
-        chi2_val = np.ma.sum(chi2_val, axis=sum_axis)
-        N_i      = np.ma.sum(N_i,      axis=sum_axis)
+        ct = np.ma.sum(ct, axis=sum_axis)
+        st = np.ma.sum(st, axis=sum_axis)
+        sf = np.ma.sum(sf, axis=sum_axis)
+        N_i = np.ma.sum(N_i, axis=sum_axis)
         if kind == 'G':
             us = np.sum(us, axis=sum_axis)
 
-    if kind == 'BL':
-        return -N_i / 2 * np.ma.log(chi2_val / N_i)
-    elif kind == 'G':
-        cst = -N_i / 2 * np.ma.log(2. * np.pi) - N_i * np.log(beta) - us
-        return cst - 0.5 * chi2_val / beta**2
-    else:
-        raise ValueError(f"logl kind must be 'BL' or 'G', got {kind!r}")
+    return _logl_from_chi2_terms(ct, st, sf, N_i, alpha=alpha_arr, beta=beta, kind=kind,
+                                 uncert_sum=us if kind == 'G' else None)
 
 
 def get_ccf(kind='BL', idx_orders=None, idx_exposure=None, sum_axis=None):
