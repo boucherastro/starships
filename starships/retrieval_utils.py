@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Callable
 
 import h5py
 
@@ -2914,13 +2915,45 @@ default_prior_func = {
 
 
 def load_custom_prior(custom_prior_file):
-    
+
     # Custom prior file is a python script that contains the 2 dictionaries
-    
+
     # First load the python script
     cstm_p = hm.import_module_by_path('dummy', custom_prior_file)
-    
+
     return cstm_p.prior_func, cstm_p.prior_init_func
+
+
+def load_custom_get_ker(get_ker_file: str) -> Callable:
+    """Load a user-defined rotation kernel function from a Python file.
+
+    Mirrors `load_custom_prior` above: `get_ker_file` (the `get_ker_file` key in the
+    retrieval YAML) is expected to be a Python script, loaded as its own module and
+    defining a module-level `get_ker(theta_regions, tr_i=0, phase=None, planet=None,
+    instrum=None, model_resolution=None)` function -- see the documented example in
+    `retrievals/retrieval_inputs_example_rotation.yaml`.
+
+    Note that, because the file is loaded as a separate module, it cannot see
+    `retrieval.py`'s own globals (`data_trs`, `planet`, `instrum`, ...) just by
+    naming them -- unlike code living directly inside `retrieval.py`. This is why
+    `get_ker`'s signature takes `phase`/`planet`/`instrum`/`model_resolution`
+    explicitly as arguments: `retrieval.py::prepare_model_multi_reg` computes them
+    from its own globals and passes them in at every call, instead of relying on the
+    loaded file to reach back into `retrieval.py`'s namespace.
+
+    Parameters
+    ----------
+    get_ker_file : str
+        Path to a Python file defining a module-level `get_ker` function.
+
+    Returns
+    -------
+    Callable
+        The `get_ker` function found in `get_ker_file`.
+    """
+    cstm_ker = hm.import_module_by_path('dummy_get_ker', get_ker_file)
+
+    return cstm_ker.get_ker
 
 
 def rejection_sampling(spl_func, x_bounds, envelope_func=None, n_samples=1000):

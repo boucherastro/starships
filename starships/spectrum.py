@@ -650,6 +650,17 @@ class BaseKer:
         dv_old = np.diff(v_grid).mean()
         ker_spl = interp1d(v_grid, kernel, kind='linear')
         v_grid = np.arange(v_grid.min(), v_grid.max(), dv_new)
+        # Re-center (found 2026-08-28, Antoine): np.arange(min, max, step) anchors at
+        # `min`, not necessarily landing symmetrically -- left uncorrected, the
+        # *returned* kernel array (the only thing most callers, e.g. a plain
+        # np.convolve(flux, kernel), actually use) is not centered on its own middle
+        # index, silently introducing a small systematic velocity offset. Matches
+        # get_ker()'s own convention (`v_grid -= np.mean(v_grid)`) instead of losing it
+        # here. The resulting shift was tiny in the case that surfaced this
+        # (~0.5 m/s out of a ~1200 m/s pixel, well-sampled kernel) but scales with how
+        # coarsely the kernel is sampled (`n_os`), so worth fixing at the source
+        # rather than relying on it staying negligible.
+        v_grid -= np.mean(v_grid)
         out_ker = ker_spl(v_grid)
         out_ker *= dv_new / dv_old
         return out_ker
@@ -783,6 +794,11 @@ class BaseKerMulti:
         for rot_ker in rot_ker_list:
             ker_spl = interp1d(v_grid, rot_ker, kind='linear')
             v_grid_new = np.arange(v_grid.min(), v_grid.max(), dv_new)
+            # Re-center (found 2026-08-28, see BaseKer.resample's identical fix for
+            # the full explanation): np.arange(min, max, step) anchors at `min`, not
+            # necessarily landing symmetrically, so the returned kernel isn't centered
+            # on its own middle index unless corrected here.
+            v_grid_new -= np.mean(v_grid_new)
             out_ker_list.append(ker_spl(v_grid_new))
             
         # Make sure the sum over all kernels is 1 (conservation of flux)
@@ -927,7 +943,20 @@ def v_de_phi(phi, gamma1, gamma2, amp1, amp2):
     return output
 
 
-class RotKerTransit:
+class RotKerTransit(BaseKer):
+    """Geometric wind-broadening kernel for transit (transmission) spectroscopy.
+
+    Derived purely from the planet's radius/mass/equilibrium temperature/rotation
+    (or wind) frequency -- as opposed to `RotKerTransitCloudy`, this one has no
+    cloud/vphi options. Inherits `degrade_ker`/`resample`/`show` from `BaseKer`
+    (Chantier A Phase 3): this class used to hand-duplicate its own copies of those
+    three methods, which had drifted from `BaseKer`'s -- notably `resample` was
+    missing the `dv_new / dv_old` rescale that keeps the kernel's discrete sum
+    normalized after interpolating onto a different-density velocity grid, so a
+    resampled kernel's amplitude was off by a `dv_old / dv_new` factor. `BaseKer`'s
+    versions fix that (and add the optional `fwhm` override) for free.
+    """
+
     def __init__(self, pl_rad, pl_mass, t_eq, omega, resolution, mu=None):
         '''Rotational kernel for transit at dv constant (constant resolution)
         pl_rad: scalar astropy quantity, planet radius
@@ -936,25 +965,24 @@ class RotKerTransit:
         omega: array-like astropy quantity, 1 or 2 elements
             Rotation frequency. If 2 elements, different for
             each hemisphere. The first element will be for
-            the negative speed (blue-shifted), and the 
+            the negative speed (blue-shifted), and the
             second for positive speed (red-shifted)
         resolution: scalar (float or int)
             spectral resolution
         mu: scalar astropy quantity, mean molecular mass
         '''
+        super().__init__(resolution)
         if mu is None:
             mu = 2.3 * u.u
         g_surf = const.G * pl_mass / pl_rad**2
         scale_height = const.k_B * t_eq / (mu * g_surf)
         z_h = 5 * scale_height.to('m').value
         r_p = pl_rad.to('m').value
-        res_elem = const.c / resolution
-        res_elem = res_elem.to('m/s').value
         omega = omega.to('1/s').value
-        self.res_elem = res_elem
         self.omega = omega
         self.z_h = z_h
         self.r_p = r_p
+
     def get_ker(self, n_os=None, pad=7, norm=True):
         '''
         n_os: scalar, oversampling (to sample the kernel)
@@ -965,7 +993,7 @@ class RotKerTransit:
         res_elem = self.res_elem
         omega = self.omega
         z_h = self.z_h
-        r_p = self.r_p 
+        r_p = self.r_p
         ker_h_len = (r_p + z_h) * omega.max()
         v_max = ker_h_len + pad * res_elem
         if n_os is None:
@@ -989,51 +1017,88 @@ class RotKerTransit:
         if norm:
             kernel /= kernel.sum()
         return v_grid, kernel
-    
-    def degrade_ker(self, rot_ker=None, v_grid=None, norm=True, **kwargs):
-        '''kwargs are passed to get_ker method'''
-        fwhm = self.res_elem
-        if rot_ker is None: 
-            v_grid, rot_ker = self.get_ker(norm=norm, **kwargs)
-        gauss_ker = hm.gauss(v_grid, 0.0, FWHM=fwhm)
-        out_ker = np.convolve(rot_ker, gauss_ker, mode='same')
-        if norm:
-            out_ker /= out_ker.sum()
-        return v_grid, out_ker
-    
-    def resample(self, res_sampling, **kwargs):
-        '''
-        res_sampling: resolution of the sampling needed
-        kwargs are passed to degrade_ker method
-        '''
-        dv_new = const.c / res_sampling
-        dv_new = dv_new.to('m/s').value
-        v_grid, kernel = self.degrade_ker(**kwargs)
-        ker_spl = interp1d(v_grid, kernel, kind='linear')
-        v_grid = np.arange(v_grid.min(), v_grid.max(), dv_new)
-        out_ker = ker_spl(v_grid)
-        return out_ker
-    
-    def show(self, norm=True, **kwargs):
+
+
+class SolidRotationKernel(BaseKer):
+    """Rotational-broadening kernel for a uniformly rotating, uniformly bright disk.
+
+    This is the *phase-independent* default 'emission' rotation kernel (Chantier A
+    Phase 3, `model_sequence.py::_build_default_rotation_kernel`): the planet's whole
+    observer-facing disk broadens its own emitted flux by solid-body rotation, with
+    no notion of citrus regions or orbital phase. It used to be built by reusing
+    `CitrusRotationKernel` with a single citrus boundary (`citrus_phases=[0.0]`), on
+    the assumption that one boundary degenerates into "the whole disk, phase
+    independent". **That assumption was wrong**: `citrus_to_ker`'s region-boundary
+    geometry is built for >= 2 boundaries, and a single self-referencing boundary
+    (`reg_2 == reg_1`) falls into an unintended branch -- verified numerically
+    (Chantier A Phase 3 follow-up, 2026-08-28) to give a kernel that is *not*
+    symmetric around v=0 (centroid off by ~3 km/s for a WASP-33b-like case) and,
+    for orbital phases other than exactly 0.0, entirely zero. This class replaces
+    that reuse with the closed-form profile directly, verified symmetric.
+
+    Physics: for a disk of projected radius `pl_rad` rotating at equatorial
+    velocity `v_eq = pl_rad * omega`, the flux Doppler-shifted to line-of-sight
+    velocity v is proportional to the chord length of the disk at that velocity --
+    the classic "uniform disk" rotational-broadening profile (Gray's formula with
+    zero limb darkening): `G(v) = sqrt(1 - (v / v_eq)**2)` for `|v| <= v_eq`, 0
+    otherwise.
+
+    Parameters
+    ----------
+    pl_rad : scalar astropy quantity
+        Planet radius.
+    omega : scalar astropy quantity
+        Rotation rate (rad/s) -- `rot_factor` times the orbital angular frequency
+        for the tidally-locked assumption used by `_build_default_rotation_kernel`.
+    resolution : scalar (float or int)
+        Spectral resolution of the instrument.
+    """
+
+    def __init__(self, pl_rad, omega, resolution):
+        super().__init__(resolution)
+        pl_rad, omega = convert_default_units([pl_rad, omega], ['m', '1/s'])
+        self.v_eq = pl_rad * omega
+
+    def get_ker(self, n_os=None, pad=7, norm=True):
+        """
+        Parameters
+        ----------
+        n_os : scalar, optional
+            Oversampling (to sample the kernel). If None, a default sampling is
+            derived from `v_eq`, same convention as `CitrusRotationKernel.get_ker`.
+        pad : scalar
+            Pad around the kernel, in units of resolution elements. Values in the
+            pad are set to zero.
+        norm : bool
+            Whether to normalize the kernel to unit sum. Default True.
+
+        Returns
+        -------
+        v_grid : np.ndarray
+        kernel : np.ndarray
+        """
         res_elem = self.res_elem
-        v_grid, kernel = self.get_ker(norm=norm, **kwargs)
-        gauss_ker = hm.gauss(v_grid, 0.0, FWHM=res_elem)
+        v_eq = self.v_eq
+
+        v_max = v_eq + pad * res_elem
+        if n_os is None:
+            delta_v = np.abs(v_eq / 10)
+            log.info(f'No oversampling given. Using delta_v = {delta_v:.2f} m/s')
+        else:
+            delta_v = res_elem / n_os
+
+        v_grid = np.arange(-v_max, v_max, delta_v)
+        v_grid -= np.mean(v_grid)
+
+        kernel = np.zeros_like(v_grid)
+        visible = np.abs(v_grid) <= v_eq
+        kernel[visible] = np.sqrt(1 - (v_grid[visible] / v_eq) ** 2)
+
         if norm:
-            gauss_ker /= gauss_ker.sum()
-        _, ker_degraded = self.degrade_ker(norm=norm, **kwargs)
-        fig = plt.figure()
-        plt.plot(v_grid/1e3, gauss_ker, "--", color="gray",
-                 label='Instrumental resolution element')
-        plt.axvline(res_elem/2e3, linestyle='--', color='gray')
-        plt.axvline(-res_elem/2e3, linestyle='--', color='gray')
-        plt.plot(v_grid/1e3, kernel,
-                 label='Rotation kernel')
-        plt.plot(v_grid/1e3, ker_degraded,
-                 label='Instrumental * rotation')
-        plt.legend()
-        plt.xlabel('dv [km/s]')
-        plt.ylabel('Kernel')
-  
+            kernel /= kernel.sum()
+
+        return v_grid, kernel
+
 
 class RotKerTransitCloudy(BaseKer):
     """

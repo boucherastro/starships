@@ -138,6 +138,7 @@ global reg_fixed_params
 global custom_prior_file
 global special_init
 global get_ker_file
+global rotation_kernel
 global limP
 global n_pts
 global star_spectrum
@@ -535,6 +536,17 @@ def setup_retrieval(input_parameters, **kwargs):
     # is not worth requiring every dataset to have been re-saved with `vr` first.
     use_real_stellar_rv = input_params.get('use_real_stellar_rv', False)
 
+    # rotation_kernel: phase-*independent* default rotation kernel applied once per
+    # theta by model_sequence.precompute_theta_model (Chantier A Phase 3) -- vsini-
+    # style solid rotation broadening in emission (spectrum.SolidRotationKernel), or
+    # geometric wind broadening in transmission (replaces the dead
+    # RotKerTransitCloudy(gauss=True) path). Default None: no default kernel,
+    # unchanged behaviour for existing configs that do not set this key. Distinct
+    # from the multi-region kernel (`get_ker`/`get_ker_file` above), which is
+    # phase-*dependent* and applied per exposure instead.
+    global rotation_kernel
+    rotation_kernel = input_params.get('rotation_kernel', None)
+
     # --- Add some useful parameters for model---
     pressures = np.logspace(limP[0], limP[1], n_pts)
     fixed_params['pressures'] = pressures
@@ -590,9 +602,17 @@ def setup_retrieval(input_parameters, **kwargs):
                                      special_treatment=special_init)
 
     # --- Rotation kernel ----
-    # TODO: Import correctly using the file in yaml file
-    global get_ker
-    get_ker = lambda theta_regions, tr_i: [None for _ in theta_regions]
+    # If `get_ker_file` is given (see `retrievals/retrieval_inputs_example_rotation.yaml`
+    # for the documented contract), load the user's `get_ker` function from it, the
+    # same way `custom_prior_file` is loaded above. Otherwise, fall back to a no-op
+    # (no rotation kernel, `prepare_model_multi_reg` treats `None` as "instrumental
+    # profile only", see `prepare_model_high_or_low`).
+    global get_ker, get_ker_file
+    if get_ker_file is None:
+        get_ker = lambda theta_regions, tr_i=0, phase=None, planet=None, instrum=None, \
+                          model_resolution=None: [None for _ in theta_regions]
+    else:
+        get_ker = ru.load_custom_get_ker(get_ker_file)
 
     return input_params
 
@@ -1167,10 +1187,11 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
                               return_fp_fstar=False):
     """Generate one theta's model spectrum, at high or low resolution.
 
-    High res: petitRADTRANS spectrum degraded to instrument resolution, with optional
-    wind broadening. Low res: petitRADTRANS spectrum Doppler-shifted by the systemic
-    velocity (see the comment in the ``mode == 'low'`` branch below for why no
-    per-exposure term is needed there).
+    High res: petitRADTRANS spectrum degraded to instrument resolution (optionally
+    convolved with a multi-region kernel, see `rot_ker` below -- wind broadening
+    itself is handled elsewhere, see `return_fp_fstar`). Low res: petitRADTRANS
+    spectrum Doppler-shifted by the systemic velocity (see the comment in the
+    ``mode == 'low'`` branch below for why no per-exposure term is needed there).
 
     Parameters
     ----------
@@ -1188,19 +1209,23 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
         Target (instrument) resolving power. Defaults to the highest resolution among
         the configured instruments.
     rot_ker : object, optional
-        Pre-built wind-broadening kernel, forwarded to `petitradtrans_utils.prepare_model`
-        (`mode='high'`, combined-ratio path only -- see `return_fp_fstar` below).
+        Pre-built multi-region kernel (from `get_ker`, one region's array),
+        forwarded to `petitradtrans_utils.prepare_model` (`mode='high'`,
+        combined-ratio path only -- see `return_fp_fstar` below). `None` (default)
+        takes the plain Gaussian-degradation path.
     return_fp_fstar : bool, default False
         Chantier A Phase 2: if True, return Fp and Fstar kept separate (see
         `_prepare_fp_fstar_high`) instead of the combined `Fp/Fstar` ratio, so the
         caller can Doppler-shift them independently per exposure
         (`model_sequence.build_model_sequence`) -- this is what fixes bug #2 (the
         star's tiny reflex RV getting dragged at the planet's orbital velocity by the
-        old rigid combined-ratio shift). Only supported for `mode='high'` without wind
-        broadening (`theta_dict['wind'] is None`) for now -- wind broadening applies a
-        static kernel to the combined ratio and hasn't been unified with this new
-        architecture yet (Chantier A Phase 3 territory, same place the phase-dependent
-        rotation kernel gets wired in). Raises `NotImplementedError` otherwise.
+        old rigid combined-ratio shift). Only supported for `mode='high'` -- raises
+        `NotImplementedError` for `mode='low'`. Wind broadening (transmission) is
+        fully supported here too, via `_prepare_fp_fstar_high` ->
+        `precompute_theta_model`'s `rotation_kernel` argument (Chantier A Phase 3,
+        `rotation_kernel: 'transmission'` in the YAML) -- unlike the removed old
+        combined-ratio wind path, there is no longer a wind-specific restriction on
+        this flag.
 
     Returns
     -------
@@ -1237,16 +1262,10 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
         # independently per exposure -- see model_sequence.py, this is what fixes
         # bug #2 (star's tiny reflex RV getting dragged at the planet's orbital
         # velocity by the old rigid combined-ratio shift).
-        # Only the plain high-res case is supported for now: wind broadening applies
-        # a static kernel to the combined ratio and hasn't been unified with this
-        # new architecture yet (that unification is Chantier A Phase 3's job, same
-        # place the phase-dependent rotation kernel gets wired in).
-        if mode != 'high' or theta_dict.get('wind') is not None:
+        if mode != 'high':
             raise NotImplementedError(
-                "return_fp_fstar=True only supports mode='high' without wind "
-                "broadening (theta_dict['wind'] is None) for now -- Chantier A "
-                "Phase 2 scope. Use return_fp_fstar=False (the default) for "
-                "mode='low' or when wind broadening is needed."
+                "return_fp_fstar=True only supports mode='high' -- Chantier A "
+                "Phase 2 scope. Use return_fp_fstar=False (the default) for mode='low'."
             )
         return _prepare_fp_fstar_high(theta_dict, atmo_obj_list, species, fct_star, Raf)
 
@@ -1274,22 +1293,18 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
             model_out = (cloud_f * model_out_cloudy) + (clear_f * model_out_clear)
 
         if mode == 'high':
-            # --- Downgrading and broadening the model (if broadening is included)
-            # if np.isfinite(model_out[100:-100]).all():
-                # Get wind broadening parameters
-                if theta_dict['wind'] is not None:
-                    rot_kwargs = {'rot_params': [theta_dict['R_pl'] * const.R_jup,
-                                                theta_dict['M_pl'],
-                                                theta_dict['T_eq'] * u.K,
-                                                [theta_dict['wind']]],
-                                    'gauss': True, 'x0': 0,
-                                    'fwhm': theta_dict['wind'] * 1e3, }
-                else:
-                    rot_kwargs = {'rot_params': None}
-                
-                # Downgrade the model
-                wv_out, model_out = prt.prepare_model(wv_out, model_out, prt_res[mode], Raf=Raf,
-                                                    rot_ker=rot_ker, **rot_kwargs)
+            # Downgrade the model. `rot_ker`, if given (from prepare_model_multi_reg's
+            # get_ker call), is a pre-built multi-region kernel array applied here;
+            # `None` (the common case) takes the plain Gaussian-degradation path
+            # (petitradtrans_utils.prepare_model -> convolution.degrade_and_resample).
+            # Wind broadening no longer has a special case here -- removed 2026-08-28
+            # (see lnprob's docstring): it used to build a `RotKerTransitCloudy(gauss=True)`
+            # kernel from `theta_dict['wind']`, a crude Gaussian approximation
+            # confirmed physically wrong, now fully superseded by the geometric
+            # `rotation_kernel: 'transmission'` mechanism (spectrum.RotKerTransit,
+            # Chantier A Phase 3) used by the Fp/Fstar engine instead.
+            wv_out, model_out = prt.prepare_model(wv_out, model_out, prt_res[mode], Raf=Raf,
+                                                rot_ker=rot_ker)
 
         elif mode == 'low':
             # --- Applying the Doppler shift due to the star's systemic velocity ---
@@ -1343,7 +1358,8 @@ def _prepare_fp_fstar_high(theta_dict, atmo_obj_list, species, fct_star, Raf):
         if theta_dict['cloud_fraction'] is None or theta_dict['cloud_fraction'] == 1:
             wv_out, Fp_out, Fstar_out = model_seq.precompute_theta_model(
                 atmo_obj, species, planet, theta_dict, kind_trans,
-                resolution=Raf, native_resolution=native_res, fct_star=fct_star, **kwargs)
+                resolution=Raf, native_resolution=native_res, fct_star=fct_star,
+                rotation_kernel=rotation_kernel, **kwargs)
         else:
             # Same "regenerate with cloud=None" trick as the old combined-ratio path
             # (there: a dedicated `p_cloud_clear` theta key set to None; here, a
@@ -1353,11 +1369,13 @@ def _prepare_fp_fstar_high(theta_dict, atmo_obj_list, species, fct_star, Raf):
             clear_f = 1 - cloud_f
             wv_out, Fp_cloudy, Fstar_out = model_seq.precompute_theta_model(
                 atmo_obj, species, planet, theta_dict, kind_trans,
-                resolution=Raf, native_resolution=native_res, fct_star=fct_star, **kwargs)
+                resolution=Raf, native_resolution=native_res, fct_star=fct_star,
+                rotation_kernel=rotation_kernel, **kwargs)
             theta_dict_clear = {**theta_dict, 'p_cloud': None}
             _, Fp_clear, _ = model_seq.precompute_theta_model(
                 atmo_obj, species, planet, theta_dict_clear, kind_trans,
-                resolution=Raf, native_resolution=native_res, fct_star=fct_star, **kwargs)
+                resolution=Raf, native_resolution=native_res, fct_star=fct_star,
+                rotation_kernel=rotation_kernel, **kwargs)
             Fp_out = model_seq.combine_regions([Fp_cloudy, Fp_clear], [cloud_f, clear_f])
 
         wv_all.append(wv_out)
@@ -1373,9 +1391,186 @@ def _prepare_fp_fstar_high(theta_dict, atmo_obj_list, species, fct_star, Raf):
     return wv_all, Fp_all, Fstar_all
 
 
+def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star):
+    """Generate every region's native (undegraded) Fp for one visit.
+
+    Chantier A Phase 3: true multi-region wiring into the Fp/Fstar-separated
+    engine (`len(theta_regions) > 1`; `theta_regions` is an arbitrary user-defined
+    split of the planet -- e.g. citrus/longitude slices, the documented example, but
+    nothing here assumes that specific geometry). Mirrors `_prepare_fp_fstar_high`'s
+    per-region/per-atmo_obj loop and cloudy/clear blend, but calls
+    `model_sequence.generate_native_fp_fstar` (no degradation) instead of
+    `precompute_theta_model`: the per-exposure kernel built by `get_ker`
+    already bakes in the resolution degradation (see
+    `model_sequence.combine_regions_with_kernel`), so degrading here too would
+    degrade twice. Also returns the first region's native Fstar (region-independent
+    -- stellar flux does not depend on the region -- any region gives the same
+    array) for the caller to degrade once, the normal way.
+
+    Parameters
+    ----------
+    theta_regions : list of dict
+        One dict per region (`len(theta_regions) > 1`), as produced by
+        `unpack_theta`.
+    atmo_obj_list : list of petitRADTRANS.Radtrans
+        One entry per wavelength range/instrument (`init_atmo_if_not_done('high')`).
+    fct_star : callable or 'blackbody' or None
+        Forwarded to `retrieval_model_plain` (see `retrieval.py::init_stellar_spectrum`).
+
+    Returns
+    -------
+    wave : np.ndarray
+        Native wavelength grid, shared across regions (NOT edge-trimmed --
+        `combine_regions_with_kernel` trims after its own per-exposure convolution).
+    Fp_by_region : list of np.ndarray
+        One native Fp array per region, on `wave`.
+    Fstar : np.ndarray or None
+        Native Fstar (region-independent), on `wave`. `None` in transmission.
+    """
+    wave, Fp_by_region, Fstar = None, [], None
+    for theta_dict in theta_regions:
+        species = prepare_abundances(theta_dict, 'high')
+        kwargs = dict(gamma_scat=theta_dict['gamma_scat'],
+                     kappa_factor=theta_dict['scat_factor'],
+                     C_to_O=theta_dict['C/O'],
+                     Fe_to_H=theta_dict['Fe/H'],
+                     specie_2_lnlst=linelist_names['high'],
+                     dissociation=dissociation)
+        wv_all, Fp_all, Fstar_all = [], [], []
+        for atmo_obj in atmo_obj_list:
+            if theta_dict['cloud_fraction'] is None or theta_dict['cloud_fraction'] == 1:
+                wv_out, Fp_out, Fstar_out = model_seq.generate_native_fp_fstar(
+                    atmo_obj, species, planet, theta_dict, kind_trans,
+                    fct_star=fct_star, **kwargs)
+            else:
+                # Same "regenerate with cloud=None" trick as _prepare_fp_fstar_high.
+                cloud_f = theta_dict['cloud_fraction']
+                clear_f = 1 - cloud_f
+                wv_out, Fp_cloudy, Fstar_out = model_seq.generate_native_fp_fstar(
+                    atmo_obj, species, planet, theta_dict, kind_trans,
+                    fct_star=fct_star, **kwargs)
+                theta_dict_clear = {**theta_dict, 'p_cloud': None}
+                _, Fp_clear, _ = model_seq.generate_native_fp_fstar(
+                    atmo_obj, species, planet, theta_dict_clear, kind_trans,
+                    fct_star=fct_star, **kwargs)
+                Fp_out = model_seq.combine_regions([Fp_cloudy, Fp_clear], [cloud_f, clear_f])
+            wv_all.append(wv_out)
+            Fp_all.append(Fp_out)
+            Fstar_all.append(Fstar_out)
+
+        wv_all = np.concatenate(wv_all)
+        Fp_all = np.concatenate(Fp_all)
+        if wave is None:
+            wave = wv_all
+            # Fstar does not depend on the region -- keep the first region's.
+            Fstar = np.concatenate(Fstar_all) if Fstar_all[0] is not None else None
+        Fp_by_region.append(Fp_all)
+
+    return wave, Fp_by_region, Fstar
+
+
+def _build_multi_region_kernel(theta_regions, tr_i):
+    """Build the per-exposure `region_kernel` closure for multi-region combination (Phase 3).
+
+    Generic across whatever region geometry `get_ker` implements (a citrus/
+    longitude-slice split is the documented example, but nothing here assumes it).
+    Returned closure matches `model_sequence.build_model_sequence`'s `region_kernel`
+    contract: called once per exposure as `region_kernel(wave, Fp_by_region, phase_i)`,
+    it fetches this phase's per-region kernels from `get_ker` (`retrieval.py`'s own
+    global, loaded from `get_ker_file` -- see `setup_retrieval`'s "Rotation kernel"
+    block) and combines them with `model_sequence.combine_regions_with_kernel`,
+    weighted by each region's `spec_scale` (same weighting convention as the old
+    combined-ratio multi-region path, `prepare_model_multi_reg`).
+
+    Parameters
+    ----------
+    theta_regions : list of dict
+        One dict per region, as produced by `unpack_theta`.
+    tr_i : int
+        Visit index -- selects `instrum_param_list[tr_i]`, forwarded to `get_ker`
+        (see its documented contract).
+
+    Returns
+    -------
+    callable
+        `region_kernel(wave, Fp_by_region, phase_i)` -> combined spectrum for that
+        phase, ready for `build_model_sequence`.
+    """
+    weights = [theta_dict['spec_scale'] for theta_dict in theta_regions]
+
+    def region_kernel(wave, Fp_by_region, phase_i):
+        rot_ker_list = get_ker(theta_regions, tr_i=tr_i, phase=phase_i, planet=planet,
+                               instrum=instrum_param_list[tr_i], model_resolution=prt_res['high'])
+        return model_seq.combine_regions_with_kernel(wave, Fp_by_region, rot_ker_list, weights)
+
+    return region_kernel
+
+
+def prepare_model_multi_reg_high_per_exposure(theta_regions, tr_i, Raf):
+    """Fp/Fstar-separated model generation for the true multi-region case (Phase 3).
+
+    Counterpart to `_prepare_fp_fstar_high` for `len(theta_regions) > 1`: since the
+    per-region rotation kernel is phase-*dependent* in general (regions rotate
+    into/out of view across a visit), the per-region combination cannot happen once
+    per theta the way `_prepare_fp_fstar_high`/`combine_regions` do it for the
+    cloudy/clear blend -- it must happen once *per exposure*, inside
+    `build_model_sequence`'s `region_kernel` hook (see `_build_multi_region_kernel`,
+    `model_sequence.combine_regions_with_kernel`). This function only prepares what
+    is needed *before* the exposure loop: each region's native Fp (kept separate,
+    not yet combined) and the single shared, degraded Fstar.
+
+    Parameters
+    ----------
+    theta_regions : list of dict
+        One dict per region (`len(theta_regions) > 1`), as produced by
+        `unpack_theta`.
+    tr_i : int
+        Visit index, forwarded to `_build_multi_region_kernel`/`get_ker`.
+    Raf : float
+        Target (instrument) resolving power, used to degrade the shared Fstar.
+
+    Returns
+    -------
+    wave : np.ndarray
+        Wavelength grid (native, edge-trimmed by 15 points), shared by `Fstar` and
+        by the spectra `region_kernel` returns.
+    Fp_by_region : list of np.ndarray
+        Native (undegraded, un-trimmed), per-region Fp -- see
+        `model_sequence.combine_regions_with_kernel` for why they are not degraded here.
+    Fstar : np.ndarray or None
+        Degraded stellar flux, on `wave`. `None` in transmission.
+    region_kernel : callable
+        `region_kernel(wave, Fp_by_region, phase_i)` -> combined spectrum for that
+        phase, ready for `build_model_sequence`.
+    """
+    init_atmo_if_not_done('high')
+    n_wv_rng = len(globals()['wv_range_high'])
+    atmo_obj_list = [globals()[f'atmo_high_{i_rng}'] for i_rng in range(n_wv_rng)]
+    init_stellar_spectrum_if_not_done('high')
+    fct_star = globals()['fct_star_high']
+    native_res = prt_res['high']
+
+    wave_native, Fp_by_region, Fstar_native = _prepare_fp_native_by_region(
+        theta_regions, atmo_obj_list, fct_star)
+
+    if Fstar_native is not None:
+        # Fstar is region-independent -- degrade the shared native spectrum the
+        # normal way (same convention as precompute_theta_model's Step 2), once.
+        Fstar_pre = degrade_and_resample(wave_native, Fstar_native, resolution=Raf,
+                                         input_resolution=native_res, sample=wave_native)
+        Fstar_out = np.ma.masked_invalid(Fstar_pre)[15:-15]
+    else:
+        Fstar_out = None
+
+    wave_out = wave_native[15:-15]
+    region_kernel_fct = _build_multi_region_kernel(theta_regions, tr_i)
+
+    return wave_out, Fp_by_region, Fstar_out, region_kernel_fct
+
+
 def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=None, tr_i=0, Raf=None,
                             return_fp_fstar=False):
-    """Generate and combine the model for every citrus (longitude) region.
+    """Generate and combine the model for every region in `theta_regions`.
 
     Calls `prepare_model_high_or_low` once per region in `theta_regions`, weights
     each region's contribution by its `spec_scale`, and sums them.
@@ -1388,18 +1583,20 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
     mode : {'high', 'low'}
     rot_ker_list : list, optional
         Unused positional parameter kept for backward compatibility -- the actual
-        list used is always the one returned by `get_ker(theta_regions, tr_i=tr_i)`.
+        list used is always the one returned by `get_ker(...)` (see below).
     atmo_obj, Raf : optional
         Forwarded to `prepare_model_high_or_low`.
     tr_i : int, default 0
-        Transit/visit index, forwarded to `get_ker` (phase-dependent rotation
-        kernel per visit -- Chantier A Phase 3, not implemented yet).
+        Transit/visit index. Used to select `data_trs[tr_i]` (to compute the mean
+        orbital phase of the planet signal, passed to `get_ker`) and
+        `instrum_param_list[tr_i]` (this visit's instrument, also passed to
+        `get_ker`).
     return_fp_fstar : bool, default False
         Chantier A Phase 2: if True, keep Fp/Fstar separate (see
         `prepare_model_high_or_low`) and combine the regions' Fp contributions with
         `model_sequence.combine_regions` instead of `np.sum`. Fstar does not depend
-        on the citrus region (same stellar spectrum for all of them), so it is taken
-        from the first region rather than combined. Same `mode='high'`-without-wind
+        on the region (same stellar spectrum for all of them), so it is taken
+        from the first region rather than combined. Same `mode='high'`-only
         restriction as `prepare_model_high_or_low`.
 
     Returns
@@ -1411,11 +1608,19 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
     Fstar_out : np.ndarray or None
         Only when `return_fp_fstar` is True.
     """
-    # Get the list of rotation kernels
-    rot_ker_list = get_ker(theta_regions, tr_i=tr_i)
+    # Mean orbital phase of the planet signal for this visit -- computed here (not
+    # inside `get_ker`) because a custom `get_ker_file` is loaded as its own module
+    # and cannot see `data_trs`/`planet`, retrieval.py's own globals, just by naming
+    # them (see `ru.load_custom_get_ker`'s docstring).
+    all_phases = (data_trs[tr_i]['t_start'] - planet.mid_tr.value) / planet.period.to('d').value % 1
+    mean_phase = np.mean(all_phases[data_trs[tr_i]['i_pl_signal']])
+
+    # Get the list of rotation kernels (one per region)
+    rot_ker_list = get_ker(theta_regions, tr_i=tr_i, phase=mean_phase, planet=planet,
+                           instrum=instrum_param_list[tr_i], model_resolution=prt_res[mode])
 
     if return_fp_fstar:
-        # Chantier A Phase 2: same citrus-region combination as below, but on
+        # Chantier A Phase 2: same region combination as below, but on
         # Fp/Fstar kept separate rather than an already-combined ratio.
         wv_list, Fp_list, Fstar_list, weights = [], [], [], []
         for theta_dict, reg_id in zip(theta_regions, region_id):
@@ -1429,11 +1634,11 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
             Fstar_list.append(Fstar_i)
             weights.append(theta_dict['spec_scale'])
 
-        # Citrus-region contributions summed generically (same mechanism as the
+        # Region contributions summed generically (same mechanism as the
         # cloudy/clear blend inside _prepare_fp_fstar_high above) instead of the
         # bare `np.sum(model_list, axis=0)` used by the combined-ratio path below.
         Fp_out = model_seq.combine_regions(Fp_list, weights)
-        # Fstar does not depend on the citrus region (same fct_star, same
+        # Fstar does not depend on the region (same fct_star, same
         # wavelength grid for every region) -- any one of them is the same
         # stellar spectrum, so there is nothing to combine here.
         Fstar_out = Fstar_list[0]
@@ -1574,14 +1779,18 @@ def prepare_spectrophotometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_re
 def lnprob(theta, ):
     """Log-probability (prior + logL) for one MCMC step.
 
-    High-res block (Chantier A Phase 2): uses the Fp/Fstar-separated engine
-    (`model_sequence.py`) by default for the plain high-res case (fixes bug #2 --
-    star's reflex RV no longer dragged at the planet's orbital velocity), falling
-    back to the old combined-ratio path (`correlation.py::calc_log_likelihood_grid_retrieval`)
-    only when wind broadening is requested (not unified with the new architecture
-    yet). See `apply_alpha`/`use_real_stellar_rv` (set in `setup_retrieval`, same YAML
-    keys as `logl_grid.py::setup_logl_grid`) for the two accuracy/cost knobs of the
-    new engine.
+    High-res block: uses the Fp/Fstar-separated engine (`model_sequence.py`, Chantier
+    A Phase 2 -- fixes bug #2, star's reflex RV no longer dragged at the planet's
+    orbital velocity) unconditionally. Wind broadening (transmission) has its own
+    correct, unified path here too since Chantier A Phase 3
+    (`rotation_kernel: 'transmission'` -> `spectrum.RotKerTransit`, computed once per
+    theta in `precompute_theta_model`) -- the older combined-ratio fallback this
+    docstring used to describe (`correlation.py::calc_log_likelihood_grid_retrieval`,
+    a cruder `RotKerTransitCloudy(gauss=True)` kernel) was removed 2026-08-28: no
+    real config ever set `wind` to trigger it, and it duplicated what Phase 3 already
+    does correctly. See `apply_alpha`/`use_real_stellar_rv` (set in `setup_retrieval`,
+    same YAML keys as `logl_grid.py::setup_logl_grid`) for the two accuracy/cost knobs
+    of the engine.
     """
     global params_prior, retrieval_type, kind_trans, orders, white_light
     global photometric_data, spectrophotometric_data
@@ -1613,15 +1822,6 @@ def lnprob(theta, ):
         # For the rest, just use the first region (we only need general informations)
         theta_dict = theta_regions[0]
 
-        # Chantier A Phase 2: the Fp/Fstar-separated engine (fixes bug #2, the star's
-        # reflex RV getting dragged at the planet's orbital velocity) only covers the
-        # plain high-res case for now -- wind broadening applies a static kernel to
-        # the combined ratio and hasn't been unified with this new architecture yet
-        # (see prepare_model_high_or_low's return_fp_fstar docstring, Phase 3
-        # territory). Decided once per theta (not per visit): wind broadening is a
-        # global-parameters choice from unpack_theta, not visit-dependent.
-        use_fp_fstar_engine = theta_dict.get('wind') is None
-
         logl_i = []
         # --- Computing the logL for all sequences
         for tr_i, data_tr_i in enumerate(data_trs):
@@ -1630,7 +1830,38 @@ def lnprob(theta, ):
                                 data_tr_i['t_start'] * u.d, planet.mid_tr,
                                 planet.period, plnt=True).value
 
-            if use_fp_fstar_engine:
+            # Chantier A Phase 3: true multi-region (more than one entry in
+            # theta_regions -- e.g. citrus/longitude slices, the documented
+            # get_ker example, but any user-defined region split works the same
+            # way) needs a per-exposure kernel -- regions rotate into/out of view
+            # across a visit, so they cannot be combined once per theta the way
+            # the single-region fast path below does. See
+            # prepare_model_multi_reg_high_per_exposure/_build_multi_region_kernel.
+            is_multi_region = len(theta_regions) > 1
+
+            if is_multi_region:
+                wv_high, Fp_by_region, Fstar_high, region_kernel_fct = \
+                    prepare_model_multi_reg_high_per_exposure(theta_regions, tr_i, res_instru)
+
+                if not all(np.isfinite(Fp_i[100:-100]).all() for Fp_i in Fp_by_region):
+                    log.warning("NaN in high res model spectrum encountered")
+                    return -np.inf
+
+                # Per-exposure orbital phase, forwarded to region_kernel (unlike
+                # prepare_model_multi_reg's mean_phase, used only by the old
+                # combined-ratio path -- the whole point here is per-exposure).
+                phase_i = (data_tr_i['t_start'] - planet.mid_tr.value) \
+                    / planet.period.to('d').value % 1
+
+                # Reconstruct the combined ratio too (LOW RES block further down),
+                # same reasoning as the single-region branch below, using the mean
+                # phase across the visit as a representative combination (same
+                # simplification the old combined-ratio multi-region path always
+                # used, since that block has no per-exposure Doppler shift of its own).
+                mean_phase = np.mean(phase_i[data_tr_i['i_pl_signal']])
+                Fp_high = region_kernel_fct(wv_high, Fp_by_region, mean_phase)
+                model_high = Fp_high / Fstar_high if Fstar_high is not None else Fp_high
+            else:
                 # NOTE: Not optimal to re-compute the model for each sequence.
                 # Could be done once for all regions and then the rotation kernel
                 # could be applied to the model for each region depending on the phase.
@@ -1649,74 +1880,75 @@ def lnprob(theta, ):
                 # nothing and keeps that path working unchanged.
                 model_high = Fp_high / Fstar_high if Fstar_high is not None else Fp_high
 
-                # --- Stellar velocity: independent from the planet's (the actual bug fix) ---
-                # Fixed by default (use_real_stellar_rv=False, set in setup_retrieval):
-                # the reflex motion is negligible next to the planet's orbital velocity
-                # and the BERV for essentially every target (Antoine-confirmed). Use the
-                # real per-exposure vr (planet_obs.py::save_sequences, Chantier A Phase 2)
-                # only if the run asked for it *and* the loaded data actually has it
-                # (older .npz files predating this addition fall back to None).
-                if use_real_stellar_rv and data_tr_i.get('vr') is not None:
-                    vr_orb = data_tr_i['vr'].to(u.km / u.s).value
-                else:
-                    vr_orb = 0.0
+            # --- Stellar velocity: independent from the planet's (the actual bug fix) ---
+            # Fixed by default (use_real_stellar_rv=False, set in setup_retrieval):
+            # the reflex motion is negligible next to the planet's orbital velocity
+            # and the BERV for essentially every target (Antoine-confirmed). Use the
+            # real per-exposure vr (planet_obs.py::save_sequences, Chantier A Phase 2)
+            # only if the run asked for it *and* the loaded data actually has it
+            # (older .npz files predating this addition fall back to None).
+            if use_real_stellar_rv and data_tr_i.get('vr') is not None:
+                vr_orb = data_tr_i['vr'].to(u.km / u.s).value
+            else:
+                vr_orb = 0.0
 
-                # --- Occultation fraction: real light curve by default (apply_alpha) ---
-                # Same YAML key/global as logl_grid.py's apply_alpha/_current_apply_alpha,
-                # kept consistent between the two rather than picking a different default.
-                alpha_arg = (data_tr_i['alpha_frac'] if apply_alpha
-                            else np.ones_like(data_tr_i['t_start']))
+            # --- Occultation fraction: real light curve by default (apply_alpha) ---
+            # Same YAML key/global as logl_grid.py's apply_alpha/_current_apply_alpha,
+            # kept consistent between the two rather than picking a different default.
+            alpha_arg = (data_tr_i['alpha_frac'] if apply_alpha
+                        else np.ones_like(data_tr_i['t_start']))
 
-                # Doppler-shift Fp and Fstar independently per exposure and recombine
-                # into the model sequence compared to the data (model_sequence.py).
-                # `RV_const` (BERV + stellar reflex at mid-transit + RV_sys,
-                # planet_obs.py::norv_sequence) is the star-rest-frame -> data-grid
-                # baseline shift and must be applied to *both* Fp and Fstar (both need
-                # to land on the same data wavelength grid) -- vrp_orb/vr_orb are then
-                # the differential excursions on top of that shared baseline (vrp_orb
-                # is the planet's velocity *relative to the star*, not to the
-                # observer). Folded into `RV` here since build_model_sequence already
-                # adds `RV` to both vrp_orb and vr_orb.
+            # Doppler-shift Fp and Fstar independently per exposure and recombine
+            # into the model sequence compared to the data (model_sequence.py).
+            # `RV_const` (BERV + stellar reflex at mid-transit + RV_sys,
+            # planet_obs.py::norv_sequence) is the star-rest-frame -> data-grid
+            # baseline shift and must be applied to *both* Fp and Fstar (both need
+            # to land on the same data wavelength grid) -- vrp_orb/vr_orb are then
+            # the differential excursions on top of that shared baseline (vrp_orb
+            # is the planet's velocity *relative to the star*, not to the
+            # observer). Folded into `RV` here since build_model_sequence already
+            # adds `RV` to both vrp_orb and vr_orb.
+            if is_multi_region:
+                # NOTE: unlike the single-region branch below, no extra [20:-20]
+                # margin here on top of the 15-point edge trim already applied by
+                # combine_regions_with_kernel/prepare_model_multi_reg_high_per_exposure --
+                # wave/Fstar_high and each region's raw Fp would need to shrink by
+                # a consistent amount for build_model_sequence's per-exposure
+                # spline to stay aligned, and the extra margin's purpose is not
+                # documented elsewhere in the codebase. Revisit together with the
+                # Narval validation of this phase if it turns out to matter.
+                model_seq_i = model_seq.build_model_sequence(
+                    wv_high, Fp_by_region, data_tr_i['wave'], vrp_orb,
+                    Fstar=Fstar_high, vr_orb=vr_orb, alpha=alpha_arg,
+                    kind_trans=kind_trans, RV=theta_dict['rv'] + data_tr_i['RV_const'],
+                    region_kernel=region_kernel_fct, phase=phase_i)
+            else:
                 model_seq_i = model_seq.build_model_sequence(
                     wv_high[20:-20], Fp_high[20:-20], data_tr_i['wave'], vrp_orb,
                     Fstar=Fstar_high[20:-20] if Fstar_high is not None else None,
                     vr_orb=vr_orb, alpha=alpha_arg, kind_trans=kind_trans,
                     RV=theta_dict['rv'] + data_tr_i['RV_const'])
 
-                # Remove the same number of PCs that were used during reduction --
-                # same post-processing step as the old gen_model_sequence_noinj path.
-                n_pc = int(data_tr_i['params'][5])
-                model_norm = corr.build_trans_spectrum_mod_fast(
-                    model_seq_i, data_tr_i['pca'], n_pca=n_pc) / data_tr_i['noise']
+            # Remove the same number of PCs that were used during reduction --
+            # same post-processing step as the old gen_model_sequence_noinj path.
+            n_pc = int(data_tr_i['params'][5])
+            model_norm = corr.build_trans_spectrum_mod_fast(
+                model_seq_i, data_tr_i['pca'], n_pca=n_pc) / data_tr_i['noise']
 
-                # Chi2 terms computed per order, then combined with the same formula
-                # logl_grid.py's get_logl() uses (`_chi2_from_terms`, Chantier A Phase
-                # 2) instead of the older correlation.py::calc_logl_BL_ord -- kept
-                # "nolog" (raw chi2, not yet log-transformed) here on purpose: the
-                # actual log is only taken once, after summing over all visits, by
-                # corr.sum_logl() below (same two-stage summation as the old path).
-                flux = data_tr_i['flux']
-                logl_tr = np.ma.zeros((model_norm.shape[0], model_norm.shape[1]))
-                for iOrd in range(model_norm.shape[1]):
-                    if flux[:, iOrd].mask.all():
-                        continue
-                    ct = np.ma.sum(model_norm[:, iOrd] * flux[:, iOrd], axis=-1)
-                    st = np.ma.sum(model_norm[:, iOrd] ** 2, axis=-1)
-                    logl_tr[:, iOrd] = _chi2_from_terms(ct, st, data_tr_i['s2f'][:, iOrd])
-
-            else:
-                # Wind broadening requested: not unified with the new Fp/Fstar
-                # architecture yet -- old combined-ratio path, unchanged.
-                wv_high, model_high = prepare_model_multi_reg(theta_regions, 'high',
-                                                              tr_i=tr_i, Raf=res_instru)
-                if not np.isfinite(model_high[100:-100]).all():
-                    log.warning("NaN in high res model spectrum encountered")
-                    return -np.inf
-
-                args = (theta_dict['rv'], data_tr_i, planet, wv_high, model_high)
-                kwargs = dict(vrp_orb=vrp_orb, vr_orb=-vrp_orb * Kp_scale, nolog=nolog,
-                              alpha=np.ones_like(data_tr_i['t_start']), kind_trans=kind_trans)
-                logl_tr = corr.calc_log_likelihood_grid_retrieval(*args, **kwargs)
+            # Chi2 terms computed per order, then combined with the same formula
+            # logl_grid.py's get_logl() uses (`_chi2_from_terms`, Chantier A Phase
+            # 2) instead of the older correlation.py::calc_logl_BL_ord -- kept
+            # "nolog" (raw chi2, not yet log-transformed) here on purpose: the
+            # actual log is only taken once, after summing over all visits, by
+            # corr.sum_logl() below (same two-stage summation as the old path).
+            flux = data_tr_i['flux']
+            logl_tr = np.ma.zeros((model_norm.shape[0], model_norm.shape[1]))
+            for iOrd in range(model_norm.shape[1]):
+                if flux[:, iOrd].mask.all():
+                    continue
+                ct = np.ma.sum(model_norm[:, iOrd] * flux[:, iOrd], axis=-1)
+                st = np.ma.sum(model_norm[:, iOrd] ** 2, axis=-1)
+                logl_tr[:, iOrd] = _chi2_from_terms(ct, st, data_tr_i['s2f'][:, iOrd])
 
             if not np.isfinite(logl_tr).all():
                 return -np.inf
@@ -1785,10 +2017,12 @@ def lnprob(theta, ):
     if retrieval_type != 'LRR':
         # Chantier A Phase 2: the Fp/Fstar-separated engine also sets Fp_high/
         # Fstar_high (in addition to the reconstructed model_high, see the HIGH
-        # RES block above) -- free those too when they exist.
-        del wv_high, model_high
-        if use_fp_fstar_engine:
-            del Fp_high, Fstar_high
+        # RES block above) -- free those too.
+        del wv_high, model_high, Fp_high, Fstar_high
+        # Chantier A Phase 3: the multi-region branch also keeps each region's
+        # raw Fp and a per-visit closure alive -- free those too.
+        if is_multi_region:
+            del Fp_by_region, region_kernel_fct
 
     gc.collect()
 

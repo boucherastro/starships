@@ -271,7 +271,11 @@ fixed_params:
   rv: 0.0
 
   ###### Rotation kernel parameters ######
-  # Wind speed (in km/s)  (Old parameter, not used anymore)
+  # Wind speed (in km/s), used only when rotation_kernel: 'transmission'
+  # (spectrum.RotKerTransit, Chantier A Phase 3) -- set to null if not used.
+  # The pre-Phase-3 mechanism that used to trigger an older, cruder
+  # RotKerTransitCloudy(gauss=True) combined-ratio fallback whenever this key
+  # was non-null was removed 2026-08-28 (superseded, no longer duplicated).
   wind: 0.0
   # Phase of the first longitude in Citrus kernel
   phase1: 0.5
@@ -406,18 +410,27 @@ special_init:
 
 # --- Rotation kernel function ---
 # It is possible to use a custom function to generate the rotation kernel.
-# The function should take as input `theta_regions` and `tr_i`.
-# `theta_regions` is a list of `theta_dict` for each region, where `theta_dict` is a dictionnary
-# with all the parameters needed for the model of region.
-# `tr_i` is the index of the high resolution data sequence.
+# The function should be named `get_ker` and defined at module level in the file
+# pointed to by `get_ker_file` below. `retrieval.py` calls it as:
+#     get_ker(theta_regions, tr_i=tr_i, phase=phase, planet=planet,
+#             instrum=instrum, model_resolution=model_resolution)
+# where:
+# - `theta_regions` is a list of `theta_dict` for each region, where `theta_dict` is
+#   a dictionnary with all the parameters needed for the model of region.
+# - `tr_i` is the index of the high resolution data sequence.
+# - `phase` is the mean orbital phase of the planet signal for this sequence,
+#   already computed by `retrieval.py` from `data_trs`/`planet` -- those are
+#   retrieval.py's own globals, not visible from this separately-loaded file just by
+#   naming them, hence passed in explicitly.
+# - `planet` is the `starships` Planet object for this retrieval.
+# - `instrum` is this sequence's instrument parameter dict (has a `'resol'` key).
+# - `model_resolution` is the sampling resolution of the high (or low) res model
+#   grid to resample the kernel onto (`prt_res[mode]` in retrieval.py).
 # The function should return a list of rotation kernels (a 1D array) at the same sampling
-# and resolution as the data (so uses instrum['resol'] and lbl_res).
-# The function should be named `get_ker`.
+# and resolution as the data.
 # Here is an example of a function that generates a Citrus rotation kernel:
 #
-# def get_ker(theta_regions, tr_i=0):
-#     all_phases = (data_trs[tr_i]['t_start'] - planet.mid_tr.value) / planet.period.to('d').value % 1
-#     mean_phase = np.mean(all_phases[data_trs[tr_i]['i_pl_signal']])  # Only  where there is planet signal
+# def get_ker(theta_regions, tr_i=0, phase=None, planet=None, instrum=None, model_resolution=None):
 #     theta_dict = theta_regions[0]
 #     longitudes = [theta_dict['phase1'], 0.99]
 #     R_pl = theta_dict['R_pl'] * 0.01  # cgs to SI  (cm to m)
@@ -426,13 +439,26 @@ special_init:
 #
 #     ker_obj = CitrusRotationKernel(longitudes, R_pl, rot_factor * angular_freq, instrum['resol'])
 #
-#     rot_ker = ker_obj.resample(lbl_res, phase=mean_phase, n_os=1000)
+#     rot_ker = ker_obj.resample(model_resolution, phase=phase, n_os=1000)
 #
 #     return rot_ker
 #
 # The full or relative path to the file is the input here.
 # If set to null, only the instrumental profile will be used to convolve the model.
 get_ker_file: null
+
+# --- Default (phase-independent) rotation kernel ---
+# Applied once per theta (not per exposure -- see get_ker_file above for the
+# phase-dependent citrus multi-region case, applied per exposure instead).
+# - null: no default kernel (unchanged behaviour if this key is absent entirely).
+# - 'emission': simple vsini-style solid-rotation broadening (a single-region
+#   CitrusRotationKernel, degenerate case -- does not depend on orbital phase).
+#   Needs `rot_factor` (rotation rate as a multiple of the orbital angular
+#   frequency, tidally-locked assumption) in params_prior/fixed_params.
+# - 'transmission': geometric wind-broadening kernel (RotKerTransit, replaces the
+#   old RotKerTransitCloudy(gauss=True) path). Needs `wind` (already used above)
+#   in params_prior/fixed_params.
+rotation_kernel: null
 
 
 

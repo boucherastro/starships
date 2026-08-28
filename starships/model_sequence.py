@@ -29,7 +29,9 @@ building blocks are provided for that:
   callers that need Fp/Fstar kept separate.
 
 ``combine_regions()`` is a third, smaller building block: a generic weighted sum used
-both for the citrus-region combination (``retrieval.py::prepare_model_multi_reg``) and
+both for the multi-region combination (``retrieval.py::prepare_model_multi_reg`` --
+`theta_regions`/`region_id`, an arbitrary user-defined split of the planet into
+regions with independent parameters, not necessarily "citrus" longitude slices) and
 for the cloudy/clear blend (previously a special-cased branch in
 ``prepare_model_high_or_low``) -- the cloudy/clear blend is really just a 2-region case
 of the same weighted-sum mechanism, with no phase-dependent kernel.
@@ -39,17 +41,34 @@ costs one extra cubic-spline evaluation per order compared to the old single-rat
 shift, in both cases fully vectorized across exposures -- a modest, unavoidable price
 for actually fixing bug #2 in emission. There is no per-exposure Python loop here, so
 whether the star is treated as fixed (default, see ``vr_orb`` below) or shifted by a
-real per-exposure velocity does not change the cost of this step. The genuinely
-expensive addition that must stay optional is a phase-dependent rotation kernel
-(Chantier A Phase 3): applying a different convolution per exposure. That hook is left
-as a `None`/identity default here (``region_kernels``) precisely so it costs nothing
-until Phase 3 wires it in.
+real per-exposure velocity does not change the cost of this step.
+
+Chantier A Phase 3 adds two more rotation-kernel mechanisms, deliberately kept at two
+different cost tiers depending on whether the kernel varies with orbital phase:
+
+- A *phase-independent* kernel (plain vsini-style broadening in emission, or wind
+  broadening in transmission) does not change across a visit, so it is applied once
+  per theta in ``precompute_theta_model()`` (its ``rotation_kernel`` argument) --
+  same cost tier as the resolution pre-convolution it sits next to.
+- A *phase-dependent* kernel (a multi-region kernel -- ``retrieval.py``'s ``get_ker``,
+  user-pluggable via ``get_ker_file``, e.g. a citrus/longitude-slice geometry like
+  ``spectrum.CitrusRotationKernel``, but nothing here assumes that specific geometry)
+  genuinely changes shape per exposure (regions rotating into/out of view), so it
+  cannot share one spline across exposures the way the fast path above does --
+  ``build_model_sequence()``'s ``region_kernel`` hook, when given, builds one spline
+  *per exposure* instead of one shared spline, roughly ``n_exp`` times more expensive
+  for that part of the computation. Confirmed acceptable with Antoine (2026-08-27):
+  this only affects the opt-in multi-region case, never the default
+  (``region_kernel=None``) path used by the rest of the pipeline.
 """
 from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
+import astropy.units as u
+import astropy.constants as const
 
 from . import homemade as hm
+from . import spectrum
 from .convolution import degrade_and_resample
 from .mask_tools import interp1d_masked
 from . import petitradtrans_utils as prt
@@ -63,8 +82,9 @@ def combine_regions(sub_models: Sequence[np.ndarray], weights: Sequence[ArrayOrS
     Generic replacement for two combinations that used to be special-cased in
     `retrieval.py`:
 
-    - Summing the citrus-region contributions in `prepare_model_multi_reg` (one
-      sub-model per longitude region, weight = `theta_dict['spec_scale']`).
+    - Summing the region contributions in `prepare_model_multi_reg` (one sub-model
+      per region -- e.g. a citrus/longitude slice, or any other user-defined split --
+      weight = `theta_dict['spec_scale']`).
     - Blending the cloudy/clear model in `prepare_model_high_or_low` (two sub-models,
       weights = `cloud_fraction` and `1 - cloud_fraction`).
 
@@ -97,6 +117,213 @@ def _as_value(x):
     return getattr(x, 'value', x)
 
 
+def generate_native_fp_fstar(
+        atmo_obj,
+        species: dict,
+        planet,
+        theta_dict: dict,
+        kind_trans: str,
+        fct_star=None,
+        **retrieval_model_kwargs,
+) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    """Run petitRADTRANS for one theta and trim to the native grid, no degradation.
+
+    This is `precompute_theta_model`'s "Step 1" (petitRADTRANS call + trim the last
+    native-grid point), factored out so it can also be reused, un-degraded, by the
+    multi-region path (`combine_regions_with_kernel`, Chantier A Phase 3): the
+    per-region kernel returned by `retrieval.py`'s `get_ker` already bakes in the
+    resolution degradation (`spectrum.BaseKerMulti.degrade_ker`, e.g. via
+    `spectrum.CitrusRotationKernel.resample` for the documented citrus example), so
+    degrading `Fp` here too, before that kernel is even applied, would degrade it
+    twice.
+
+    Parameters
+    ----------
+    atmo_obj, species, planet, theta_dict, kind_trans, fct_star, retrieval_model_kwargs
+        Same as `precompute_theta_model` (forwarded as-is to
+        `petitradtrans_utils.retrieval_model_plain`).
+
+    Returns
+    -------
+    wave : np.ndarray
+    Fp : np.ndarray
+        Native-resolution planet flux (transmission depth in transmission mode).
+    Fstar : np.ndarray or None
+        Native-resolution stellar flux. `None` in transmission.
+    """
+    args = [theta_dict[key] for key in ('pressures', 'temperatures', 'gravity', 'P0',
+                                        'p_cloud', 'R_pl', 'R_star')]
+    wave, Fp, Fstar = prt.retrieval_model_plain(
+        atmo_obj, species, planet, *args,
+        kind_trans=kind_trans, fct_star=fct_star, return_fp_fstar=True,
+        **retrieval_model_kwargs,
+    )
+
+    # Trim the last native-grid point (petitRADTRANS's own frequency grid has one
+    # point of dubious value at the edge) -- same convention as
+    # petitradtrans_utils.prepare_model/precompute_theta_model.
+    wave_trim = wave[:-1]
+    Fp_trim = _as_value(Fp)[:-1]
+    Fstar_trim = _as_value(Fstar)[:-1] if Fstar is not None else None
+
+    return wave_trim, Fp_trim, Fstar_trim
+
+
+def combine_regions_with_kernel(wave: np.ndarray, Fp_list: Sequence[np.ndarray],
+                                rot_ker_list: Sequence[np.ndarray],
+                                weights: Sequence[ArrayOrScalar]) -> np.ndarray:
+    """Convolve each region's native Fp with its own kernel and combine (Phase 3).
+
+    Generic multi-region combination step: `theta_regions`/`region_id` split the
+    planet into an arbitrary number of regions with independent atmospheric
+    parameters (a citrus/longitude-slice geometry is the documented example, via
+    `spectrum.CitrusRotationKernel`, but nothing here assumes that specific
+    geometry -- `rot_ker_list` can come from any user-supplied `get_ker`).
+
+    Meant to be called once *per exposure*, as the body of a `region_kernel`
+    closure passed to `build_model_sequence` (see that function's `region_kernel`
+    parameter): a genuinely phase-dependent kernel changes shape with orbital phase
+    (regions rotating into/out of view), so this cannot be precomputed once per
+    theta the way the phase-independent default kernel (`precompute_theta_model`'s
+    `rotation_kernel` argument) is.
+
+    Mirrors the old combined-ratio multi-region path (`retrieval.py::prepare_model_multi_reg`
+    + `petitradtrans_utils.prepare_model`'s `rot_ker` argument, applied via
+    `spectrum.py::resampling`): each region's kernel
+    (e.g. `spectrum.CitrusRotationKernel.resample`) already bakes in both the
+    geometric, phase-dependent visibility weighting (`get_ker`'s own
+    flux-conservation normalization: the kernels sum to 1 across regions at a given
+    phase) *and* the resolution degradation (`spectrum.BaseKerMulti.degrade_ker`) --
+    so `Fp_list` must be the *native* (undegraded) flux from
+    `generate_native_fp_fstar`, not `precompute_theta_model`'s already-degraded
+    output. `weights` (`theta_dict['spec_scale']` per region) is applied on top,
+    exactly like the old path's `model_i *= theta_dict['spec_scale']` -- a
+    deliberately separate, independent weight from the kernel's own normalization,
+    not a double-count of it.
+
+    Parameters
+    ----------
+    wave : np.ndarray
+        Wavelength grid the combined spectrum is returned on. Its length must be
+        `len(Fp_list[i]) - 30` (see `Returns` below) -- i.e. the native grid
+        produced by `generate_native_fp_fstar`, edge-trimmed by 15 points on each
+        side the same way `precompute_theta_model` trims its own output.
+    Fp_list : sequence of np.ndarray
+        One native-resolution planet-flux array per region (un-trimmed --
+        `generate_native_fp_fstar`'s direct output), all on the same native grid.
+    rot_ker_list : sequence of np.ndarray
+        One rotation-kernel array per region, at the current phase and resampled to
+        the same native sampling as `Fp_list` (`retrieval.py`'s
+        `get_ker(theta_regions, phase=phase_i, ..., model_resolution=<native res>)`),
+        same length as each entry of `Fp_list`.
+    weights : sequence of float or np.ndarray
+        One weight per region (`theta_dict['spec_scale']`), forwarded to
+        `combine_regions`.
+
+    Returns
+    -------
+    np.ndarray
+        Combined planet-flux spectrum for this phase, trimmed by 15 points on each
+        side (same convolution-boundary convention as `precompute_theta_model`) so
+        its length matches `wave`.
+    """
+    convolved = [np.convolve(Fp_i, ker_i, mode='same')[15:-15]
+                for Fp_i, ker_i in zip(Fp_list, rot_ker_list)]
+    return combine_regions(convolved, weights)
+
+
+def _build_default_rotation_kernel(rotation_kernel: Optional[str], theta_dict: dict, planet,
+                                   sampling_resolution: float) -> Optional[np.ndarray]:
+    """Build the phase-independent, "once per theta" rotation kernel (Chantier A Phase 3).
+
+    Covers the two cases that do *not* need a per-exposure kernel (see
+    `build_model_sequence`'s `region_kernel` for the phase-dependent multi-region
+    case, which does): a fixed geometric wind-broadening kernel in transmission, or a
+    simple (single-region) solid-rotation kernel in emission -- both are properties of
+    the planet's own spectrum, independent of orbital phase, so they only need to be
+    computed once per theta, here, rather than once per exposure.
+
+    Parameters
+    ----------
+    rotation_kernel : {'transmission', 'emission'} or None
+        Which default kernel to build (`retrieval.py`'s `rotation_kernel` YAML key).
+        `None` (default, and the only option for existing configs that don't set this
+        key) means no default kernel -- returns `None`.
+    theta_dict : dict
+        One region's parameter dict (`retrieval.py::unpack_theta`). Must contain
+        `R_pl`, `M_pl`, `T_eq`, `wind` for `'transmission'`, or `R_pl`, `rot_factor`
+        for `'emission'`.
+    planet : starships.planet_obs.Planet
+        Used for `planet.period` (`'emission'` only, to turn `rot_factor` into an
+        angular rotation frequency assuming solid/tidally-locked rotation).
+    sampling_resolution : float
+        Resolving power to resample the kernel onto -- must match the sampling
+        density of the array it will be convolved with (`np.convolve`, `mode='same'`
+        requires the same grid). Here, that is `Fp` *before* the resolution
+        pre-convolution/degrade step (native/dense sampling), not the final
+        instrument resolution -- same order as the old `spectrum.resampling`'s
+        rot_ker path (convolve first, degrade to instrument resolution after).
+
+    Returns
+    -------
+    np.ndarray or None
+        1D kernel array, ready for `np.convolve(Fp, kernel, mode='same')`. `None` if
+        `rotation_kernel` is `None`.
+    """
+    if rotation_kernel is None:
+        return None
+
+    # NOTE on `theta_dict['R_pl']`'s units (found 2026-08-28, alongside the
+    # SolidRotationKernel fix below): `retrieval.py::unpack_theta` already converts
+    # `R_pl` to cgs centimeters in place (`combined_dict['R_pl'] *= const.R_jup.cgs.value`)
+    # before `theta_dict` ever reaches this function -- unlike `M_pl`, which
+    # `setup_retrieval` stores as a bare float in Mjup (see the M_pl note below).
+    # Both branches used to multiply `theta_dict['R_pl']` by `const.R_jup` again (as
+    # if it were still a bare Jupiter-radii count), silently inflating the radius by
+    # ~7e9x (verified numerically: 8.6e17 m instead of ~1.2e8 m for a WASP-33b-like
+    # case) -- fixed here by attaching the correct existing unit (`u.cm`) instead of
+    # re-multiplying by `const.R_jup`.
+    if rotation_kernel == 'transmission':
+        # Same physical kernel as the (dead) RotKerTransitCloudy(gauss=True) path it
+        # replaces -- geometric wind broadening from the planet's own scale height,
+        # not an ad hoc gaussian. `omega` convention (wind value in units of 1/day)
+        # kept identical to the old `rot_kwargs` in `prepare_model_high_or_low`.
+        # NOTE: unlike that old code (which passed `theta_dict['M_pl']` to
+        # RotKerTransitCloudy with no unit attached -- theta_dict stores it as a
+        # plain float in Mjup, `retrieval.py::setup_retrieval`'s
+        # `fixed_params['M_pl'] = planet.M_pl.to('Mjup').value` -- silently giving
+        # `g_surf = const.G * pl_mass / pl_rad**2` the wrong units), `const.M_jup` is
+        # attached explicitly here.
+        ker_obj = spectrum.RotKerTransit(
+            theta_dict['R_pl'] * u.cm, theta_dict['M_pl'] * const.M_jup,
+            theta_dict['T_eq'] * u.K, np.array([theta_dict['wind']]) / u.day, sampling_resolution,
+        )
+        kernel = ker_obj.resample(sampling_resolution, n_os=500, pad=7)
+    elif rotation_kernel == 'emission':
+        # Simple, phase-independent solid-rotation kernel (spectrum.SolidRotationKernel,
+        # Chantier A Phase 3 follow-up, 2026-08-28). Used to be built by reusing
+        # CitrusRotationKernel with a single citrus boundary ([0.0]), on the assumption
+        # that one boundary degenerates into "the whole disk, phase independent" -- that
+        # assumption was wrong (Antoine + verified numerically): citrus_to_ker's
+        # boundary geometry is built for >= 2 boundaries, and the single
+        # self-referencing boundary gave a kernel that was *not* symmetric around v=0,
+        # and was entirely zero for any phase other than exactly 0.0 (masked by the
+        # existing unit test's unrealistically small v_eq, which fell back to
+        # CitrusRotationKernel's own "kernel is zero everywhere -> delta function"
+        # safety net regardless of phase). SolidRotationKernel computes the closed-form
+        # profile directly instead.
+        angular_freq = theta_dict['rot_factor'] * 2 * np.pi / planet.period[0].to('s').value
+        ker_obj = spectrum.SolidRotationKernel(
+            theta_dict['R_pl'] * u.cm, angular_freq, sampling_resolution,
+        )
+        kernel = ker_obj.resample(sampling_resolution, n_os=500, pad=7)
+    else:
+        raise ValueError(f"rotation_kernel must be None, 'transmission' or 'emission', "
+                         f"got {rotation_kernel!r}")
+
+    return kernel
+
+
 def precompute_theta_model(
         atmo_obj,
         species: dict,
@@ -106,6 +333,7 @@ def precompute_theta_model(
         resolution: float,
         native_resolution: float,
         fct_star=None,
+        rotation_kernel: Optional[str] = None,
         **retrieval_model_kwargs,
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
     """Generate Fp/Fstar for one theta and pre-convolve them once, before Doppler shifts.
@@ -141,6 +369,12 @@ def precompute_theta_model(
         Native/physical resolving power of the petitRADTRANS output (`Rbf`).
     fct_star : callable or 'blackbody' or None, optional
         Forwarded to `retrieval_model_plain` (see `retrieval.py::init_stellar_spectrum`).
+    rotation_kernel : {'transmission', 'emission'} or None, optional
+        Chantier A Phase 3: the phase-*independent* default rotation kernel to apply
+        to `Fp` (only) once, here -- see `_build_default_rotation_kernel`. `None`
+        (default) applies no kernel, unchanged behaviour for existing configs. For
+        the phase-*dependent* multi-region kernel, see `build_model_sequence`'s
+        `region_kernel` instead (applied per exposure).
     **retrieval_model_kwargs
         Forwarded to `retrieval_model_plain` (`C_to_O`, `Fe_to_H`, `gamma_scat`,
         `kappa_factor`, `specie_2_lnlst`, `dissociation`, ...).
@@ -156,23 +390,24 @@ def precompute_theta_model(
     """
     # --- Step 1: run petitRADTRANS for this theta, asking for Fp/Fstar separately ---
     # (retrieval_model_plain still returns the old combined ratio by default everywhere
-    # else in the package -- return_fp_fstar=True is what this module needs.)
-    args = [theta_dict[key] for key in ('pressures', 'temperatures', 'gravity', 'P0',
-                                        'p_cloud', 'R_pl', 'R_star')]
-    wave, Fp, Fstar = prt.retrieval_model_plain(
-        atmo_obj, species, planet, *args,
-        kind_trans=kind_trans, fct_star=fct_star, return_fp_fstar=True,
+    # else in the package -- return_fp_fstar=True is what this module needs.) Factored
+    # out into generate_native_fp_fstar() so the multi-region path
+    # (combine_regions_with_kernel) can reuse it without the degradation step below.
+    wave_trim, Fp_trim, Fstar_trim = generate_native_fp_fstar(
+        atmo_obj, species, planet, theta_dict, kind_trans, fct_star=fct_star,
         **retrieval_model_kwargs,
     )
 
-    # --- Step 2: degrade Fp (and Fstar) once, before any Doppler shift ---
-    # Trim the last native-grid point (same convention as petitradtrans_utils.prepare_model,
-    # petitRADTRANS's own frequency grid has one point of dubious value at the edge).
-    wave_trim = wave[:-1]
-    # `_as_value` strips the astropy Unit if retrieval_model_plain returned a Quantity
-    # (emission does; transmission returns a plain array) -- degrade_and_resample works
-    # on plain numpy arrays.
-    Fp_trim = _as_value(Fp)[:-1]
+    # --- Optional default rotation kernel (Chantier A Phase 3, phase-independent) ---
+    # Convolved at native sampling, *before* degrading to `resolution` -- same order
+    # as the old spectrum.resampling(rot_ker=...) path (convolve first, degrade after)
+    # and as the composition order documented in the plan (kernel applied to the raw
+    # planet spectrum, resolution-degrade applied last). Fstar is never convolved:
+    # rotation broadening is a property of the planet's own spectrum only.
+    default_kernel = _build_default_rotation_kernel(rotation_kernel, theta_dict, planet,
+                                                     sampling_resolution=native_resolution)
+    if default_kernel is not None:
+        Fp_trim = np.convolve(Fp_trim, default_kernel, mode='same')
 
     # Degrade the raw (petitRADTRANS-native-resolution) Fp down to `resolution`, evaluated
     # back on its own (trimmed) wavelength grid -- this is the "pre-convolution, once per
@@ -181,12 +416,11 @@ def precompute_theta_model(
                                   input_resolution=native_resolution, sample=wave_trim)
     Fp_pre = np.ma.masked_invalid(Fp_pre)
 
-    if Fstar is not None:
+    if Fstar_trim is not None:
         # Degrade Fstar with the exact same target resolution/grid as Fp. This matters:
         # Fp and Fstar must end up at the *same* resolution before build_model_sequence()
         # divides one by the other, otherwise the ratio would mix a smooth (still-native)
         # stellar spectrum with a properly-degraded planet spectrum.
-        Fstar_trim = _as_value(Fstar)[:-1]
         Fstar_pre = degrade_and_resample(wave_trim, Fstar_trim, resolution=resolution,
                                          input_resolution=native_resolution, sample=wave_trim)
         Fstar_pre = np.ma.masked_invalid(Fstar_pre)
@@ -215,6 +449,7 @@ def build_model_sequence(
         kind_trans: str = 'emission',
         RV: float = 0.0,
         region_kernel=None,
+        phase: Optional[ArrayOrScalar] = None,
 ) -> np.ma.MaskedArray:
     """Build the per-exposure model sequence, Doppler-shifting Fp and Fstar independently.
 
@@ -229,6 +464,11 @@ def build_model_sequence(
     ----------
     wave, Fp : np.ndarray
         Pre-convolved planet spectrum (`precompute_theta_model`'s output), one theta.
+        For the multi-region case (`region_kernel` given, see below), `Fp` is
+        instead a list of native-resolution, per-region planet spectra
+        (`model_sequence.generate_native_fp_fstar`'s output, one call per region) --
+        this function never reads `Fp` directly in that case, only forwards it
+        untouched to `region_kernel`, so the type is opaque to it either way.
     data_wave : np.ndarray, shape (n_exp, n_ord, n_pix)
         Instrument wavelength grid to evaluate the model on, one row per exposure.
     vrp_orb : float or np.ndarray, shape (n_exp,)
@@ -256,11 +496,30 @@ def build_model_sequence(
         Residual/fitted radial velocity added to `vrp_orb` (and to `vr_orb`, in
         emission -- a global RV offset shifts everything, star included).
     region_kernel : callable, optional
-        Hook for a phase/region-dependent rotation kernel (Chantier A Phase 3, not
-        implemented yet): if given, called as `region_kernel(wave, Fp)` and expected to
-        return a (possibly per-exposure) convolved `Fp` before the Doppler shift below.
-        `None` (default) applies no extra kernel -- this is what keeps this function
-        cheap until Phase 3 wires a real kernel in.
+        Hook for a phase-*dependent* rotation kernel (Chantier A Phase 3), e.g. a
+        multi-region kernel (`retrieval.py`'s `get_ker`, user-pluggable): if given,
+        called once *per exposure* as `region_kernel(wave, Fp, phase_i)` (`phase_i`
+        from `phase` below) and expected to return that exposure's convolved `Fp`,
+        evaluated before the Doppler shift. The multi-region case wires this
+        up as a closure over `combine_regions_with_kernel` (`retrieval.py`, one call
+        per exposure with that exposure's own phase, `Fp` being the per-region list
+        described above) -- `region_kernel` always returns the fully convolved and
+        combined *spectrum* for that phase (not the raw kernel(s)); this function
+        stays unaware of how many regions there are or how they are combined.
+        Because the kernel's shape genuinely changes with orbital phase (e.g.
+        regions rotating into/out of view), this requires building one
+        spline *per exposure* instead of the single shared spline used when
+        `region_kernel` is None -- roughly `n_exp` times more expensive for this
+        part of the computation (confirmed acceptable with Antoine: this only
+        affects the opt-in multi-region case, not the default path). For a
+        *phase-independent* kernel (plain vsini-style broadening in emission, or
+        wind broadening in transmission), use `precompute_theta_model`'s
+        `rotation_kernel` argument instead -- applied once per theta, not once per
+        exposure, since it does not vary across a visit. `None` (default) applies
+        no extra kernel -- the fast, single-spline path below.
+    phase : float or np.ndarray, shape (n_exp,), optional
+        Orbital phase of each exposure, forwarded to `region_kernel`. Required if
+        `region_kernel` is given (ignored otherwise).
 
     Returns
     -------
@@ -291,13 +550,28 @@ def build_model_sequence(
         vrp_orb = np.full(n_exp, vrp_orb[0])
     shifts_p = hm.calc_shift(vrp_orb, kind='rel')
 
-    # Optional Chantier A Phase 3 hook: a phase/region-dependent rotation kernel would be
-    # convolved into Fp here, before the Doppler shift below. Left as a no-op (Fp
-    # unchanged) until Phase 3 actually implements `get_ker`/`degrade_ker`.
-    Fp_for_kernel = region_kernel(wave, Fp) if region_kernel is not None else Fp
-    # Single spline built once (not per exposure) -- interp1d_masked lets it be evaluated
-    # at every exposure's (Doppler-shifted) wavelength grid below in one vectorized call.
-    fct_p = interp1d_masked(wave, Fp_for_kernel, kind='cubic', fill_value='extrapolate')
+    # --- Optional Chantier A Phase 3 hook: phase-dependent rotation kernel ---
+    if region_kernel is not None:
+        if phase is None:
+            raise ValueError("`phase` is required when `region_kernel` is given.")
+        phase_arr = np.atleast_1d(np.asarray(phase, dtype=float))
+        if phase_arr.size == 1:
+            phase_arr = np.full(n_exp, phase_arr[0])
+        # One spline *per exposure*: the kernel's shape genuinely changes with phase
+        # (e.g. regions rotating into/out of view), so a single shared spline
+        # would be wrong here -- unlike the fast path below, this cannot be
+        # vectorized across exposures (see docstring for the resulting ~n_exp cost).
+        fct_p_per_exp = [
+            interp1d_masked(wave, region_kernel(wave, Fp, phase_arr[i_exp]),
+                            kind='cubic', fill_value='extrapolate')
+            for i_exp in range(n_exp)
+        ]
+    else:
+        # Single spline built once (not per exposure) -- interp1d_masked lets it be
+        # evaluated at every exposure's (Doppler-shifted) wavelength grid below in
+        # one vectorized call. Fast path used whenever no phase-dependent kernel is
+        # requested (the vast majority of calls).
+        fct_p = interp1d_masked(wave, Fp, kind='cubic', fill_value='extrapolate')
 
     if Fstar is not None and kind_trans == 'emission':
         # --- Stellar velocity: independent from the planet's (this is the actual bug fix) ---
@@ -327,7 +601,16 @@ def build_model_sequence(
         # Evaluate the (fixed) planet spectrum at each exposure's own, Doppler-shifted
         # wavelength grid: dividing the instrument grid by the shift factor is equivalent
         # to shifting the model spectrum by `-vrp_orb` (same convention as calc_shift).
-        fp_shifted = fct_p(data_wave[:, i_ord] / shifts_p[:, None])
+        if region_kernel is not None:
+            # No vectorized shortcut here: each exposure has its own spline (built
+            # above from its own phase-dependent kernel), so it must be evaluated
+            # separately at its own shifted grid.
+            fp_shifted = np.ma.array([
+                fct_p_per_exp[i_exp](data_wave[i_exp, i_ord] / shifts_p[i_exp])
+                for i_exp in range(n_exp)
+            ])
+        else:
+            fp_shifted = fct_p(data_wave[:, i_ord] / shifts_p[:, None])
         if Fstar is not None and kind_trans == 'emission':
             # Star evaluated at *its own* shift (possibly all-1, i.e. unshifted) --
             # independent from the planet's shift above. This is the actual fix: the old
