@@ -139,6 +139,7 @@ global custom_prior_file
 global special_init
 global get_ker_file
 global rotation_kernel
+global representative_phases_low
 global limP
 global n_pts
 global star_spectrum
@@ -511,6 +512,24 @@ def setup_retrieval(input_parameters, **kwargs):
     # --- Resolution of the planet model ---
     global prt_res
     prt_res = {'high': int(1e6 / opacity_sampling), 'low': 1000}
+
+    # --- Chantier A Phase 3f: representative phases for LOW RES multi-region ---
+    # Low-res data (photometry/spectrophotometry) is usually integrated over a whole
+    # visit, unlike high-res, which has one real exposure time per point (Phase 3c's
+    # per-exposure region combination). So instead of a per-exposure loop, the
+    # multi-region LOW RES path (`prepare_model_multi_reg_low`) evaluates the
+    # region-combination kernel at a handful of representative phases and averages --
+    # computed once here (ephemeris only, circular-orbit approximation -- Antoine:
+    # eccentricity-aware timing elsewhere in the code, e.g. eclipse phase, is
+    # considered unreliable, so deliberately not used here either) unless the YAML
+    # gives an explicit override.
+    global representative_phases_low
+    representative_phases_low = input_params.get('representative_phases_low', None)
+    if representative_phases_low is None:
+        n_phases_low = input_params.get('n_phases_low', None)
+        representative_phases_low = get_representative_low_res_phases(planet, kind_trans, n_phases_low)
+    else:
+        representative_phases_low = np.asarray(representative_phases_low, dtype=float)
 
     # --- Additional variables ---
     global inj_alpha, nolog, do_tr
@@ -1391,7 +1410,7 @@ def _prepare_fp_fstar_high(theta_dict, atmo_obj_list, species, fct_star, Raf):
     return wv_all, Fp_all, Fstar_all
 
 
-def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star):
+def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star, mode='high'):
     """Generate every region's native (undegraded) Fp for one visit.
 
     Chantier A Phase 3: true multi-region wiring into the Fp/Fstar-separated
@@ -1413,9 +1432,13 @@ def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star):
         One dict per region (`len(theta_regions) > 1`), as produced by
         `unpack_theta`.
     atmo_obj_list : list of petitRADTRANS.Radtrans
-        One entry per wavelength range/instrument (`init_atmo_if_not_done('high')`).
+        One entry per wavelength range/instrument (`init_atmo_if_not_done(mode)`).
     fct_star : callable or 'blackbody' or None
         Forwarded to `retrieval_model_plain` (see `retrieval.py::init_stellar_spectrum`).
+    mode : {'high', 'low'}, default 'high'
+        Which resolution's species/linelist mapping to use (`linelist_names[mode]`,
+        Chantier A Phase 3f: needed to reuse this function for the LOW RES
+        multi-region path, `prepare_model_multi_reg_low`).
 
     Returns
     -------
@@ -1429,12 +1452,12 @@ def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star):
     """
     wave, Fp_by_region, Fstar = None, [], None
     for theta_dict in theta_regions:
-        species = prepare_abundances(theta_dict, 'high')
+        species = prepare_abundances(theta_dict, mode)
         kwargs = dict(gamma_scat=theta_dict['gamma_scat'],
                      kappa_factor=theta_dict['scat_factor'],
                      C_to_O=theta_dict['C/O'],
                      Fe_to_H=theta_dict['Fe/H'],
-                     specie_2_lnlst=linelist_names['high'],
+                     specie_2_lnlst=linelist_names[mode],
                      dissociation=dissociation)
         wv_all, Fp_all, Fstar_all = [], [], []
         for atmo_obj in atmo_obj_list:
@@ -1469,7 +1492,7 @@ def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star):
     return wave, Fp_by_region, Fstar
 
 
-def _build_multi_region_kernel(theta_regions, tr_i):
+def _build_multi_region_kernel(theta_regions, tr_i, mode='high', instrum=None):
     """Build the per-exposure `region_kernel` closure for multi-region combination (Phase 3).
 
     Generic across whatever region geometry `get_ker` implements (a citrus/
@@ -1487,8 +1510,17 @@ def _build_multi_region_kernel(theta_regions, tr_i):
     theta_regions : list of dict
         One dict per region, as produced by `unpack_theta`.
     tr_i : int
-        Visit index -- selects `instrum_param_list[tr_i]`, forwarded to `get_ker`
-        (see its documented contract).
+        Visit index, forwarded to `get_ker` (see its documented contract). Also
+        selects `instrum_param_list[tr_i]` when `instrum` is not given.
+    mode : {'high', 'low'}, default 'high'
+        Which `prt_res` entry to pass as `get_ker`'s `model_resolution` (Chantier A
+        Phase 3f: needed to reuse this function for the LOW RES multi-region path,
+        `prepare_model_multi_reg_low`).
+    instrum : dict, optional
+        Forwarded to `get_ker` as its `instrum` argument. Defaults to
+        `instrum_param_list[tr_i]` (unchanged behaviour for existing HIGH RES
+        callers) -- LOW RES has no per-visit `instrum_param_list` entry, so its
+        caller builds and passes its own instrument-shaped dict instead.
 
     Returns
     -------
@@ -1497,10 +1529,12 @@ def _build_multi_region_kernel(theta_regions, tr_i):
         phase, ready for `build_model_sequence`.
     """
     weights = [theta_dict['spec_scale'] for theta_dict in theta_regions]
+    if instrum is None:
+        instrum = instrum_param_list[tr_i]
 
     def region_kernel(wave, Fp_by_region, phase_i):
         rot_ker_list = get_ker(theta_regions, tr_i=tr_i, phase=phase_i, planet=planet,
-                               instrum=instrum_param_list[tr_i], model_resolution=prt_res['high'])
+                               instrum=instrum, model_resolution=prt_res[mode])
         return model_seq.combine_regions_with_kernel(wave, Fp_by_region, rot_ker_list, weights)
 
     return region_kernel
@@ -1657,8 +1691,180 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
 
     wv_out = wv_list[0]
     model_out = np.sum(model_list, axis=0)
-    
+
     return wv_out, model_out
+
+
+def get_representative_low_res_phases(planet, kind_trans, n_phases=None):
+    """Representative orbital phases for the LOW RES multi-region path (Chantier A Phase 3f).
+
+    Low-res data (photometry/spectrophotometry) is usually integrated over a whole
+    visit, unlike high-res, which has one real exposure time per data point (Phase
+    3c's per-exposure region combination). So instead of combining regions once per
+    exposure, the LOW RES multi-region path (`prepare_model_multi_reg_low`)
+    evaluates the region-combination kernel at a handful of representative phases
+    and averages the result -- this function picks those phases from the planet's
+    ephemeris alone.
+
+    Circular-orbit approximation: no eccentricity/argument-of-periastron
+    correction, so secondary eclipse is assumed at exactly phase 0.5. This mirrors
+    the simplification already used elsewhere in this file for phase (e.g.
+    `prepare_model_multi_reg`'s `mean_phase`, `(t - mid_tr) / period % 1`) and for
+    eclipse timing (`planet_obs.py::where_is_the_transit`'s
+    `mid_tr + 0.5 * period` shortcut) -- Antoine: the orbit/eccentricity code in
+    this package is unreliable enough that circular-orbit is the safer default for
+    now, a real fix is a separate, future item.
+
+    Parameters
+    ----------
+    planet : starships.planet_obs.Planet
+        Used for `planet.period` and `planet.trandur`.
+    kind_trans : {'transmission', 'emission'}
+        Selects which window the phases are centred on: transit (phase 0) for
+        transmission, secondary eclipse (phase 0.5, circular-orbit approximation)
+        for emission.
+    n_phases : int, optional
+        Number of representative phases. Defaults to 4 for transmission (spread
+        across the whole transit chord) or 2 for emission (just before/after
+        eclipse) -- Antoine's original idea for this design.
+
+    Returns
+    -------
+    np.ndarray
+        Representative phases, in [0, 1).
+    """
+    # `planet.trandur`/`planet.period` are astropy Quantities but not necessarily
+    # true scalars -- `Planet.__init__` stores them as 1-element arrays (straight
+    # from the ExoFile table query) -- `float(...)` coerces either shape to a plain
+    # Python scalar so `half_width` doesn't silently broadcast into an extra axis
+    # of `np.linspace` below (same array-vs-scalar gotcha other code in this file
+    # works around with explicit `[0]` indexing, e.g.
+    # `_build_default_rotation_kernel`'s `planet.period[0].to('s').value`).
+    half_width = float((planet.trandur.to(u.d) / 2 / planet.period.to(u.d)).decompose().value)
+
+    if kind_trans == 'emission':
+        center = 0.5
+        if n_phases is None:
+            n_phases = 2
+    else:
+        center = 0.0
+        if n_phases is None:
+            n_phases = 4
+
+    if n_phases == 1:
+        phases = np.array([center])
+    else:
+        phases = np.linspace(center - half_width, center + half_width, n_phases)
+
+    return phases % 1
+
+
+def prepare_model_multi_reg_low(theta_regions):
+    """Generate and combine the LOW RES model for every region (Chantier A Phase 3f).
+
+    LOW RES counterpart to `prepare_model_multi_reg_high_per_exposure`: reuses the
+    exact same multi-region kernel machinery (`_prepare_fp_native_by_region`,
+    `_build_multi_region_kernel`, `model_sequence.build_model_sequence`) rather than
+    a separate low-res-specific combination scheme -- neither `get_ker`'s kernel
+    contract nor `model_sequence.py`'s helpers assume anything about resolution, and
+    low-res data is degraded to instrument resolution downstream anyway
+    (`prepare_photometry`/`prepare_spectrophotometry`), exactly like high-res is
+    degraded downstream of the per-exposure engine.
+
+    Low-res data has no real per-exposure time series (it is typically integrated
+    over a whole visit), so there is no genuine sequence of exposures to loop
+    `build_model_sequence` over. Instead, a *fake* sequence is built out of
+    `representative_phases_low` (computed once in `setup_retrieval`, see
+    `get_representative_low_res_phases`): every "exposure" evaluates the same
+    native wavelength grid, so the only thing that varies between them is which
+    per-region kernel `get_ker` returns at that phase. The resulting per-phase
+    spectra are then simply averaged. No per-exposure Doppler shift is needed here
+    (`vrp_orb=vr_orb=0`): unlike high-res, low-res only ever applies a single,
+    fixed Doppler shift (systemic velocity + `rv`), the same regardless of phase,
+    applied once after the region combination -- same as the single-region path
+    below (see `prepare_model_high_or_low`'s `mode == 'low'` branch for the
+    pre-existing, unchanged caveat about the RV frame of space-based low-res
+    instruments).
+
+    No explicit resolution degradation happens here (unlike the HIGH RES per-
+    exposure path, which degrades `Fstar` to `Raf` once) -- `prepare_photometry`/
+    `prepare_spectrophotometry` already degrade+bin downstream, once per
+    instrument, at that instrument's own resolution (`infos['res']`); degrading
+    here too, at some other shared resolution, would either be wrong (a single
+    resolution can't fit every low-res instrument if they differ) or degrade
+    twice (the same class of bug fixed by Chantier A Phase 1 -- conflating an
+    already-degraded resolution with the model's true physical resolution).
+
+    Parameters
+    ----------
+    theta_regions : list of dict
+        One dict per region (`len(theta_regions) > 1`), as produced by
+        `unpack_theta`.
+
+    Returns
+    -------
+    wv_out : np.ndarray
+    model_out : np.ndarray
+        Same signature as `prepare_model_high_or_low(theta_dict, 'low')`.
+    """
+    init_atmo_if_not_done('low')
+    n_wv_rng = len(globals()['wv_range_low'])
+    atmo_obj_list = [globals()[f'atmo_low_{i_rng}'] for i_rng in range(n_wv_rng)]
+    init_stellar_spectrum_if_not_done('low')
+    fct_star = globals()['fct_star_low']
+
+    wave_native, Fp_by_region, Fstar_native = _prepare_fp_native_by_region(
+        theta_regions, atmo_obj_list, fct_star, mode='low')
+
+    # `get_ker`'s documented contract reads `instrum['resol']` (see
+    # `retrievals/retrieval_inputs_example_rotation.yaml`'s "Rotation kernel
+    # function" block) -- low-res instrument dicts (`spectrophotometric_data`/
+    # `photometric_data`) use the key `'res'` instead, and there is no single
+    # low-res "instrument" the way there is a high-res visit
+    # (`instrum_param_list[tr_i]`) -- `prt_res['low']`, the model's own native
+    # sampling resolution, is the only resolution genuinely defined at this stage.
+    instrum_low = {'resol': prt_res['low']}
+    region_kernel_fct = _build_multi_region_kernel(theta_regions, tr_i=0, mode='low',
+                                                    instrum=instrum_low)
+
+    # Edge-trim to match combine_regions_with_kernel's convolution-boundary
+    # convention (same 15-point trim as prepare_model_multi_reg_high_per_exposure's
+    # `wave_out`) -- Fp_by_region itself stays native/untrimmed, as
+    # combine_regions_with_kernel expects.
+    wave_out = wave_native[15:-15]
+    Fstar_out = Fstar_native[15:-15] if Fstar_native is not None else None
+
+    n_phases = len(representative_phases_low)
+    data_wave = np.tile(wave_out[np.newaxis, np.newaxis, :], (n_phases, 1, 1))
+
+    model_seq_fake = model_seq.build_model_sequence(
+        wave_out, Fp_by_region, data_wave, vrp_orb=0.0, Fstar=Fstar_out, vr_orb=0.0,
+        alpha=1.0, kind_trans=kind_trans, RV=0.0, region_kernel=region_kernel_fct,
+        phase=representative_phases_low)
+    injected_avg = model_seq_fake.mean(axis=0).filled(np.nan)[0]
+
+    # `build_model_sequence` returns the per-exposure *injection* formula
+    # (`1 + alpha*depth` in emission, `1 - alpha*depth` in transmission -- meant
+    # for HIGH RES time series compared against PCA-detrended data around a unity
+    # baseline), not the raw depth/ratio itself. LOW RES callers downstream
+    # (`prepare_photometry`/`prepare_spectrophotometry`, and the single-region
+    # `prepare_model_high_or_low`'s `mode == 'low'` branch they also consume) all
+    # expect the raw, unwrapped quantity (`Fp/Fstar` in emission, transit depth in
+    # transmission) -- undo the injection formula here (`alpha=1.0`, so this is
+    # exact, not an approximation) rather than changing what every other LOW RES
+    # consumer expects.
+    if kind_trans == 'emission':
+        model_avg = injected_avg - 1.0
+    else:
+        model_avg = 1.0 - injected_avg
+
+    # Same fixed systemic-velocity shift as the single-region low-res path
+    # (`prepare_model_high_or_low`'s `mode == 'low'` branch) -- applied once, after
+    # averaging, since it is the same for every representative phase.
+    dv_shift = planet.RV_sys.to(u.km / u.s).value + theta_regions[0].get('rv', 0.0)
+    wv_out = wave_out * calc_shift(dv_shift, kind='rel')
+
+    return wv_out, model_avg
 
 
 def prepare_photometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_res: float, data_info: dict,
@@ -1965,13 +2171,29 @@ def lnprob(theta, ):
     # --- LOW RES --- #
     ###################
     if (retrieval_type == 'JR') or (retrieval_type == 'LRR') or white_light:
-        
+        # `theta_dict` may not be `theta_regions[0]` at this point: in a pure LRR
+        # run, the HIGH RES block above never runs, so `theta_dict` is whatever the
+        # negative-temperature check loop (top of this function) left behind
+        # (`theta_regions[-1]`). Pin it explicitly -- only matters when there is
+        # more than one region, and even then only for `scale_uncert` below
+        # (Chantier A Phase 3f), since the model itself is now generated from
+        # `theta_regions` as a whole (`prepare_model_multi_reg_low`), not a single
+        # region's `theta_dict`.
+        theta_dict = theta_regions[0]
+
         # If at least one instrument need the low-res model, then compute it
         model_type = [infos.get('model_type', 'low') for infos
                       in list(spectrophotometric_data.values()) + list(photometric_data.values())]
         if 'low' in model_type:
-            wv_low, model_low = prepare_model_high_or_low(theta_dict, 'low')
-            
+            # Chantier A Phase 3f: multi-region LOW RES, evaluated at a handful of
+            # representative phases and averaged (`prepare_model_multi_reg_low`)
+            # instead of ignoring every region but one -- see that function's
+            # docstring. Single-region path (all real configs today) unchanged.
+            if len(theta_regions) > 1:
+                wv_low, model_low = prepare_model_multi_reg_low(theta_regions)
+            else:
+                wv_low, model_low = prepare_model_high_or_low(theta_dict, 'low')
+
             if np.sum(np.isnan(model_low)) > 0:
                 log.info("NaN in low res model spectrum encountered")
                 return -np.inf

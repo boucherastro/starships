@@ -608,3 +608,24 @@ get_ker_file: null
 #   old RotKerTransitCloudy(gauss=True) path). Needs `wind` (already used above)
 #   in params_prior/fixed_params.
 rotation_kernel: null
+
+# --- LOW RES multi-region representative phases (Chantier A Phase 3f) ---
+# Only relevant when running more than one region (region_id has more than one
+# entry) AND at least one low-res instrument (spectrophotometric_data/
+# photometric_data) uses its own dedicated low-res model (model_type == 'low' --
+# i.e. its wavelength range is not already covered by a high-res instrument).
+# Low-res data is usually integrated over a whole visit, so instead of combining
+# regions per exposure like the high-res path does, a handful of representative
+# phases are combined with get_ker (see get_ker_file above) and averaged.
+# - representative_phases_low: null (default) computes the phases automatically
+#   from the planet's ephemeris (period, mid-transit time, transit duration) --
+#   circular-orbit approximation, no eccentricity correction. Set an explicit
+#   list of phases (e.g. [0.48, 0.5, 0.52]) to bypass this and use exactly those
+#   phases instead.
+# - n_phases_low: null (default) uses 4 phases spread across the transit
+#   (transmission) or 2 phases just before/after secondary eclipse (emission,
+#   assumed at phase 0.5) when computing representative_phases_low
+#   automatically. Set an integer to change how many phases are used. Ignored
+#   if representative_phases_low is set explicitly.
+representative_phases_low: null
+n_phases_low: null
