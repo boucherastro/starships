@@ -17,10 +17,100 @@ from numpy.polynomial.polynomial import polyval
 
 from itertools import groupby
 from operator import itemgetter
+from dataclasses import dataclass, replace, fields
 
 
+@dataclass
+class ReductionParams:
+    """Named, documented reduction parameters for :func:`build_trans_spectrum4`.
 
-def mask_deep_tellu(flux, tellu=None, path=None, tellu_list='list_tellu_tr', 
+    This replaces the old convention of stacking 10 reduction parameters into
+    a raw positional list (e.g. ``[0.2, 0.97, 51, 41, 5, 2, 5.0, 5.0, 5.0,
+    5.0]``), where changing a value meant counting positions in the list with
+    no names or documentation attached. Most of these parameters are "deep"
+    (rarely changed in practice) but Antoine wants them kept visible and
+    documented rather than removed, hence explicit named fields with
+    sensible defaults instead of hardcoded numbers buried in the pipeline.
+
+    In practice, only `mask_tellu`, `mask_wings` and `n_pc` are varied
+    routinely; the rest are effectively fixed constants of the reduction
+    (see individual field descriptions).
+
+    For backward compatibility with existing code that still indexes into
+    reduction parameters positionally (e.g. ``tr.params[5]``), this class
+    also supports ``len()``, integer indexing/assignment (``params[i]``) and
+    ``.copy()``, in the same order as the old 10-element list.
+
+    Attributes
+    ----------
+    mask_tellu : float
+        Telluric absorption fraction below which a pixel is masked as a deep
+        telluric line (`lim_mask` in `build_trans_spectrum4`). Typically
+        varied between 0.2 and 0.5 — deeper tellurics (lower value) mask
+        more pixels.
+    mask_wings : float
+        Buffer/wing limit around masked telluric lines (`lim_buffer`).
+        Typically varied between 0.9 and 0.98.
+    reference_spec_box : int
+        Width (in pixels) of the low-pass smoothing box kernel used when
+        building the reference spectrum (`mo_box`, formerly "master-out").
+        Rarely changed in practice.
+    unused_legacy : float
+        Dead parameter from the original 10-element positional list — never
+        read by `build_trans_spectrum4` (confirmed: only indices 0, 1, 2, 4,
+        5, 6, 7, 8, 9 are used). Kept only so that positional/list-style
+        access (`params[i]`) stays compatible with older code that still
+        expects a 10-element sequence.
+    reference_spec_gauss_box : int
+        Width of the Gaussian smoothing kernel used together with
+        `reference_spec_box` when building the reference spectrum
+        (`mo_gauss_box`). Rarely changed in practice.
+    n_pc : int
+        Number of principal components removed by the PCA step (`n_pca`).
+        The one parameter that is essentially always varied/tuned per
+        dataset.
+    tresh : float
+        Sigma-clipping threshold used to mask high-variance pixels *before*
+        the PCA step (`tresh` in `build_trans_spectrum4`, feeds
+        `extract.get_mask_noise`). Rarely changed in practice.
+    tresh_lim : float
+        Companion sigma-clipping limit to `tresh` (`tresh_lim`). Rarely
+        changed in practice.
+    last_tresh : float
+        Sigma-clipping threshold used for a final round of masking *after*
+        the PCA step, on the normalized post-PCA time series (`last_tresh`).
+        Rarely changed in practice.
+    last_tresh_lim : float
+        Companion sigma-clipping limit to `last_tresh` (`last_tresh_lim`).
+        Rarely changed in practice.
+    """
+
+    mask_tellu: float = 0.2
+    mask_wings: float = 0.97
+    reference_spec_box: int = 51
+    unused_legacy: float = 41.0
+    reference_spec_gauss_box: int = 5
+    n_pc: int = 2
+    tresh: float = 5.0
+    tresh_lim: float = 5.0
+    last_tresh: float = 5.0
+    last_tresh_lim: float = 5.0
+
+    def __len__(self):
+        return len(fields(self))
+
+    def __getitem__(self, index):
+        return getattr(self, fields(self)[index].name)
+
+    def __setitem__(self, index, value):
+        setattr(self, fields(self)[index].name, value)
+
+    def copy(self):
+        """Return a shallow copy, mirroring `list.copy()` for old callers."""
+        return replace(self)
+
+
+def mask_deep_tellu(flux, tellu=None, path=None, tellu_list='list_tellu_tr',
                     limit_mask=0.5, limit_buffer=0.98, plot=False, new_mask_tellu=None):
     
     n_spec, nord, _ = flux.shape
@@ -565,7 +655,51 @@ def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34,
 
 
 
-# def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, iOut, 
+def resolve_reference_spectrum_exposures(iOut_temp, iOut, n_exposures):
+    """Resolve which exposures are used to build the reference spectrum ("master-out").
+
+    Two modes:
+
+    - `'all'` (default, matches `iOut_temp` passed as `'all'` or left `None` after this
+      function's own default resolution upstream): every exposure is used. The planetary
+      signal is negligible next to the star's and further diluted by the planet's own
+      motion across exposures, so using all exposures actually *improves* the reference
+      spectrum's signal-to-noise ratio (confirmed intentional behaviour, not a bug).
+    - out-of-transit/out-of-eclipse only: pass `iOut_temp=None` to use the real `iOut`
+      (computed from the orbit, see `planet_obs.py::gen_transit_model`).
+
+    Before this was factored out, `iOut_temp` was silently overwritten to 'all' no matter
+    what was passed in — restoring the `iOut_temp is None` branch below makes the choice
+    real again, without changing the default ('all') behaviour.
+
+    Parameters
+    ----------
+    iOut_temp : {'all', None} or array_like of int
+        Requested mode, or an explicit array of exposure indices (used as-is).
+    iOut : array_like of int
+        The true out-of-transit/out-of-eclipse exposure indices for this sequence.
+    n_exposures : int
+        Total number of exposures in `flux` (used to build the 'all' index array, and to
+        guard against an oversized `iOut_temp`).
+
+    Returns
+    -------
+    numpy.ndarray of int
+        Exposure indices to use when building the reference spectrum.
+    """
+    if iOut_temp is None:
+        iOut_temp = iOut
+    elif isinstance(iOut_temp, str) and iOut_temp == 'all':
+        iOut_temp = np.arange(n_exposures)
+
+    if iOut_temp.size > n_exposures:
+        print('iOut size too big, flux size')
+        iOut_temp = np.arange(n_exposures)
+
+    return iOut_temp
+
+
+# def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, iOut,
 #                          lim_mask=0.75, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True, new_mask_tellu=None,
 #                           mask_var=True, last_mask=True, iOut_temp=None, plot=False, #kind_mo_lp='filter',
 #                           mo_box=51, mo_gauss_box=5, n_pca=1, n_comps=10, clip_ratio=None, clip_ts=None,
@@ -620,18 +754,8 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         else:
             flux_masked = flux_Sref.copy()            
     print('flux_masked all nan : {}'.format(flux_masked.mask.all()))
-    # --- ***** CHANGED iOut FOR SOMETHING ELSE
-    # if (iOut_temp is None):  # or (iOut_temp == ''):
-    #     iOut_temp = iOut #np.arange(0,36)
-    # elif iOut_temp == 'all':
-    iOut_temp = np.arange(flux.shape[0])
-#     else:
-#         iOut_temp = iOut_temp
+    iOut_temp = resolve_reference_spectrum_exposures(iOut_temp, iOut, flux.shape[0])
 
-    if iOut_temp.size > flux.shape[0]:
-        print('iOut size too big, flux size')
-        iOut_temp = np.arange(flux.shape[0])
-    
     if master_out is None:
         hm.print_static('Building the master out #1 \n')
         if flux_norm_mo is None:
