@@ -443,11 +443,14 @@ def generate_reduction_goldens(cfg, plots_dir=None):
             'list_recon': f'list_recon_{visit_name}',
         }
 
+        # Which raw-file format to expect (external blaze/wave calibration files vs.
+        # bundled/embedded extensions) is entirely determined by `instrument` (Chantier B, B2
+        # follow-up) -- use e.g. instrument: 'NIRPS-APERO-CADC' in the dataset's pipeline
+        # config for the bundled format, instead of a separate cadc flag here.
         instrument = config_dict.get('instrument', 'SPIRou-APERO')
-        cadc = ds_cfg.get('cadc', False)
-        print(f"  Loading raw data from {obs_dir} (visit: {visit_name}, instrument: {instrument}, cadc: {cadc}) ...")
+        print(f"  Loading raw data from {obs_dir} (visit: {visit_name}, instrument: {instrument}) ...")
         obs = Observations(name=config_dict['pl_name'], instrument=instrument, pl_kwargs=pl_kwargs)
-        obs.fetch_data(obs_dir, CADC=cadc, **list_filenames)
+        obs.fetch_data(obs_dir, **list_filenames)
         obs.n_spec = len(obs.filenames)
 
         all_exp = np.arange(obs.n_spec)

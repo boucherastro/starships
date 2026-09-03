@@ -18,13 +18,21 @@ obs_dir: 'projects/def-rdoyon/shared/NIRPS-APERO/Observations/WASP80'
 out_dir: null
 
 # Instrument name
-# Options: NIRPS-APERO, SPIRou-APERO, NIRPS-GENEVA, IGRINS, 
+# Built-in options: NIRPS-APERO, SPIRou-APERO, NIRPS-GENEVA, IGRINS.
+# For a custom instrument/DRS not listed above, set custom_instrument_file below instead of
+# picking one of these -- this name is then what gets registered.
 instrument: NIRPS-APERO
 
+# Optional: path to a Python file registering a custom instrument/DRS not built into STARSHIPS
+# (see starships.planet_obs.register_instrument for what the file must define). null (default)
+# uses one of the built-in instruments above as-is.
+custom_instrument_file: null
+
 # Visit names
-# Names of the visits to be reduced, in the form YYYY-MM-DD-HH. If observations are not yet split by 
-# visit, leave as [] and split_nights.py will be run to generate a list of visits
-# ex: ['2021-06-01-01', '2021-06-01-02']
+# Names of the visits to be reduced, in the form 'visit_YYYY-MM-DD' (matches what
+# pipeline/split_nights.py writes/expects). If observations are not yet split by visit, leave
+# as [] and split_nights.py will be run to generate the list of visits automatically.
+# ex: ['visit_2021-06-01', 'visit_2021-06-03']
 visit_name: []
 
 # Type of data: transmission or emission
@@ -49,19 +57,42 @@ ld_model: 'nonlinear'
 # For exploratory purposes, each night will be reduced with each combination of these parameters
 mask_tellu: [0.2, 0.5]
 mask_wings: [0.9, 0.95, 0.97]
-n_pc: [0, 1, 2, 3, 4] 
+n_pc: [0, 1, 2, 3, 4]
 
-# Other reduction parameters
+# Which exposures build the reference spectrum used to divide out the star ("master-out").
+# 'all' (default): every exposure. The planetary signal is negligible next to the star's and
+#   further diluted by the planet's own motion across exposures, so using all exposures actually
+#   improves the reference spectrum's signal-to-noise ratio.
+# null: only the true out-of-transit/out-of-eclipse exposures (computed from the orbit).
 iout_all: ['all']
 clip_ratio: 6
 clip_ts: 6
 unberv_it: True
 
+# Optional: mask pixels below this signal (raw counts) after loading the data, e.g. to catch
+# pixels that should already have been masked upstream but weren't. null (default) disables this.
+minimum_signal: null
+
+# Deep/rarely-changed reduction parameters, exposed here for visibility but virtually never
+# overridden in practice — see starships.transpec.ReductionParams for what each one does and
+# its default value. Uncomment and set only the ones you need to change; the rest keep their
+# ReductionParams default.
+reduction_params: {
+  # reference_spec_box: 51,
+  # reference_spec_gauss_box: 5,
+  # tresh: 5.0,
+  # tresh_lim: 5.0,
+  # last_tresh: 5.0,
+  # last_tresh_lim: 5.0,
+}
+
 # Orders to plot reduction steps for
 # By default, will plot for orders 15, 33 and 41 in the Y, J and H bands
 idx_ord: [15, 33, 41]
 
-# Exposures to remove for each night , leave blank if none to remove
+# Exposures to remove for each night, keyed by visit_name, leave blank if none to remove.
+# These are now genuinely excluded from the reduction itself (reference spectrum, PCA), not
+# just flagged as bad in the saved output file.
 bad_indexs: {
   # 'night1': [],
   # 'night2': [],

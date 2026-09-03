@@ -162,7 +162,8 @@ def run_pipe(config_filepath, run_name):
     config_dict['obs_dir'] = Path.home() / Path(config_dict['obs_dir'])
 
     if config_dict['visit_name'] == []:
-        config_dict['visit_name'] = split.split_night(config_dict['obs_dir'], str(config_dict['obs_dir']))
+        config_dict['visit_name'] = split.split_night(config_dict['obs_dir'], str(config_dict['obs_dir']),
+                                                        instrument=config_dict['instrument'])
     print('VISIT NAMES: ', config_dict['visit_name'])
     
     # loop over all visits

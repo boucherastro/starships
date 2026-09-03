@@ -52,571 +52,12 @@ DEFAULT_LISTS_FILENAMES = {False: {'file_list': 'list_e2ds',
                                   'file_list_tcorr': 'list_tellu_corrected_1d',
                                   'file_list_recon': 'list_tellu_recon_1d'}}
 
-# Dictionaries for different instruments and/or DRS
 
-# spirou (apero)
-spirou = dict()
-spirou['name'] = 'SPIRou-APERO'
-spirou['airmass'] = 'AIRMASS'
-spirou['telaz'] = 'TELAZ'
-spirou['adc1'] = 'SBADC1_P'
-spirou['adc2'] = 'SBADC2_P'
-spirou['mjd'] = 'MJD-OBS'
-spirou['bjd'] = 'BJD'
-spirou['exptime'] = 'EXPTIME'
-spirou['berv'] = 'BERV'
-
-# nirps, apero DRS
-nirps_apero = dict()
-nirps_apero['name'] = 'NIRPS-APERO'
-nirps_apero['airmass'] = 'HIERARCH ESO TEL AIRM START'
-nirps_apero['telaz'] = 'HIERARCH ESO TEL AZ'
-nirps_apero['adc1'] = 'HIERARCH ESO INS ADC1 START'
-nirps_apero['adc2'] = 'HIERARCH ESO INS ADC2 START'
-nirps_apero['mjd'] = 'MJD-OBS'
-nirps_apero['bjd'] = 'BJD'
-nirps_apero['exptime'] = 'EXPTIME'
-nirps_apero['berv'] = 'BERV'
-# nirps, geneva/ESPRESSO DRS
-# implementing
-nirps_geneva = dict()
-nirps_geneva['name'] = 'NIRPS-GENEVA'
-nirps_geneva['airmass'] = 'HIERARCH ESO TEL AIRM START'
-nirps_geneva['telaz'] = 'HIERARCH ESO TEL AZ'
-nirps_geneva['adc1'] = 'HIERARCH ESO INS ADC1 START'
-nirps_geneva['adc2'] = 'HIERARCH ESO INS ADC2 START'
-nirps_geneva['mjd'] = 'MJD-OBS'
-nirps_geneva['bjd'] = 'HIERARCH ESO QC BJD'
-nirps_geneva['exptime'] = 'EXPTIME'
-nirps_geneva['berv'] = 'HIERARCH ESO QC BERV'
-
-igrins_zoe = dict()
-igrins_zoe['name'] = 'IGRINS'
-igrins_zoe['airmass'] = 'AMSTART'
-# igrins_zoe['telaz'] = 'TELRA'
-igrins_zoe['adc1'] = 'NADCS'
-igrins_zoe['adc2'] = 'NADCS'
-igrins_zoe['bjd'] = 'JD-OBS'
-igrins_zoe['mjd'] = 'MJD-OBS'
-igrins_zoe['exptime'] = 'EXPTIMET'
-
-# dictionary with instrument-DRS names
-instruments_drs = {
-    'SPIRou-APERO': spirou,
-    'NIRPS-APERO': nirps_apero,
-    'NIRPS-GENEVA': nirps_geneva,
-    'IGRINS': igrins_zoe
-}
-
-# def fits2wave(file_or_header):
-#     info = """
-#         Provide a fits header or a fits file
-#         and get the corresponding wavelength
-#         grid from the header.
-        
-#         Usage :
-#           wave = fits2wave(hdr)
-#                   or
-#           wave = fits2wave('my_e2ds.fits')
-        
-#         Output has the same size as the input
-#         grid. This is derived from NAXIS 
-#         values in the header
-#     """
-
-
-#     # check that we have either a fits file or an astropy header
-#     if type(file_or_header) == str:
-#         hdr = fits.getheader(file_or_header)
-#     elif str(type(file_or_header)) == "<class 'astropy.io.fits.header.Header'>":
-#         hdr = file_or_header
-#     else:
-#         print()
-#         print('~~~~ wrong type of input ~~~~')
-#         print()
-
-#         print(info)
-#         return []
-
-#     # get the keys with the wavelength polynomials
-#     wave_hdr = hdr['WAVE0*']
-#     # concatenate into a numpy array
-#     wave_poly = np.array([wave_hdr[i] for i in range(len(wave_hdr))])
-
-#     # get the number of orders
-#     nord = hdr['WAVEORDN']
-
-#     # get the per-order wavelength solution
-#     wave_poly = wave_poly.reshape(nord, len(wave_poly) // nord)
-
-#     # get the length of each order (normally that's 4088 pix)
-#     npix = 4088 #hdr['NAXIS1']
-
-#     # project polynomial coefficiels
-#     wavesol = [np.polyval(wave_poly[i][::-1],np.arange(npix)) for i in range(nord) ]
-
-#     # return wave grid
-#     return np.array(wavesol)
-
-
-
-def fits2wave(image, header):
-    """
-    Get the wave solution from the header using a filename
-    """
-#     header = fits.getheader(filename, ext=0)
-#     image = fits.getdata(filename, ext=1)
-# def fits2wave(filename):
-#     """
-#     Get the wave solution from the header using a filename
-#     """
-#     header = fits.getheader(filename, ext=0)
-#     image = fits.getdata(filename, ext=1)
-    # size of the image
-    nbypix, nbxpix = image.shape
-    # get the keys with the wavelength polynomials
-    wave_hdr = header['WAVE0*']
-    # concatenate into a numpy array
-    wave_poly = np.array([wave_hdr[i] for i in range(len(wave_hdr))])
-    # get the per-order wavelength solution
-    wave_poly = wave_poly.reshape(nbypix, len(wave_poly) // nbypix)
-    # project polynomial coefficiels
-    wavesol = np.zeros_like(image)
-    # get the pixel range
-    xpix = np.arange(nbxpix)
-    # loop around orders
-    for order_num in range(nbypix):
-        wavesol[order_num] = np.polyval(wave_poly[order_num][::-1], xpix)
-    # return wave grid
-    return wavesol
-
-
-def fits2wavenew(image, hdr):
-    """
-    Get the wave solution from the header using a filename
-    """
-    # size of the image
-    nbypix, nbxpix = image.shape
-    # get the keys with the wavelength polynomials
-    wave_hdr = hdr['WAVE0*']
-    # concatenate into a numpy array
-    wave_poly = np.array([wave_hdr[i] for i in range(len(wave_hdr))])
-    # get the number of orders
-    nord = hdr['WAVEORDN']
-    # get the per-order wavelength solution
-    wave_poly = wave_poly.reshape(nord, len(wave_poly) // nord)
-    # project polynomial coefficiels
-    wavesol = np.zeros_like(image)
-    # xpixel grid
-    xpix = np.arange(nbxpix)
-    # loop around orders
-    for order_num in range(nord):
-        # calculate wave solution for this order
-        owave = val_cheby(wave_poly[order_num], xpix, domain=[0, nbxpix])
-        # push into wave map
-        wavesol[order_num] = owave
-    # return wave grid
-    return wavesol
-
-def val_cheby(coeffs, xvector,  domain):
-    """
-    Using the output of fit_cheby calculate the fit to x  (i.e. y(x))
-    where y(x) = T0(x) + T1(x) + ... Tn(x)
-
-    :param coeffs: output from fit_cheby
-    :param xvector: x value for the y values with fit
-    :param domain: domain to be transformed to -1 -- 1. This is important to
-    keep the components orthogonal. For SPIRou orders, the default is 0--4088.
-    You *must* use the same domain when getting values with fit_cheby
-    :return: corresponding y values to the x inputs
-    """
-    # transform to a -1 to 1 domain
-    domain_cheby = 2 * (xvector - domain[0]) / (domain[1] - domain[0]) - 1
-    # fit values using the domain and coefficients
-    yvector = np.polynomial.chebyshev.chebval(domain_cheby, coeffs)
-    # return y vector
-    return yvector
-
-
-def read_all_sp_spirou_apero(path, file_list, wv_default=None, blaze_default=None,
-                blaze_path=None, debug=False, ver06=False, cheby=False):
-
-    """
-    Read all spectra
-    Must have a list with all filename to read 
-    """
-
-    headers, count, wv, blaze = list_of_dict([]), [], [], []
-    blaze_path = blaze_path or path
-    
-    headers_princ = list_of_dict([])
-    filenames = []
-    blaze0 = None
-
-    path = Path(path)
-    blaze_path = Path(blaze_path)
-    file_list = Path(file_list)
-
-    with open(path / file_list) as f:
-
-        for file in f:
-            filename = file.split('\n')[0]
-            
-            if debug:
-                print(filename)
-
-            filenames.append(filename)
-            hdul = fits.open(path / Path(filename))
-
-            if ver06 is False: # --- for V0.6 data ---
-                header = hdul[0].header
-                image = hdul[1].data
-            else:
-                header = hdul[0].header
-                image = hdul[0].data
-
-            headers.append(header)
-            count.append(image)
-
-            try:
-                wv_file = wv_default or hdul[0].header['WAVEFILE']
-                with fits.open(path / Path(wv_file)) as f:
-                    wvsol = f[0].data
-            except (KeyError,FileNotFoundError) as e:
-                use_cheby = cheby or (header.get('WAVEPOLY', '') == 'Chebyshev')
-                if use_cheby:
-                    wvsol = fits2wavenew(image, header)
-                else:
-                    wvsol = fits2wave(image, header)
-#                 if debug:
-#                     print(wvsol)
-
-#                 if blaze0 is None:
-            if blaze_default:
-                blaze_file = blaze_default
-            elif 'CDBBLAZE' in header:
-                blaze_file = header['CDBBLAZE']
-            else:
-                raise KeyError(
-                    f"Cannot find blaze file: 'CDBBLAZE' keyword missing from header of {filename}. "
-                    "Pass blaze_default=<filename> to read_all_sp_spirou_apero or fetch_data."
-                )
-
-            if ver06 is False:
-                blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
-            else:
-                with fits.open(blaze_path / Path(blaze_file)) as f:
-#                         header = fits.getheader(filename, ext=0)
-                    blaze0 = f[0].data
-#                         print(blaze)
-            blaze.append(blaze0)
-
-            wv.append(wvsol/1000)
-
-    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
-
-
-def read_all_sp_spirou_CADC(path, filename, file_list):
-    '''
-    Read all CADC-type spectra
-    Must have a list with all filenames to read
-    Note : Probably old-----updated by georgia on May 22, 2024
-    '''
-    headers_princ, headers_image, headers_tellu = list_of_dict([]), list_of_dict([]), list_of_dict([])
-    count, wv, blaze, recon = [], [], [], []
-    filenames = []
-    # print(path)
-
-    with open(path + '/' + filename) as f:
-        for file in f:
-            # print(file)
-            
-            filenames.append(file.split('\n')[0])
-            # print(filenames)
-            # print(file.split(‘\n’)[0])
-            # print(path+‘/’+file.split(‘\n’)[0])
-            
-            hdul = fits.open(path + '/' + file.split('\n')[0])
-            # print(hdul)
-
-            headers_princ.append(hdul[0].header)
-            headers_image.append(hdul[1].header)
-            if file_list == 'list_v':
-                count.append(hdul[1].data)
-            else:
-                if file_list == 'list_tellu_corrected':
-                    headers_tellu.append(hdul[4].header)
-                    recon.append(hdul[4].data)
-                    ext = [1,2,3]
-                if file_list == 'list_e2ds':
-                    ext = [1,5,9]
-                count.append(hdul[ext[0]].data)
-                wv.append(hdul[ext[1]].data / 1000)
-                blaze.append(hdul[ext[2]].data)
-    return headers_princ, headers_image, headers_tellu, np.array(wv), \
-            np.array(count), np.array(blaze), np.array(recon), filenames
-
-def read_all_sp_nirps_apero_CADC(path,filename,file_list):
-    
-    """
-    Read all CADC-type spectra
-    Must have a list with all filename to read 
-    """
-    
-    headers_princ, headers_image, headers_tellu = list_of_dict([]), list_of_dict([]), list_of_dict([])
-    count, wv, blaze, recon = [], [], [], []
-    filenames = []
-    # print(path)
-    with open(str(path)+'/'+filename) as f:
-
-        for file in f:
-            # print(file)
-            filenames.append(file.split('\n')[0])
-            # print(filenames)
-            # print(file.split('\n')[0])
-            # print(path+'/'+file.split('\n')[0])
-            hdul = fits.open(str(path)+'/'+file.split('\n')[0])
-            # print(hdul)
-            
-            
-            headers_princ.append(hdul[0].header)
-            headers_image.append(hdul[1].header)
-            
-            if file_list == 'list_v':
-                count.append(hdul[1].data)
-            else:
-                if file_list == 'list_tellu_corrected':
-                    headers_tellu.append(hdul[4].header)
-                    recon.append(hdul[4].data)
-                    ext = [1,2,3]
-                if file_list == 'list_e2ds':
-                    ext = [1,3,5]
-
-                count.append(hdul[ext[0]].data)
-                wv.append(hdul[ext[1]].data / 1000)
-                blaze.append(hdul[ext[2]].data)
-    
-    return headers_princ, headers_image, headers_tellu, np.array(wv), \
-            np.array(count), np.array(blaze), np.array(recon), filenames
-
-def read_all_sp_igrins(path, file_list, blaze_path=None, input_type='data'):
-
-    """
-    Read all spectra
-    Must have a list with all filename to read
-
-    input_type: 'data'-observation data, 'recon'-telluric reconstruction
-    """
-
-    # create some empty list and append later
-
-    file_list = path/Path(file_list)
-    with open(file_list, 'r') as file:
-        file_paths = file.readlines()
-    file_paths = [path.strip() for path in file_paths]
-
-    if input_type == 'data':
-
-        headers, count, wv, blaze = list_of_dict([]), [], [], []
-        # headers, count, wv, blaze = [], [], [], []
-        filenames = []
-
-        blaze_path = Path(blaze_path)
-
-        # Iterate over the file paths and open each FITS file
-        for file in file_paths:
-            try:
-                filenames.append(file)
-
-                hdul = fits.open(file)
-
-                header = hdul[0].header
-                image = hdul[0].data
-                wvsol = hdul[1].data
-
-                headers.append(header)
-                count.append(image)
-                wv.append(wvsol)
-
-                hdul.close()  # Close the FITS file after processing
-
-            except IOError:
-                print(f"Error opening FITS file: {file}")
-
-        with fits.open(blaze_path) as hdul:
-            b = hdul[0].data
-            blaze.append(b)
-
-        return headers, np.array(wv), np.array(count), np.array(blaze), filenames
-
-    elif input_type == 'recon': # file_list is telluric_recon
-
-        tellu_recon = []
-
-        for file in file_paths:
-            try:
-                hdul = fits.open(file)
-
-                tellu = hdul[0].data
-                tellu_recon.append(tellu)
-
-                hdul.close()
-
-            except IOError:
-                print(f"Error opening FITS file: {file}")
-
-        return np.array(tellu_recon)
-
-
-# a very slight modification of the spirou function: the wave solution is now in the second extension of the wave file
-def read_all_sp_nirps_apero(path, file_list, wv_default=None, blaze_default=None,
-                            blaze_path=None, debug=False, ver06=False, cheby=False):
-    """
-    Read all spectra
-    Must have a list with all filename to read
-    """
-
-    headers, count, wv, blaze = list_of_dict([]), [], [], []
-    blaze_path = blaze_path or path
-
-    headers_princ = list_of_dict([])
-    filenames = []
-    blaze0 = None
-
-    path = Path(path)
-    blaze_path = Path(blaze_path)
-    file_list = Path(file_list)
-
-    with open(path / file_list) as f:
-
-        for file in f:
-            filename = file.split('\n')[0]
-
-            if debug:
-                print(filename)
-
-            filenames.append(filename)
-            hdul = fits.open(path / Path(filename))
-
-            if ver06 is False:  # --- for V0.6 data ---
-                header = hdul[0].header
-                image = hdul[1].data
-            else:
-                header = hdul[0].header
-                image = hdul[0].data
-
-            headers.append(header)
-            count.append(image)
-
-            try:
-                wv_file = wv_default or hdul[0].header['WAVEFILE']
-                with fits.open(path / Path(wv_file)) as f:
-                    wvsol = f[1].data
-            except (KeyError, FileNotFoundError) as e:
-                if cheby is False:
-                    wvsol = fits2wave(image, header)
-                else:
-                    wvsol = fits2wavenew(image, header)
-            #                 if debug:
-            #                     print(wvsol)
-
-            #                 if blaze0 is None:
-            if blaze_default:
-                blaze_file = blaze_default
-            elif 'CDBBLAZE' in header:
-                blaze_file = header['CDBBLAZE']
-            else:
-                raise KeyError(
-                    f"Cannot find blaze file: 'CDBBLAZE' keyword missing from header of {filename}. "
-                    "Pass blaze_default=<filename> to read_all_sp_nirps_apero or fetch_data."
-                )
-
-            if ver06 is False:
-                blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
-            else:
-                with fits.open(blaze_path / Path(blaze_file)) as f:
-                    #                         header = fits.getheader(filename, ext=0)
-                    blaze0 = f[0].data
-            #                         print(blaze)
-            blaze.append(blaze0)
-
-            wv.append(wvsol / 1000)
-
-    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
-
-def read_all_sp_nirps_geneva(path, file_list, wv_default=None, blaze_default=None,
-                             blaze_path=None, debug=False, cheby=False):
-    """
-    Read all spectra
-    Must have a list with all filename to read
-    Include 'recon' in the name of the file list for the recon files
-    """
-
-    headers, count, wv, blaze = list_of_dict([]), [], [], []
-    blaze_path = blaze_path or path
-
-    # headers_princ = list_of_dict([])
-    filenames = []
-    blaze0 = None
-
-    recon = 'recon' in file_list
-
-    path = Path(path)
-    blaze_path = Path(blaze_path)
-    file_list = Path(file_list)
-
-    with open(path / file_list) as f:
-
-        for file in f:
-            filename = file.split('\n')[0]
-
-            if debug:
-                print(filename)
-
-            filenames.append(filename)
-            hdul = fits.open(path / Path(filename))
-
-            header = hdul[0].header
-            if recon:
-                image = hdul[6].data
-            else:
-                image = hdul[1].data
-
-            headers.append(header)
-            count.append(image)
-
-            # vacuum wavelengths
-            if recon:
-                wvsol = hdul[2].data
-            else:
-                wvsol = hdul[4].data
-
-            # remove berv correction (Geneva data is already berv corrected)
-            # barycentric correction (km/s)
-            berv = header['HIERARCH ESO QC BERV']
-            shift = hm.calc_shift(berv, kind='rel')
-            wvsol = wvsol/shift
-
-            try:
-                blaze_file = blaze_default or header['HIERARCH ESO PRO REC1 CAL24 NAME']
-            except KeyError:
-                blaze_file = header['HIERARCH ESO PRO REC1 CAL24 NAME']
-
-            blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
-
-            blaze.append(blaze0)
-
-            wv.append(wvsol / 10000)
-
-    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
-
-
-# give the appropriate functions to read spectra to all the instrument/DRS dictionaries
-spirou['read_all_sp'] = read_all_sp_spirou_apero
-nirps_apero['read_all_sp'] = read_all_sp_nirps_apero
-nirps_geneva['read_all_sp'] = read_all_sp_nirps_geneva
-igrins_zoe['read_all_sp'] = read_all_sp_igrins
-
+# Everything about instrument/DRS identity and how to read raw files for each one lives in
+# instruments.py (Chantier B, B2 follow-up) -- header keywords, file patterns, physical
+# properties, and the read_all_sp_* functions themselves, each attached to its own
+# instruments_drs entry there. This module only ever needs the populated dict.
+from .instruments import instruments_drs, register_instrument
 
 def fake_noise(flux, gwidth=1):
     # Generate white noise
@@ -780,6 +221,19 @@ def gen_transit_model(self, p, kind_trans, coeffs, ld_model, iin=False, plot=Fal
     self.kind_trans, self.coeffs, self.ld_model = kind_trans, coeffs, ld_model
 
 
+def _unpack_read_sp_result(result):
+    """Backward/forward-compatible unpacking of a `read_all_sp_*` reader's return value
+    (Chantier B, B2 follow-up): either the standard `(headers, wave, count, blaze,
+    filenames)`, or `(headers, wave, count, blaze, filenames, recon)` for a reader that can
+    also report an embedded telluric reconstruction spectrum (`recon`, `None` when this
+    particular read didn't have one) -- see `read_all_sp_nirps_apero`. Always returns the
+    6-tuple form so callers (`Observations.fetch_data`) don't need to care which kind of
+    reader they're calling."""
+    if len(result) == 6:
+        return result
+    return (*result, None)
+
+
 #######################
 ### Observation class
 #######################
@@ -792,17 +246,17 @@ class Observations():
     Note : Probably could be optimized
     """
 
-    # added an instrument argument to pass the appropriate dictionary. Default=spirou
-    # to properly pass a dictionary from outside (e.g. a jupyter notebook),
-    # need to write e.g. instrument=planet_obs.nirps_apero
+    # instrument=<name> selects the header-keyword/reader dictionary to use (see
+    # starships.instruments.instruments_drs) -- pass the string name (e.g. 'NIRPS-APERO'),
+    # not the dict itself.
     def __init__(self, wave=np.array([]), count=np.array([]), blaze=np.array([]),
-                 headers = list_of_dict([]), headers_image = list_of_dict([]), headers_tellu = list_of_dict([]), 
-                 tellu=np.array([]), uncorr=np.array([]), 
-                 name='', path='',filenames=[], planet=None, CADC=False, pl_kwargs=None, instrument='SPIRou-APERO'):
-        
+                 headers = list_of_dict([]),
+                 tellu=np.array([]), uncorr=np.array([]),
+                 name='', path='',filenames=[], planet=None, pl_kwargs=None, instrument='SPIRou-APERO'):
+
         self.name = name
         self.path = Path(path)
-        
+
         # --- Get the system parameters from the ExoFile
         if planet is None:
             if pl_kwargs is not None:
@@ -811,104 +265,81 @@ class Observations():
                 self.planet = Planet(name)
         else:
             self.planet=planet
-        
+
         self.wave=wave
         self.count=count
         self.blaze=blaze
         self.headers=headers
-        self.headers_image=headers_image
-        self.headers_tellu=headers_tellu
         self.filenames=filenames
         self.n_spec = len(self.filenames)
-        
+
         self.uncorr=uncorr
         self.tellu=tellu
-        self.CADC = CADC
         # get the instrument dictionary from the dict of instruments
         # the string/name
         self.instrument_name = instrument
         # the dictionary
         self.instrument = instruments_drs[instrument]
 
-                     
-    def fetch_data(self, path, CADC=False, list_e2ds='list_e2ds',
+
+    def fetch_data(self, path, list_e2ds='list_e2ds',
                     list_tcorr='list_tellu_corrected', list_recon='list_tellu_recon',
                     read_sp=None, **kwargs):
         """
-        Retrieve all the relevent data in path 
+        Retrieve all the relevent data in path
         (tellu corrected, tellu recon and uncorrected spectra from lists of files)
-        Georgia Mraz--debugged CADC function on May 22nd 2024
-        """
 
-        # TODO Remove CADC references -> Use an instrument/reduction configuration instead
-        self.CADC = CADC
+        Which raw-file format to expect (external blaze/wave calibration files vs.
+        bundled/embedded extensions, "CADC" in the old naming) is entirely determined by
+        `instrument` (see `starships.planet_obs.instruments_drs`/`register_instrument`) --
+        there used to be a separate `CADC=True/False` flag here with its own hardcoded
+        per-instrument-name dispatch, removed once every format variant this package
+        supports had its own instrument/DRS profile (Chantier B, B2 follow-up). Use
+        `instrument='SPIRou-APERO-CADC'`/`'NIRPS-APERO-CADC'` for the bundled/embedded
+        format instead of a boolean.
+        """
 
         # get the appropriate function to read spectra from the instrument's dictionary
         # if read function is not specified as an argument
         if not read_sp:
             read_sp = self.instrument['read_all_sp']
 
-        if CADC:
-            log.info('Fetching data')
-                
-            if self.instrument_name == 'SPIRou-APERO':
-                headers, headers_image, headers_tellu, \
-                wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr, 'list_tellu_corrected')
+        log.info("Fetching the uncorrected spectra")
+        log.info(f"File: {list_e2ds}")
 
-                self.headers_image, self.headers_tellu = headers_image, headers_tellu
-                log.info("Fetching the uncorrected spectra")
-                _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds, 'list_e2ds')
+        headers, wave, count_uncorr, blaze_uncorr, filenames_uncorr, _ = \
+            _unpack_read_sp_result(read_sp(path, list_e2ds, **kwargs))
 
-            if self.instrument_name == 'NIRPS-APERO':
-                headers, headers_image, headers_tellu, \
-                wave, count, blaze, tellu, filenames = read_all_sp_nirps_apero_CADC(path, list_tcorr, 'list_tellu_corrected')
-                
-                self.headers_image, self.headers_tellu = headers_image, headers_tellu
-                log.info("Fetching the uncorrected spectra")
-                _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_nirps_apero_CADC(path, list_e2ds, 'list_e2ds')
-
-            else:
-                log.info('Fetching data')
-                headers, headers_image, headers_tellu, \
-                wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr, 'list_tellu_corrected')
-                
-                self.headers_image, self.headers_tellu = headers_image, headers_tellu
-                log.info("Fetching the uncorrected spectra")
-                _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds,'list_e2ds')
+        embedded_recon = None
+        if list_tcorr is None:
+            log.info('No telluric correction available')
+            count = count_uncorr.copy()
+            blaze = blaze_uncorr.copy()
+            filenames = filenames_uncorr
 
         else:
-            log.info("Fetching the uncorrected spectra")
-            log.info(f"File: {list_e2ds}")
-
-            headers, wave, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, **kwargs)
-
-            if list_tcorr is None:
-                log.info('No telluric correction available')
-                count = count_uncorr.copy()
-                blaze = blaze_uncorr.copy()
-                filenames = filenames_uncorr
-
-            else:
-                log.info('Fetching data')
-                log.info(f"File: {list_tcorr}")
-                headers, wave, count, blaze, filenames = read_sp(path, list_tcorr, **kwargs)
-
-            #             self.headers = headers
-            #             self.wave = np.array(wv)
-            #             self.count = np.ma.masked_invalid(count)
-            #             self.blaze = np.ma.masked_array(blaze)
+            log.info('Fetching data')
+            log.info(f"File: {list_tcorr}")
+            headers, wave, count, blaze, filenames, embedded_recon = \
+                _unpack_read_sp_result(read_sp(path, list_tcorr, **kwargs))
             #             self.filenames  = filenames
 
+        if embedded_recon is not None:
+            # Some formats bundle the telluric reconstruction spectrum as an extension of
+            # the tcorr file itself (Chantier B, B2 follow-up) -- no separate list_recon
+            # file needed/expected in that case, use what the tcorr read already gave us.
+            log.info('Using the telluric reconstruction spectrum embedded in the tcorr file')
+            tellu = embedded_recon
 
-            if list_recon is None:
-                log.info('No reconstruction available')
-                tellu = np.ones_like(count)
+        elif list_recon is None:
+            log.info('No reconstruction available')
+            tellu = np.ones_like(count)
 
-            else:
-                log.info("Fetching the tellurics")
-                log.info(f"File: {list_recon}")
-                _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
-                # tellu = read_sp(path, list_recon, input_type='recon', **kwargs)
+        else:
+            log.info("Fetching the tellurics")
+            log.info(f"File: {list_recon}")
+            _, _, tellu, _, _, _ = _unpack_read_sp_result(read_sp(path, list_recon, **kwargs))
+            # tellu = read_sp(path, list_recon, input_type='recon', **kwargs)
 
         self.headers = headers
         self.wave = np.array(wave)
@@ -941,43 +372,16 @@ class Observations():
         new_headers = list_of_dict([])
         for tag in transit_tag:
             new_headers.append(self.headers[tag])
-            
-        
-        new_headers_im = list_of_dict([])
-        new_headers_tl = list_of_dict([])
-        if self.CADC is True:
-            for tag in transit_tag:
-                new_headers_im.append(self.headers_image[tag])
-                new_headers_tl.append(self.headers_tellu[tag])
-        
-        
-#         sub_obs = Observations(headers=new_headers, wave=self.wave[transit_tag],
-#                             count=self.count[transit_tag], blaze=self.blaze[transit_tag], 
-#                             tellu=self.tellu[transit_tag], 
-#                             uncorr=self.uncorr[transit_tag],
-#                             name=self.name, planet=self.planet , 
-#                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
-# #                             filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag], 
-#                             CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl)
-        
-#         try:
-#             sub_obs.filenames_uncorr = np.array(self.filenames_uncorr)[transit_tag]
-#         except AttributeError:
-#             sub_obs.filenames_uncorr = np.array(self.filenames)[transit_tag]
-            
-        
-#         return sub_obs
 
         # add instrument argument
         return Observations(headers=new_headers,
                             wave=self.wave[transit_tag],
-                            count=self.count[transit_tag], blaze=self.blaze[transit_tag], 
-                            tellu=self.tellu[transit_tag], 
+                            count=self.count[transit_tag], blaze=self.blaze[transit_tag],
+                            tellu=self.tellu[transit_tag],
                             uncorr=self.uncorr[transit_tag],
-                            name=self.name, planet=self.planet , 
+                            name=self.name, planet=self.planet ,
                             path=self.path, filenames=np.array(self.filenames)[transit_tag],
                             # filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
-                            CADC=self.CADC, headers_image=new_headers_im, headers_tellu=new_headers_tl,
                             instrument=self.instrument_name) #, n_spec = len(self.filenames))
     
     # switched hard '49' value to self.nord
@@ -996,69 +400,48 @@ class Observations():
         
         if sequence is None:
             
-            if self.CADC is False:
+            if time_type == 'BJD':
+                self.t_start = Time(np.array(self.headers.get_all(self.instrument['bjd'])[0], dtype='float'),
+                            format='jd').jd.squeeze()# * u.d
+            # TODO check for start, end or mid mjd keys for instruments
+            # or take mjd + exptime / 2
+            elif time_type == 'MJD':
+                self.t_start = Time((np.array(self.headers.get_all('MJDATE')[0], dtype='float') + \
+                                    np.array(self.headers.get_all('MJDEND')[0], dtype='float')) / 2,
+                            format='jd').jd.squeeze()# * u.d
 
-                if time_type == 'BJD':
-                    self.t_start = Time(np.array(self.headers.get_all(self.instrument['bjd'])[0], dtype='float'),
-                                format='jd').jd.squeeze()# * u.d
-                # TODO check for start, end or mid mjd keys for instruments
-                # or take mjd + exptime / 2
-                elif time_type == 'MJD':
-                    self.t_start = Time((np.array(self.headers.get_all('MJDATE')[0], dtype='float') + \
-                                        np.array(self.headers.get_all('MJDEND')[0], dtype='float')) / 2, 
-                                format='jd').jd.squeeze()# * u.d
-                    
+            try:
+                self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0],
+                            dtype='float') for order in range(self.nord)]).T
+            except KeyError:
                 try:
-                    self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0],
+                    # Some formats (formerly reached only via fetch_data(CADC=True), see
+                    # Chantier B B2 follow-up) key the per-order SNR/EXTSN header cards
+                    # differently -- try the other numbering before falling back further.
+                    self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('SNR'+'{}'.format(order))[0],
                                 dtype='float') for order in range(self.nord)]).T
                 except KeyError:
-                    self.SNR = np.sqrt(np.ma.median(self.count,axis=-1))
+                    try:
+                        self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:003}'.format(order))[0],
+                                    dtype='float') for order in range(self.nord)]).T
+                    except KeyError:
+                        self.SNR = np.sqrt(np.ma.median(self.count,axis=-1))
 
-                try:
-                    self.berv0 = np.array(self.headers.get_all(self.instrument['berv'])[0], dtype='float').squeeze()
-                except KeyError:
-                    ra = self.headers[0]['OBJRA']
-                    dec = self.headers[0]['OBJDEC']
-                    bjds = [hdr['JD-OBS'] for hdr in self.headers]
+            try:
+                self.berv0 = np.array(self.headers.get_all(self.instrument['berv'])[0], dtype='float').squeeze()
+            except KeyError:
+                ra = self.headers[0]['OBJRA']
+                dec = self.headers[0]['OBJDEC']
+                bjds = [hdr['JD-OBS'] for hdr in self.headers]
 
-                    # Cerro Pachon, Chile
-                    lat = -70.73669
-                    lon = -30.24075
-                    alt = 2722.0
-                    berv = np.array([pyasl.helcorr(lat, lon, alt, ra, dec, bjd)[0] for bjd in bjds])
-                    # berv = np.zeros_like(berv)
-                    self.berv0 = berv
+                # Cerro Pachon, Chile
+                lat = -70.73669
+                lon = -30.24075
+                alt = 2722.0
+                berv = np.array([pyasl.helcorr(lat, lon, alt, ra, dec, bjd)[0] for bjd in bjds])
+                # berv = np.zeros_like(berv)
+                self.berv0 = berv
 
-            else:
-                # print('CADC correct')
-                
-                print((self.headers_image.get_all('EXTSN002')))
-                
-                
-#                 obs_date = [date+' '+hour for date,hour in zip(self.headers_image.get_all('DATE-OBS')[0], \
-#                                                self.headers.get_all('UTIME')[0])]
-#                 self.t_start = Time(obs_date).jd * u.d
-#                 self.t_start = Time(np.array(self.headers_image.get_all('BJD')[0], dtype='float'), 
-#                                 format='jd').jd.squeeze() * u.d
-                if time_type == 'BJD':
-                    self.t_start = Time(np.array(self.headers_image.get_all(self.instrument['bjd'])[0], dtype='float'),
-                                format='jd').jd.squeeze() #* u.d
-                elif time_type == 'MJD':
-                    self.t_start = Time((np.array(self.headers_image.get_all('MJDATE')[0], dtype='float') + \
-                                        np.array(self.headers_image.get_all('MJDEND')[0], dtype='float')) / 2,
-                                format='jd').jd.squeeze() #* u.d
-                    
-            #note to self---> this was commented out (lines 976-982 of the SNR and BERV) and i put it back to make the CADC reduction run
-            #also the EXTSN+{003} was changed from 03 to 003 - Georgia Mraz(May 23rd 2024) also the EXTSN+{003} was changed from 03 to 003
-
-                try:
-                    self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
-                                             dtype='float') for order in range(self.nord)]).T
-                except KeyError:
-                    self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:003}'.format(order))[0], \
-                                         dtype='float') for order in range(self.nord)]).T
-                self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
-            
             self.dt = np.array(np.array(self.headers.get_all(self.instrument['exptime'])[0], dtype='float') ).squeeze() * u.s
             self.AM = np.array(self.headers.get_all(self.instrument['airmass'])[0], dtype='float').squeeze()
 
@@ -2096,18 +1479,8 @@ def load_single_sequences(filename, name, path='',
 
     tr = Observations(
         wave=data_tr['wave'],
-        #                             count=self.count[transit_tag],
-        #                             blaze=self.blaze[transit_tag],
-        #                             tellu=self.tellu[transit_tag],
-        #                             uncorr=self.uncorr[transit_tag],
         name=name,
         **kwargs
-        # planet=planet,
-        #                             path=self.path,
-        #         filenames=np.array(self.filenames)[transit_tag],
-        #                             filenames_uncorr=np.array(self.filenames_uncorr)[transit_tag],
-        #                             CADC=self.CADC,
-        #         headers_image=new_headers_im, headers_tellu=new_headers_tl
     )
 
     tr.wv = np.mean(tr.wave, axis=0)

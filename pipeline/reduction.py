@@ -12,6 +12,8 @@ import numpy as np
 import starships.planet_obs as pl_obs
 from starships.planet_obs import Observations
 import starships.plotting_fcts as pf
+import starships.transpec as ts
+import starships.homemade as hm
 
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", RuntimeWarning)
@@ -121,19 +123,69 @@ def pl_param_units(config_dict):
     return pl_kwargs
 
 
+def load_custom_instrument(config_dict):
+    """Register a custom instrument/DRS from `config_dict['custom_instrument_file']`, if set.
+
+    For an instrument STARSHIPS doesn't already know about (i.e. not one of
+    `starships.planet_obs.instruments_drs`' built-in entries), point
+    `custom_instrument_file` at a Python file defining:
+
+    - a module-level `read_all_sp(path, file_list, **kwargs)` function (see
+      `starships.planet_obs.read_all_sp_spirou_apero` for the expected
+      signature/return), and
+    - a module-level `INSTRUMENT_FIELDS` dict with the header keywords/patterns
+      `starships.planet_obs.register_instrument` accepts (`airmass`, `telaz`,
+      `adc1`, `adc2`, `mjd`, `bjd`, `exptime`, `berv`, `list_file_patterns`).
+
+    Mirrors `retrieval_utils.load_custom_get_ker`'s pattern for user-supplied Python files
+    in a config-driven pipeline. Does nothing if `custom_instrument_file` isn't set —
+    `config_dict['instrument']` is then expected to already name a built-in instrument/DRS.
+    """
+    custom_instrument_file = config_dict.get('custom_instrument_file')
+    if not custom_instrument_file:
+        return
+
+    cstm = hm.import_module_by_path('dummy_custom_instrument', custom_instrument_file)
+    pl_obs.register_instrument(config_dict['instrument'], read_all_sp=cstm.read_all_sp,
+                                **cstm.INSTRUMENT_FIELDS)
+
+
 def load_planet(config_dict, visit_name):
-    
+
+    load_custom_instrument(config_dict)
+
     # All the observations must be listed in files.
-    # We need the e2ds, the telluric corrected and the reconstructed spectra.
+    # We need the e2ds and the telluric corrected spectra, plus the reconstructed telluric
+    # spectra when available. Without list_recon, Observations.fetch_data() falls back to a
+    # flat (all-ones) telluric correction instead of the real one -- passing it here used to
+    # be commented out unconditionally, which was a real bug for datasets that DO have it (see
+    # Chantier B, B0 analysis). Some DRS formats provide recon as a *separate* list of files
+    # (the usual case); others bundle it as an extension of the tcorr file itself, in which
+    # case fetch_data() picks it up automatically without needing a separate list at all (see
+    # Chantier B, B2 follow-up -- confirmed real for a NIRPS-APERO dataset with no separate
+    # recon files, but a real reconstruction spectrum embedded in every tcorr file). So: pass
+    # list_recon when the separate list file exists, and let fetch_data() sort out the
+    # embedded-vs-missing distinction on its own otherwise.
+    obs_dir = Path(config_dict['obs_dir'])
     list_filenames = {'list_e2ds': f'list_e2ds_{visit_name}',
-                    'list_tcorr': f'list_tcorr_{visit_name}'} #,
-                    #'list_recon': f'list_tellu_recon{visit_name}'}
+                    'list_tcorr': f'list_tcorr_{visit_name}'}
+    recon_list_path = obs_dir / f'list_recon_{visit_name}'
+    if recon_list_path.exists():
+        list_filenames['list_recon'] = f'list_recon_{visit_name}'
+    else:
+        # fetch_data's own list_recon default is the literal string 'list_tellu_recon', not
+        # None -- omitting the kwarg here would still try (and fail) to open that default
+        # filename, instead of actually triggering fetch_data's own "no recon" fallback.
+        list_filenames['list_recon'] = None
+        print(f'No separate {recon_list_path.name} found in {obs_dir} -- will use a telluric '
+              'reconstruction spectrum embedded in the tcorr files if this DRS format '
+              'provides one, otherwise proceed without (flat/no-op telluric correction).')
 
     # check if any planet attributes were manually specified
-    if bool(config_dict['pl_params']): 
+    if bool(config_dict['pl_params']):
         pl_kwargs = pl_param_units(config_dict)
         obs = Observations(name=config_dict['pl_name'], instrument=config_dict['instrument'], pl_kwargs=pl_kwargs)
-    else: 
+    else:
         obs = Observations(name=config_dict['pl_name'], instrument=config_dict['instrument'])
 
     p = obs.planet
@@ -147,32 +199,51 @@ def load_planet(config_dict, visit_name):
     p.sync_equat_rot_speed = (2*np.pi*p.R_pl/p.period).to(u.km/u.s)
 
     # Get the data
-    obs.fetch_data(config_dict['obs_dir'], **list_filenames, CADC = False)
+    obs.fetch_data(config_dict['obs_dir'], **list_filenames)
 
-    # new_mask = obs.count.mask | (obs.count < 400.)
-    # obs.flux = np.ma.array(obs.flux, mask=new_mask)
+    # Optional: mask pixels with too little signal (e.g. detector edges/orders that should
+    # already have been masked upstream in the DRS reduction, but sometimes aren't).
+    # config_dict['minimum_signal'] = None (default) disables this entirely.
+    minimum_signal = config_dict.get('minimum_signal')
+    if minimum_signal is not None:
+        new_mask = obs.count.mask | (obs.count < minimum_signal)
+        obs.flux = np.ma.array(obs.flux, mask=new_mask)
+
     return p, obs
 
 
-def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
+def build_reduction_params(config_dict, mask_tellu, mask_wings, n_pc):
+    """Build a `transpec.ReductionParams` for one (mask_tellu, mask_wings, n_pc) combination.
 
-    # Parameters for extraction
-    # param_all: Reduction parameters
-    # param_all = [
-    #     telluric fraction to mask (usually varied between 0.2 and 0.5), 
-    #     limits for the wings (usually between 0.9 and 0.98), 
-    #     width of the smoothing kernel for the low pass filter (fixed at 51), 
-    #     useless param, 
-    #     width of the gaussian kernel for low pass filter (fixed at 5),
-    #     nPC to remove (depends on the data, usually between 1 and 8),
-    #     sigma clips params (fixed at 5.0)
-    #     ]
-    # (So I basically only change tellu frac, the wings and nPC)
+    `mask_tellu`, `mask_wings` and `n_pc` are the parameters actually swept in
+    practice (see `config_dict['mask_tellu']`/`['mask_wings']`/`['n_pc']`), passed
+    explicitly since a single reduction run only ever uses one value of each.
+    The remaining "deep" parameters (rarely changed, see `ReductionParams`'
+    docstring) fall back to `ReductionParams`' own defaults unless explicitly
+    overridden under `config_dict['reduction_params']` in the config YAML.
+    """
+    overrides = config_dict.get('reduction_params', {}) or {}
+    return ts.ReductionParams(mask_tellu=mask_tellu, mask_wings=mask_wings, n_pc=n_pc, **overrides)
 
-    params_all=[[mask_tellu, mask_wings, 51, 41, 5, n_pc, 5.0, 5.0, 5.0, 5.0]]
 
+def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet, bad_indexs=None):
+
+    reduction_params = build_reduction_params(config_dict, mask_tellu, mask_wings, n_pc)
+    params_all = [reduction_params]
+
+    # Always use the real systemic radial velocity (not conditional on kind_trans):
+    # confirmed with Antoine that the WASP-33 example notebooks' RVsys=[0.0] just reflects
+    # that WASP-33's real RV_sys happens to be close to zero, not an emission-specific rule.
     RVsys = [planet.RV_sys.value]
-    transit_tags = [None]
+
+    # Real exposure exclusion at reduction time (not just flagged post-hoc in the saved file):
+    # bad_indexs, if given, is dropped from the exposures used to build the reference spectrum
+    # and run the PCA, not only recorded as metadata after the fact.
+    if bad_indexs:
+        all_exposures = np.arange(len(obs.filenames))
+        transit_tags = [np.delete(all_exposures, bad_indexs)]
+    else:
+        transit_tags = [None]
 
     kwargs_gen_tr = {
     'coeffs' : config_dict['coeffs'],
@@ -189,7 +260,11 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
     'unberv_it' : config_dict['unberv_it'],
     }
 
-    # Extract the planetary signal
+    # Extract the planetary signal.
+    # config_dict['iout_all']: which exposures build the reference spectrum ("master-out").
+    # 'all' (default) = every exposure (planetary signal negligible + diluted by its own motion,
+    # so this improves the reference spectrum's S/N). null/None = the real out-of-transit/eclipse
+    # exposures computed from the orbit.
     list_tr = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, config_dict['iout_all'], counting = False,
                                         **kwargs_gen_tr, **kwargs_build_ts)
 
@@ -197,13 +272,18 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet):
 
 
 def save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs=[]):
-    # Save sequence with only the info needed for a retrieval (to compute log likelihood).
+    """Save the reduced sequence as two files: one heavy diagnostic file with every
+    intermediate reduction step, and one light file with only what a retrieval needs.
+    (Previously both files were saved with `save_all=True`, making the "light" retrieval
+    file just as heavy as the diagnostic one — a leftover `# QUICK FIX` bug.)
+    """
+    # Full diagnostic file: every intermediate step, for inspecting/debugging the reduction.
     out_filename = f'retrieval_input' + nametag
     pl_obs.save_single_sequences(out_filename, list_tr['1'], path=scratch_dir, save_all=True, bad_indexs = bad_indexs)
 
-    # QUICK FIX - SHOULD FIX FILE NAMING PROPERLY LATER
-    pl_obs.save_sequences(f'retrieval_inputs' + nametag, list_tr, [1], path=scratch_dir, bad_indexs=bad_indexs, save_all=True)
-    
+    # Light retrieval file: only what's needed to compute a log-likelihood.
+    pl_obs.save_sequences(f'retrieval_inputs' + nametag, list_tr, [1], path=scratch_dir, bad_indexs=bad_indexs, save_all=False)
+
 
 def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag): 
     visit_list = [list_tr]  # You could put multiple visits in the same figure
@@ -221,6 +301,15 @@ def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag):
 def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu, mask_wings, visit_name, plot = True, saved = False):
 
     nametag = f'_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+
+    # Exposures to exclude for this visit, if any (was `config_dict['bad_indexs']['visit_name']` —
+    # the literal string 'visit_name' instead of the variable, which raised a KeyError on any real
+    # config). Computed before building the transit spectrum so exclusion is applied to the
+    # reduction itself (reference spectrum, PCA), not just flagged in the saved file afterwards.
+    bad_indexs = config_dict['bad_indexs'].get(visit_name, []) if config_dict['bad_indexs'] else []
+    if bad_indexs:
+        print('Masking exposure(s) at index(s) ', bad_indexs)
+
     # check if reduction already exists
     if os.path.exists(scratch_dir / f'retrieval_input{nametag}_data_trs_.npz'):
         saved = True
@@ -229,17 +318,9 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu
                           load_all=True, filename_end='', planet=planet, plot = False)
 
     else: # building the transit spectrum
-        list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet)
+        list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet, bad_indexs=bad_indexs)
         transit = list_tr['1']
 
-    # saving the transit spectrum
-
-    if config_dict['bad_indexs']:
-        bad_indexs = config_dict['bad_indexs']['visit_name']
-        print('Masking exposure(s) at index(s) ', bad_indexs)
-
-    else: bad_indexs = []
-    
     if saved == False:
         save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs)
 

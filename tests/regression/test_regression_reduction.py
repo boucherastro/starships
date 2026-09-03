@@ -157,6 +157,90 @@ class TestReductionPipeline:
         return self._cache[ds_name]
 
 
+class TestPipelineReductionEntryPoint:
+    """Same non-regression check as `TestReductionPipeline`, but exercising the actual
+    `pipeline.reduction` entry-point functions (`load_planet`, `build_trans_spec`,
+    `build_reduction_params`) instead of re-implementing the notebook code path inline.
+
+    This is the path Chantier B's B1 sub-phase changed (named `ReductionParams` instead of
+    a positional list, `list_recon` loading, real per-exposure exclusion, etc.) — the other
+    tests in this module never actually call `pipeline/reduction.py`, so they wouldn't catch
+    a regression introduced there.
+    """
+
+    _cache: dict = {}
+
+    @requires_reduction_data
+    @pytest.mark.parametrize("ds_name", _reduction_dataset_names())
+    def test_final_spectrum_unchanged(self, reduction_config, ds_name):
+        transit, golden = self._reduce_and_load_golden(reduction_config, ds_name)
+        for key in ('final', 'mask_final', 'noise', 'mask_noise'):
+            if key not in golden.files:
+                pytest.skip(f"[{ds_name}] '{key}' absent from golden NPZ")
+
+        mask_final = transit.final.mask | golden['mask_final'].astype(bool)
+        mask_noise = np.asarray(transit.noise.mask) | golden['mask_noise'].astype(bool)
+        valid = ~(mask_final | mask_noise)
+
+        diff = np.abs(transit.final.data[valid] - golden['final'][valid])
+        noise_ref = golden['noise'][valid]
+        diff_over_noise = diff / np.where(noise_ref > 0, noise_ref, np.nan)
+
+        max_frac = float(np.nanmax(diff_over_noise))
+        assert max_frac < _FINAL_NOISE_THRESHOLD, (
+            f"[{ds_name}] max |Δfinal|/noise = {max_frac:.4e} exceeds threshold "
+            f"{_FINAL_NOISE_THRESHOLD:.0%} (pipeline.reduction entry point)"
+        )
+
+    def _reduce_and_load_golden(self, reduction_config, ds_name):
+        if ds_name not in self._cache:
+            self._cache[ds_name] = _run_reduction_via_pipeline(reduction_config, ds_name)
+        return self._cache[ds_name]
+
+
+def _run_reduction_via_pipeline(reduction_config, ds_name):
+    """Re-run the reduction through the real `pipeline.reduction` entry point and return
+    (transit, golden_data)."""
+    import yaml as _yaml
+    import pipeline.reduction as red
+
+    ds_cfg = reduction_config['reduction_datasets'][ds_name]
+
+    pipeline_cfg_path = Path(ds_cfg['pipeline_config']).expanduser()
+    if not pipeline_cfg_path.exists():
+        pytest.skip(f"Pipeline config not found: {pipeline_cfg_path}")
+    with open(pipeline_cfg_path) as f:
+        config_dict = _yaml.safe_load(f)
+
+    obs_dir = Path(config_dict.get('obs_dir', '')).expanduser()
+    if not obs_dir.exists():
+        pytest.skip(f"Raw data directory not found: {obs_dir}")
+
+    golden_path = Path(ds_cfg['golden_npz']).expanduser()
+    if not golden_path.exists():
+        pytest.skip(f"Golden NPZ not found: {golden_path}")
+
+    visit_name = ds_cfg['visit_name']
+    config_dict['obs_dir'] = obs_dir  # Path, matching known-working usage in _run_reduction()
+
+    print(f"\n  [{ds_name}] pipeline.reduction.load_planet ...")
+    planet, obs = red.load_planet(config_dict, visit_name)
+
+    n_pc       = ds_cfg['n_pc']
+    mask_tellu = ds_cfg['mask_tellu']
+    mask_wings = ds_cfg['mask_wings']
+    bad_indexs = config_dict['bad_indexs'].get(visit_name, []) if config_dict['bad_indexs'] else []
+
+    print(f"  [{ds_name}] pipeline.reduction.build_trans_spec "
+          f"(n_pc={n_pc}, mask_tellu={mask_tellu}, mask_wings={mask_wings}) ...")
+    list_tr = red.build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet,
+                                    bad_indexs=bad_indexs)
+    transit = list_tr['1']
+
+    golden = np.load(golden_path, allow_pickle=True)
+    return transit, golden
+
+
 # ---------------------------------------------------------------------------
 # Reduction runner (module-level so it can be used standalone)
 # ---------------------------------------------------------------------------
@@ -192,7 +276,11 @@ def _run_reduction(reduction_config, ds_name):
     # Build planet kwargs from config (skip null values, same as retrieval.py)
     pl_kwargs = pl_param_units(config_dict) if config_dict.get('pl_params') else {}
 
-    # Create Observations and load raw data (notebook code path: CADC=False by default)
+    # Create Observations and load raw data (notebook code path). Which raw-file format to
+    # expect (external blaze/wave calibration files vs. bundled/embedded extensions) is
+    # entirely determined by `instrument` now (Chantier B, B2 follow-up) -- use e.g.
+    # instrument: 'SPIRou-APERO-CADC'/'NIRPS-APERO-CADC' in the dataset's pipeline config for
+    # the bundled format, instead of a separate cadc flag/fetch_data(CADC=...) here.
     visit_name = ds_cfg['visit_name']
     list_filenames = {
         'list_e2ds':  f'list_e2ds_{visit_name}',
@@ -201,10 +289,9 @@ def _run_reduction(reduction_config, ds_name):
     }
 
     instrument = config_dict.get('instrument', 'SPIRou-APERO')
-    cadc = ds_cfg.get('cadc', False)
-    print(f"\n  [{ds_name}] Loading raw data from {obs_dir} (visit: {visit_name}, instrument: {instrument}, cadc: {cadc}) ...")
+    print(f"\n  [{ds_name}] Loading raw data from {obs_dir} (visit: {visit_name}, instrument: {instrument}) ...")
     obs = Observations(name=config_dict['pl_name'], instrument=instrument, pl_kwargs=pl_kwargs)
-    obs.fetch_data(obs_dir, CADC=cadc, **list_filenames)
+    obs.fetch_data(obs_dir, **list_filenames)
     obs.n_spec = len(obs.filenames)  # not set automatically by fetch_data
 
     # All exposures; remove bad ones if specified in config

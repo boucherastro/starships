@@ -41,7 +41,10 @@ reduction_datasets:
   #   n_pc: 5
   #   mask_tellu: 0.3
   #   mask_wings: 0.95
-  #   cadc: true   # set to true for CADC-format multi-extension FITS (NIRPS-APERO)
+  #   # For bundled/embedded-extension multi-extension FITS (e.g. some NIRPS-APERO datasets),
+  #   # set `instrument: NIRPS-APERO-CADC` in pipeline_config instead of a separate flag here
+  #   # -- starships.planet_obs.read_all_sp_nirps_apero also auto-detects this format on its
+  #   # own for the default 'NIRPS-APERO' profile, so this is usually not even needed.
 
 
 # =============================================================================
