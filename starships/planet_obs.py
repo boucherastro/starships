@@ -1039,6 +1039,19 @@ class Planet():
         else:
             self.t_peri = self.t_peri * u.d
 
+        self.all_params = parametres
+        self.apply_overrides(**kwargs)
+
+    def apply_overrides(self, **kwargs):
+        """Override planet attributes in place (e.g. `mid_tr=...`) and recompute every
+        derived quantity that depends on them.
+
+        Used both by `__init__` (config-wide `pl_kwargs`, e.g. `retrieval.py`'s `pl_params`)
+        and, since B3 (Chantier B), by `load_reduced_sequence` to restore a *per-visit*
+        override saved at reduction time (e.g. `mid_tr` for TTV/resonant systems, where the
+        transit epoch genuinely differs from one visit to the next) on top of a shared base
+        `Planet` -- see `save_reduced_sequence`'s `planet_overrides`.
+        """
         for key in list(kwargs.keys()):
             new_value = kwargs[key]
             old_value = getattr(self,key)
@@ -1066,11 +1079,9 @@ class Planet():
         # # - Paramètres atmosphériques approximatifs
         self.mu = 2.3 * const.u
         self.H = (const.k_B * self.Tp / (self.mu * self.gp)).decompose()
-        self.all_params = parametres
         self.sync_equat_rot_speed = (2*np.pi*self.R_pl/self.period).to(u.km/u.s)
 
-        
-        
+
 from astropy.io import ascii
 
 
@@ -1275,153 +1286,141 @@ def split_transits(obs_obj, transit_tag, mid_idx,
 
 
 
-def save_single_sequences(filename, tr, path='',
-                          save_all=False, filename_end='', bad_indexs=None):
+def save_reduced_sequence(filename, tr, path='', filename_end='', bad_indexs=None):
+    """Save one reduced visit to a single ``.npz`` file (B3, Chantier B).
 
+    Only saves what is independent of `n_pc` -- the fitted PCA (`tr.pca`, fit once on
+    `spec_trans` at reduction time) and every product upstream of the PCA truncation step
+    (`spec_trans`, `fl_Sref`, `fl_masked`, `fl_norm`, `fl_norm_mo`, `mast_out`/reference
+    spectrum, `recon_time`) -- plus `noise`, itself now fixed at a `noise_npc` independent of
+    the science `n_pc` (see `gen_obs_sequence`). Everything that depends on `n_pc`
+    (`final`/`clean_ts`/`ts_norm`/`rebuilt`/`reconstructed`/`N`) is deliberately *not* saved:
+    `load_reduced_sequence` recomputes it cheaply for whatever `n_pc` is requested at read
+    time, from `spec_trans` and the already-fitted `pca` (`apply_pca_truncation`, no refit).
+
+    This replaces the old `save_single_sequences`/`save_sequences` pair (one "diagnostic"
+    file with every intermediate + one "light retrieval" file without them) -- since nothing
+    n_pc-dependent is saved anymore, that distinction no longer applies: there is only one
+    file per visit now.
+
+    Also saves any per-visit planet parameter override actually used at reduction time
+    (`tr.planet.reduction_overrides`, set by `pipeline.reduction.load_planet` -- e.g. `mid_tr`
+    for a TTV/resonant system where the transit epoch genuinely differs per visit), so
+    `load_reduced_sequence` can restore the same per-visit ephemeris later instead of losing
+    it as soon as the file is loaded again.
+
+    Parameters
+    ----------
+    filename : str or Path
+        Base name for the output file (`{filename}_data_trs_{filename_end}.npz`).
+    tr : Observations
+        The reduced visit, after `Observations.build_trans_spec` has run.
+    path : str or Path, optional
+        Output directory.
+    filename_end : str, optional
+        Suffix inserted before `.npz`, e.g. a transit index when saving several visits
+        (see `save_sequences`).
+    bad_indexs : list, optional
+        Exposure indices flagged as excluded for this visit. Defaults to an empty list.
+    """
     filename = Path(filename)
     path = Path(path)
-    out_filename = Path(f'{filename.name}_data_trs_{filename_end}.npz')
-    out_filename = path / out_filename
+    out_filename = path / Path(f'{filename.name}_data_trs_{filename_end}.npz')
 
     if bad_indexs is None:
         bad_indexs = []
+
+    # Per-visit planet parameter overrides actually used at reduction time (e.g. `mid_tr` for
+    # a TTV/resonant system, see `pipeline.reduction.load_planet`), if any -- saved so
+    # `load_reduced_sequence` can restore the *same* per-visit ephemeris later, instead of
+    # this visit-specific choice being silently lost as soon as the file is loaded again.
+    overrides = getattr(tr.planet, 'reduction_overrides', {}) or {}
+    override_keys = np.array(list(overrides.keys()), dtype=str)
+    # Not every override is a Quantity (e.g. `pl_param_units`/`convert_to_quantity` gives a
+    # bare float for `unit: null` in the config, like `excent`) -- an empty unit string is the
+    # sentinel for "this one was a bare scalar, re-apply it as one" (see load_reduced_sequence).
+    override_values = np.array([
+        float(np.asarray(q.value if isinstance(q, u.Quantity) else q).ravel()[0])
+        for q in overrides.values()
+    ])
+    override_units = np.array(
+        [str(q.unit) if isinstance(q, u.Quantity) else '' for q in overrides.values()], dtype=str)
+
     print(out_filename)
-    if save_all is False:
-        np.savez(out_filename,
-             components_ = tr.pca.components_,
-             explained_variance_ = tr.pca.explained_variance_,
-             explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
-             singular_values_ = tr.pca.singular_values_,
-             mean_ = tr.pca.mean_,
-             n_components_ = tr.pca.n_components_,
-             n_samples_ = tr.pca.n_samples_,
-             noise_variance_ = tr.pca.noise_variance_,
-             n_features_in_ = tr.pca.n_features_in_,
-             RV_const = tr.RV_const,
-             params = tr.params,
-             wave = tr.wave,
-             # vrp = tr.vrp,
-             sep = tr.sep,
-             noise = tr.noise,
-             N = tr.N,
-             t_start = tr.t_start,
-             dt=tr.dt.value,
-             flux = tr.flux,
-             uncorr = tr.uncorr,
-             blaze = tr.blaze,
-             tellu = tr.tellu,
-             # s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
-             mask_flux = (tr.flux).mask,
-             mask_uncorr = (tr.uncorr).mask,
-             mask_blaze = (tr.blaze).mask,
-             mask_tellu = (tr.tellu).mask,
-             mask_noise = (tr.noise).mask,
-             # mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
-             mask_N = (tr.N).mask, 
-             ratio = tr.ratio,
-             reconstructed = tr.reconstructed,
-             mast_out = tr.mast_out,
-             mask_ratio = (tr.ratio).mask,
-             mask_reconstructed = (tr.reconstructed).mask,
-             mask_mast_out = (tr.mast_out).mask,
-             spec_trans = tr.spec_trans,
-             final = tr.final,
-             mask_spec_trans = tr.spec_trans.mask,
-             mask_final = tr.final.mask,
-                 # alpha_frac = tr.alpha_frac,
-             filenames=tr.filenames,
-             icorr = tr.icorr,
-             bad_indexs = bad_indexs,
-             clip_ts = tr.clip_ts,
-             scaling = tr.scaling,
-             phase = tr.phase,
-             SNR = tr.SNR,
-             nu = tr.nu,
-             berv0=tr.berv0,
-             AM=tr.AM,
-             RV_sys = tr.RV_sys,
-             kind_trans = tr.kind_trans,
-             coeffs = tr.coeffs,
-             ld_model = tr.ld_model,
-                 # iIn = tr.iIn,
-                 # iOut = tr.iOut,
-             )
-    else:
-        np.savez(out_filename,
-             components_ = tr.pca.components_,
-             explained_variance_ = tr.pca.explained_variance_,
-             explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
-             singular_values_ = tr.pca.singular_values_,
-             mean_ = tr.pca.mean_,
-             n_components_ = tr.pca.n_components_,
-             n_samples_ = tr.pca.n_samples_,
-             noise_variance_ = tr.pca.noise_variance_,
-             n_features_in_ = tr.pca.n_features_in_,
-             RV_const = tr.RV_const,
-             params = tr.params,
-             wave = tr.wave,
-             # vrp = tr.vrp,
-             sep = tr.sep,
-             noise = tr.noise,
-             N = tr.N,
-             t_start = tr.t_start,
-             dt=tr.dt.value,
-             flux = tr.flux,
-             uncorr = tr.uncorr,
-             blaze = tr.blaze,
-             tellu = tr.tellu,
-             # s2f = np.ma.sum((tr.final/tr.noise)**2, axis=-1),
-             mask_flux = (tr.flux).mask,
-             mask_uncorr = (tr.uncorr).mask,
-             mask_blaze = (tr.blaze).mask,
-             mask_tellu = (tr.tellu).mask,
-             mask_noise = (tr.noise).mask,
-             # mask_s2f = (np.ma.sum((tr.final/tr.noise)**2, axis=-1)).mask,
-             mask_N = (tr.N).mask, 
-             ratio = tr.ratio,
-             reconstructed = tr.reconstructed,
-             mast_out = tr.mast_out,
-             mask_ratio = (tr.ratio).mask,
-             mask_reconstructed = (tr.reconstructed).mask,
-             mask_mast_out = (tr.mast_out).mask, 
-             spec_trans = tr.spec_trans,
-             final = tr.final,
-             mask_spec_trans = tr.spec_trans.mask,
-             mask_final = tr.final.mask,
-                 # alpha_frac = tr.alpha_frac,
-             filenames = tr.filenames,
-             icorr = tr.icorr,
-             bad_indexs = bad_indexs,
-             clip_ts = tr.clip_ts,
-             scaling = tr.scaling,
-             phase = tr.phase,
-             berv0=tr.berv0,
-             AM=tr.AM,
-             RV_sys=tr.RV_sys,
-             kind_trans = tr.kind_trans,
-             coeffs = tr.coeffs,
-             ld_model = tr.ld_model,
-                 # iIn = tr.iIn,
-                 # iOut = tr.iOut,
-             SNR = tr.SNR,
-             nu = tr.nu,
-             fl_norm = tr.fl_norm,
-             fl_norm_mo = tr.fl_norm_mo,
-             full_ts = tr.full_ts,
-             ts_norm = tr.ts_norm,
-             rebuilt = tr.rebuilt,
-             fl_Sref = tr.fl_Sref,
-             fl_masked = tr.fl_masked,
-             recon_time = tr.recon_time,
-             mask_fl_norm = tr.fl_norm.mask,
-             mask_fl_norm_mo = tr.fl_norm_mo.mask,
-             mask_full_ts = tr.full_ts.mask,
-             mask_ts_norm = tr.ts_norm.mask,
-             mask_rebuilt = tr.rebuilt.mask,
-             mask_fl_Sref = tr.fl_Sref.mask,
-             mask_fl_masked = tr.fl_masked.mask,
-             mask_recon_time = tr.recon_time.mask,
-             )
+    np.savez(out_filename,
+         planet_override_keys = override_keys,
+         planet_override_values = override_values,
+         planet_override_units = override_units,
+         components_ = tr.pca.components_,
+         explained_variance_ = tr.pca.explained_variance_,
+         explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
+         singular_values_ = tr.pca.singular_values_,
+         mean_ = tr.pca.mean_,
+         n_components_ = tr.pca.n_components_,
+         n_samples_ = tr.pca.n_samples_,
+         noise_variance_ = tr.pca.noise_variance_,
+         n_features_in_ = tr.pca.n_features_in_,
+         RV_const = tr.RV_const,
+         # Individual components of RV_const, kept separately for traceability
+         # (RV_const = mid_berv + mid_vr + RV_sys, see Transit.norv_sequence()).
+         RV_sys = tr.RV_sys,
+         mid_berv = tr.mid_berv,
+         mid_vr = tr.mid_vr,
+         params = tr.params,
+         # Fixed n_pc used to estimate `noise` (B3, `noise_npc` in `gen_obs_sequence`) --
+         # saved explicitly so a reduced file is self-documenting about what its `noise`
+         # corresponds to, independently of whatever `n_pc` is requested at read time.
+         noise_npc = tr.noise_npc,
+         wave = tr.wave,
+         # `vrp`/`vr` are NOT saved here: they are purely a deterministic function of the
+         # planet's ephemeris + exposure timestamps (`gen_rv_sequence`, `K=None`), recomputed
+         # identically by `load_reduced_sequence` from `planet`/`t_start` -- saving them would
+         # just be dead weight in the file (confirmed: the old loader never read them back
+         # either, `Observations.norv_sequence` overwrites whatever was set beforehand).
+         sep = tr.sep,
+         noise = tr.noise,
+         t_start = tr.t_start,
+         dt = tr.dt.value,
+         flux = tr.flux,
+         uncorr = tr.uncorr,
+         blaze = tr.blaze,
+         tellu = tr.tellu,
+         mask_flux = (tr.flux).mask,
+         mask_uncorr = (tr.uncorr).mask,
+         mask_blaze = (tr.blaze).mask,
+         mask_tellu = (tr.tellu).mask,
+         mask_noise = (tr.noise).mask,
+         ratio = tr.ratio,
+         mast_out = tr.mast_out,
+         mask_ratio = (tr.ratio).mask,
+         mask_mast_out = (tr.mast_out).mask,
+         spec_trans = tr.spec_trans,
+         mask_spec_trans = tr.spec_trans.mask,
+         alpha_frac = tr.alpha_frac,
+         filenames = tr.filenames,
+         icorr = tr.icorr,
+         bad_indexs = bad_indexs,
+         clip_ts = tr.clip_ts,
+         scaling = tr.scaling,
+         phase = tr.phase,
+         SNR = tr.SNR,
+         nu = tr.nu,
+         berv0 = tr.berv0,
+         AM = tr.AM,
+         kind_trans = tr.kind_trans,
+         coeffs = tr.coeffs,
+         ld_model = tr.ld_model,
+         fl_norm = tr.fl_norm,
+         fl_norm_mo = tr.fl_norm_mo,
+         fl_Sref = tr.fl_Sref,
+         fl_masked = tr.fl_masked,
+         recon_time = tr.recon_time,
+         mask_fl_norm = tr.fl_norm.mask,
+         mask_fl_norm_mo = tr.fl_norm_mo.mask,
+         mask_fl_Sref = tr.fl_Sref.mask,
+         mask_fl_masked = tr.fl_masked.mask,
+         mask_recon_time = tr.recon_time.mask,
+         )
 
 
 
@@ -1451,10 +1450,47 @@ def save_single_sequences(filename, tr, path='',
 #     return data_trs
 
 
-def load_single_sequences(filename, name, path='',
-                          load_all=False, filename_end='', plot=True, **kwargs):
-    #     data_trs[filename_end] = {}
+def load_reduced_sequence(filename, n_pc, name='', path='', filename_end='', plot=False, **kwargs):
+    """Load one visit saved by `save_reduced_sequence` and apply `n_pc` at read time (B3).
 
+    Every n_pc-*independent* product is read straight from disk (`spec_trans`, `fl_Sref`,
+    `fl_masked`, `fl_norm`, `mast_out`/reference spectrum, the fitted `pca`, `noise` fixed at
+    the file's own `noise_npc`). Everything that depends on `n_pc` (`final`, `clean_ts`,
+    `ts_norm`, `rebuilt`, `N`, `reconstructed`) is then recomputed for the requested `n_pc` by
+    truncating the already-fitted PCA (`Observations.build_trans_spec` reusing `pca=tr.pca`,
+    same reuse pattern as `gen_obs_sequence`'s `noise_npc` branch) -- no refit, and
+    numerically identical to the old behaviour of loading a separate file saved per `n_pc`
+    (see `apply_pca_truncation` / `tests/unit/test_pca_truncation.py`).
+
+    Also restores any per-visit planet parameter override saved by `save_reduced_sequence`
+    (`planet_override_*`, e.g. `mid_tr` for a TTV/resonant system) on top of whichever base
+    planet is used -- applied to a private copy if a shared `planet=` was passed in (so
+    loading several visits with a shared planet, as `retrieval.py` does, can't leak one
+    visit's override into another's), or merged into `pl_kwargs` if building a fresh one.
+
+    Parameters
+    ----------
+    filename : str or Path
+        Base name of the file to load (as passed to `save_reduced_sequence`).
+    n_pc : int
+        Number of PCA components to remove, applied at read time.
+    name : str, optional
+        Name for the resulting `Observations` (e.g. the planet name).
+    path : str or Path, optional
+        Input directory.
+    filename_end : str, optional
+        Suffix inserted before `.npz` (see `save_reduced_sequence`).
+    plot : bool, optional
+        Passed through to `gen_transit_model` (light-curve model diagnostic plot).
+    **kwargs
+        Passed through to the `Observations` constructor (e.g. `planet=`, `pl_kwargs=`,
+        `instrument=`) -- `planet`/`pl_kwargs` are intercepted first to merge in this file's
+        own saved per-visit override, if any (see above).
+
+    Returns
+    -------
+    Observations
+    """
     filename = Path(filename)
     path = Path(path)
 
@@ -1472,108 +1508,91 @@ def load_single_sequences(filename, name, path='',
     pca.singular_values_ = data_tr['singular_values_']
     pca.mean_ = data_tr['mean_']
     pca.n_components_ = data_tr['n_components_']
-    # pca.n_features_ = data_tr['n_features_']
     pca.n_samples_ = data_tr['n_samples_']
     pca.noise_variance_ = data_tr['noise_variance_']
     pca.n_features_in_ = data_tr['n_features_in_']
 
-    tr = Observations(
-        wave=data_tr['wave'],
-        name=name,
-        **kwargs
-    )
+    # Restore any per-visit planet parameter override saved at reduction time (B3 -- TTV/
+    # resonant systems, e.g. Mathis's TRAPPIST-1 retrieval, where `mid_tr` genuinely differs
+    # per visit; see `save_reduced_sequence`/`pipeline.reduction.load_planet`).
+    override_keys = data_tr['planet_override_keys']
+    if override_keys.size:
+        planet_overrides = {}
+        for key, value, unit in zip(
+                override_keys, data_tr['planet_override_values'], data_tr['planet_override_units']):
+            unit = str(unit)
+            # Empty unit = this override was a bare scalar at reduction time, not a Quantity
+            # (see save_reduced_sequence) -- restore it the same way.
+            planet_overrides[str(key)] = float(value) if unit == '' else float(value) * u.Unit(unit)
+    else:
+        planet_overrides = {}
+
+    base_planet = kwargs.pop('planet', None)
+    pl_kwargs_ctor = kwargs.pop('pl_kwargs', None)
+    if base_planet is not None:
+        if planet_overrides:
+            # Don't mutate a shared planet object (e.g. retrieval.py's single `planet` reused
+            # across every visit) -- apply this visit's override to a private copy instead.
+            base_planet = deepcopy(base_planet)
+            base_planet.apply_overrides(**planet_overrides)
+        tr = Observations(wave=data_tr['wave'], name=name, planet=base_planet, **kwargs)
+    else:
+        merged_pl_kwargs = dict(pl_kwargs_ctor or {})
+        merged_pl_kwargs.update(planet_overrides)
+        tr = Observations(wave=data_tr['wave'], name=name,
+                           pl_kwargs=merged_pl_kwargs or None, **kwargs)
 
     tr.wv = np.mean(tr.wave, axis=0)
     tr.pca = pca
     tr.RV_const = data_tr['RV_const']
+    tr.mid_berv = data_tr['mid_berv']
+    tr.mid_vr = data_tr['mid_vr']
     tr.params = list(data_tr['params'])
-    for i_param in range(2,6):
+    for i_param in range(2, 6):
         tr.params[i_param] = int(tr.params[i_param])
-    #     tr.vrp = data_tr['vrp']
+    tr.params[5] = n_pc  # the read-time n_pc requested here, may differ from noise_npc below
+    tr.noise_npc = int(data_tr['noise_npc'])
+    # `vrp`/`vr` are not saved (see `save_reduced_sequence`) -- `gen_rv_sequence` below
+    # recomputes them deterministically from `planet`/`t_start`.
     tr.sep = data_tr['sep'] * u.m
     tr.noise = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
-    tr.N = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
 
     tr.t_start = data_tr['t_start']
     tr.t = data_tr['t_start'] * u.d
-    try:
-        tr.dt = data_tr['dt']*u.s
-    except KeyError:
-        print('Did not have dt, using the delta_time instead.')
-        tr.dt = (np.diff(tr.t_start)*u.d).to(u.s)-28*u.s
+    tr.dt = data_tr['dt'] * u.s
     tr.bad = data_tr['bad_indexs']
-    tr.flux = np.ma.array(data_tr['flux'],
-                     mask=data_tr['mask_flux'])
-    #     tr.s2f = np.ma.array(data_tr['s2f'],
-    #                     mask=data_tr['mask_s2f'])
-
-    tr.ratio = np.ma.array(data_tr['ratio'],
-                           mask=data_tr['mask_ratio'])
+    tr.flux = np.ma.array(data_tr['flux'], mask=data_tr['mask_flux'])
+    tr.ratio = np.ma.array(data_tr['ratio'], mask=data_tr['mask_ratio'])
     tr.ratio_recon = True
-    tr.reconstructed = np.ma.array(data_tr['reconstructed'],
-                                   mask=data_tr['mask_reconstructed'])
-    try:
-        tr.uncorr = np.ma.array(data_tr['uncorr'],
-                                   mask=data_tr['mask_uncorr'])
-        tr.N0 = (~np.isnan(tr.uncorr)).sum(axis=-1)
-        tr.N_frac = np.nanmean(tr.N / tr.N0, axis=0).data  # 4088
-        tr.N_frac[np.isnan(tr.N_frac)] = 0
-    except KeyError:
-        print('Did not find Uncorr key.')
-        print('Not computing N0 and N_frac.')
-    try:
-        tr.blaze = np.ma.array(data_tr['blaze'],
-                               mask=data_tr['mask_blaze'])
-    except KeyError:
-        print('Did not find Blaze key.')
-    tr.mast_out = np.ma.array(data_tr['mast_out'],
-                              mask=data_tr['mask_mast_out'])
-    tr.final = np.ma.array(data_tr['final'],
-                           mask=data_tr['mask_final'])
-    tr.spec_trans = np.ma.array(data_tr['spec_trans'],
-                                mask=data_tr['mask_spec_trans'])
-    tr.tellu = np.ma.array(data_tr['tellu'],
-                                mask=data_tr['mask_tellu'])
-        # tr.alpha_frac = data_tr['alpha_frac']
-    try:
-        tr.filenames = data_tr['filenames']
-    except KeyError:
-        print('Did not find Filenames key.')
+    tr.uncorr = np.ma.array(data_tr['uncorr'], mask=data_tr['mask_uncorr'])
+    tr.N0 = (~np.isnan(tr.uncorr)).sum(axis=-1)
+    tr.N0f = (~np.isnan(tr.flux)).sum(axis=-1)
+    tr.blaze = np.ma.array(data_tr['blaze'], mask=data_tr['mask_blaze'])
+    tr.mast_out = np.ma.array(data_tr['mast_out'], mask=data_tr['mask_mast_out'])
+    tr.spec_trans = np.ma.array(data_tr['spec_trans'], mask=data_tr['mask_spec_trans'])
+    tr.tellu = np.ma.array(data_tr['tellu'], mask=data_tr['mask_tellu'])
+    tr.filenames = data_tr['filenames']
 
     tr.clip_ts = data_tr['clip_ts']
     tr.scaling = data_tr['scaling']
 
-    tr.n_spec, tr.nord, tr.npix = tr.final.shape
+    tr.n_spec, tr.nord, tr.npix = tr.spec_trans.shape
     tr.phase = data_tr['phase']
 
     tr.icorr = data_tr['icorr']
-    
-        # tr.iIn = data_tr['iIn']
-        # tr.iOut = data_tr['iOut']
 
     tr.AM = data_tr['AM']
     tr.berv0 = data_tr['berv0']
     tr.berv = data_tr['berv0']
     tr.SNR = data_tr['SNR']
     tr.nu = data_tr['nu']
+    tr.alpha_frac = data_tr['alpha_frac']
 
-    if load_all:
-        tr.fl_norm = np.ma.array(data_tr['fl_norm'],
-                                 mask=data_tr['mask_fl_norm'])
-        tr.fl_norm_mo = np.ma.array(data_tr['fl_norm_mo'],
-                                    mask=data_tr['mask_fl_norm_mo'])
-        tr.full_ts = np.ma.array(data_tr['full_ts'],
-                                 mask=data_tr['mask_full_ts'])
-        tr.ts_norm = np.ma.array(data_tr['ts_norm'],
-                                 mask=data_tr['mask_ts_norm'])
-        tr.rebuilt = np.ma.array(data_tr['rebuilt'],
-                                 mask=data_tr['mask_rebuilt'])
-        tr.fl_Sref = np.ma.array(data_tr['fl_Sref'],
-                                 mask=data_tr['mask_fl_Sref'])
-        tr.fl_masked = np.ma.array(data_tr['fl_masked'],
-                                   mask=data_tr['mask_fl_masked'])
-        tr.recon_time = np.ma.array(data_tr['recon_time'],
-                                    mask=data_tr['mask_recon_time'])
+    tr.fl_norm = np.ma.array(data_tr['fl_norm'], mask=data_tr['mask_fl_norm'])
+    tr.fl_norm_mo = np.ma.array(data_tr['fl_norm_mo'], mask=data_tr['mask_fl_norm_mo'])
+    tr.fl_Sref = np.ma.array(data_tr['fl_Sref'], mask=data_tr['mask_fl_Sref'])
+    tr.fl_masked = np.ma.array(data_tr['fl_masked'], mask=data_tr['mask_fl_masked'])
+    tr.recon_time = np.ma.array(data_tr['recon_time'], mask=data_tr['mask_recon_time'])
 
     # ---- Transit model
     gen_transit_model(tr, tr.planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
@@ -1583,97 +1602,39 @@ def load_single_sequences(filename, name, path='',
 
     tr.norv_sequence(RV=data_tr['RV_sys'])
 
+    # ---- Apply the requested n_pc: cheap PCA truncation only (reuses `tr.pca`, no refit),
+    # fills in final/clean_ts/ts_norm/rebuilt/N/reconstructed for this n_pc. `tr.noise` (set
+    # above, fixed at `noise_npc`) is left untouched (`change_noise` defaults to False).
+    # `clip_ts` must be passed explicitly here (not just stored as `tr.clip_ts`) -- it gates
+    # a sigma-clip of `spec_trans` applied right before the PCA truncation
+    # (`apply_pca_truncation`), so omitting it would silently skip that clip at read time.
+    tr.build_trans_spec(params=tr.params, flux_masked=tr.fl_masked, flux_Sref=tr.fl_Sref,
+                         flux_norm=tr.fl_norm, flux_norm_mo=tr.fl_norm_mo, master_out=tr.mast_out,
+                         spec_trans=tr.spec_trans, pca=tr.pca, mask_var=False, ratio_recon=True,
+                         cont=False, clip_ts=float(tr.clip_ts))
+
     return tr
 
 
 
-def load_single_data_dict(path, filename, load_all=False, filename_end='', data_trs=None):
-    
-    if data_trs is None:
-        data_trs = {}
-    #     flux = []
 
-    data_trs[filename_end] = {}
-
-    data_tr = np.load(path+filename+'_data_trs_'+filename_end+'.npz')
-
-    pca=PCA(data_tr['n_components_'])
-    pca.components_ = data_tr['components_']
-    pca.explained_variance_ = data_tr['explained_variance_']
-    pca.explained_variance_ratio_ = data_tr['explained_variance_ratio_']
-    pca.singular_values_ = data_tr['singular_values_']
-    pca.mean_ = data_tr['mean_']
-    pca.n_components_ = data_tr['n_components_']
-    pca.n_features_ = data_tr['n_features_']
-    pca.n_samples_ = data_tr['n_samples_']
-    pca.noise_variance_ = data_tr['noise_variance_']
-    pca.n_features_in_ = data_tr['n_features_in_']
-
-    data_trs[filename_end]['pca'] = pca
-    data_trs[filename_end]['RV_const'] = data_tr['RV_const']
-    data_trs[filename_end]['params'] = data_tr['params']
-    data_trs[filename_end]['wave'] = data_tr['wave']
-    data_trs[filename_end]['vrp'] = data_tr['vrp']*u.km/u.s
-    data_trs[filename_end]['sep'] = data_tr['sep']*u.m
-    data_trs[filename_end]['noise'] = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
-    data_trs[filename_end]['N'] = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
-    data_trs[filename_end]['t_start'] = data_tr['t_start']
-    data_trs[filename_end]['flux'] = np.ma.array(data_tr['flux'], 
-                                              mask=data_tr['mask_flux'])
-    data_trs[filename_end]['s2f'] = np.ma.array(data_tr['s2f'], 
-                                             mask=data_tr['mask_s2f'])
-    data_trs[filename_end]['ratio'] = np.ma.array(data_tr['ratio'], 
-                                               mask=data_tr['mask_ratio'])
-    data_trs[filename_end]['reconstructed'] = np.ma.array(data_tr['reconstructed'], 
-                                                       mask=data_tr['mask_reconstructed'])
-    data_trs[filename_end]['mast_out'] = np.ma.array(data_tr['mast_out'], 
-                                                  mask=data_tr['mask_mast_out'])
-    data_trs[filename_end]['final'] = np.ma.array(data_tr['final'], 
-                                                  mask=data_tr['mask_final'])
-    data_trs[filename_end]['spec_trans'] = np.ma.array(data_tr['spec_trans'], 
-                                                  mask=data_tr['mask_spec_trans'])
-    data_trs[filename_end]['tellu'] = np.ma.array(data_tr['tellu'],
-                                                       mask=data_tr['mask_tellu'])
-    data_trs[filename_end]['alpha_frac'] = data_tr['alpha_frac']
-    data_trs[filename_end]['icorr'] = data_tr['icorr']
-    data_trs[filename_end]['clip_ts'] = data_tr['clip_ts']
-    data_trs[filename_end]['scaling'] = data_tr['scaling']
-
-    data_trs[filename_end]['phase'] = data_tr['phase']
-    data_trs[filename_end]['iIn'] = data_tr['iIn']
-    data_trs[filename_end]['iOut'] = data_tr['iOut']
-
-    if load_all:
-        data_trs[filename_end]['fl_norm'] = np.ma.array(data_tr['fl_norm'], 
-                                                  mask=data_tr['mask_fl_norm'])
-        data_trs[filename_end]['fl_norm_mo'] = np.ma.array(data_tr['fl_norm_mo'], 
-                                                  mask=data_tr['mask_fl_norm_mo'])
-        data_trs[filename_end]['full_ts'] = np.ma.array(data_tr['full_ts'], 
-                                                  mask=data_tr['mask_full_ts'])
-        data_trs[filename_end]['ts_norm'] = np.ma.array(data_tr['ts_norm'], 
-                                                  mask=data_tr['mask_ts_norm'])
-        data_trs[filename_end]['rebuilt'] = np.ma.array(data_tr['rebuilt'], 
-                                                  mask=data_tr['mask_rebuilt'])
-        data_trs[filename_end]['fl_Sref'] = np.ma.array(data_tr['fl_Sref'], 
-                                                  mask=data_tr['mask_fl_Sref'])
-        data_trs[filename_end]['fl_masked'] = np.ma.array(data_tr['fl_masked'], 
-                                                  mask=data_tr['mask_fl_masked'])
-        data_trs[filename_end]['recon_time'] = np.ma.array(data_tr['recon_time'], 
-                                                  mask=data_tr['mask_recon_time'])
-        
-    return data_trs
-    
-
-def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=False):
-    """Save one ``.npz`` file per transit in `list_tr`, plus a shared `_data_info.npz`.
+def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None):
+    """Save one ``.npz`` file per transit in `list_tr` (B3: `save_reduced_sequence`).
 
     Companion function to `load_sequences`, which reads back the files written here.
+    Multi-transit orchestration only -- what actually goes into each per-transit file is
+    entirely delegated to `save_reduced_sequence` (see its docstring for what's saved: no
+    n_pc-dependent product is saved anymore, so there is only one file per transit, not a
+    "diagnostic" vs "light retrieval" pair as there used to be -- the separate shared
+    `_data_info.npz` this function used to also write is gone too, for the same reason
+    (it duplicated the last transit's `alpha_frac`/`icorr`/`N`, and `N` is n_pc-dependent
+    now; `load_sequences` derives the equivalent `data_info` from the last loaded transit
+    directly instead).
 
     Parameters
     ----------
     filename : str or Path
-        Base name used to build the output file names (`{filename}_data_info.npz`,
-        `{filename}_data_trs_{i}.npz`).
+        Base name used to build the output file names (`{filename}_data_trs_{i}.npz`).
     list_tr : dict
         Transit objects to save, keyed by transit index (as a string).
     do_tr : list or array
@@ -1683,151 +1644,17 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None, save_all=
         Output directory.
     bad_indexs : list, optional
         Exposure indices to flag as bad. Defaults to an empty list.
-    save_all : bool, optional
-        If True, also save the intermediate reduction products (normalized flux,
-        reconstructed telluric/stellar model, etc.), needed for diagnostic plots
-        but not for the retrieval itself.
     """
-
     filename = Path(filename)
-    path = Path(path)
-
-    if bad_indexs is None:
-        bad_indexs = []
-
-    out_filename = Path(f'{filename.name}_data_info.npz')
-    print(path / out_filename)
-    np.savez(path / out_filename,
-             trall_alpha_frac = list_tr[str(do_tr[-1])].alpha_frac,
-             trall_icorr = list_tr[str(do_tr[-1])].icorr,
-             trall_N = list_tr[str(do_tr[-1])].N  ,
-             bad_indexs = bad_indexs
-             )
 
     for i_tr, tr_key in enumerate(list(list_tr.keys())[:np.nonzero(np.array(do_tr) < 10)[0].size]):
-        out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
-        print(path / out_filename)
-        if save_all is False:
-            np.savez(path / out_filename,
-                 components_ = list_tr[tr_key].pca.components_,
-                 explained_variance_ = list_tr[tr_key].pca.explained_variance_,
-                 explained_variance_ratio_ = list_tr[tr_key].pca.explained_variance_ratio_,
-                 singular_values_ = list_tr[tr_key].pca.singular_values_,
-                 mean_ = list_tr[tr_key].pca.mean_,
-                 n_components_ = list_tr[tr_key].pca.n_components_,
-                 n_samples_ = list_tr[tr_key].pca.n_samples_,
-                 noise_variance_ = list_tr[tr_key].pca.noise_variance_,
-                 n_features_in_ = list_tr[tr_key].pca.n_features_in_,
-                 RV_const = list_tr[tr_key].RV_const,
-                 # Individual components of RV_const, kept separately for traceability
-                 # (RV_const = mid_berv + mid_vr + RV_sys, see Transit.norv_sequence()).
-                 RV_sys = list_tr[tr_key].RV_sys,
-                 mid_berv = list_tr[tr_key].mid_berv,
-                 mid_vr = list_tr[tr_key].mid_vr,
-                 params = list_tr[tr_key].params,
-                 wave = list_tr[tr_key].wave,
-                 vrp = list_tr[tr_key].vrp,
-                 # Stellar reflex-motion excursion per exposure (recentered around the
-                 # mid-transit exposure by Transit.norv_sequence(), same convention as vrp) --
-                 # needed to Doppler-shift Fstar independently from Fp (Chantier A Phase 2).
-                 vr = list_tr[tr_key].vr,
-                 sep = list_tr[tr_key].sep,
-                 noise = list_tr[tr_key].noise,
-                 N = list_tr[tr_key].N,
-                 t_start = list_tr[tr_key].t_start, #.value,
-                 flux = list_tr[tr_key].final/list_tr[tr_key].noise,
-                 s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
-                 mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask,
-                 mask_noise = (list_tr[tr_key].noise).mask,
-                 mask_s2f = (np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1)).mask,
-                 mask_N = (list_tr[tr_key].N).mask,
-                 ratio = list_tr[tr_key].ratio,
-                 reconstructed = list_tr[tr_key].reconstructed,
-                 mast_out = list_tr[tr_key].mast_out,
-                 mask_ratio = (list_tr[tr_key].ratio).mask,
-                 mask_reconstructed = (list_tr[tr_key].reconstructed).mask,
-                 mask_mast_out = (list_tr[tr_key].mast_out).mask,
-                 # spec_trans = list_tr[tr_key].spec_trans,
-                 # final=list_tr[tr_key].final,
-                 # mask_spec_trans=list_tr[tr_key].spec_trans.mask,
-                 # mask_final=list_tr[tr_key].final.mask,
-                 alpha_frac=list_tr[tr_key].alpha_frac,
-                 icorr=list_tr[tr_key].icorr,
-                 bad_indexs=bad_indexs,
-                 final = list_tr[tr_key].final,
-                 # clip_ts=list_tr[tr_key].clip_ts,
-                 # scaling=list_tr[tr_key].scaling,
-                 )
-        else:
-            np.savez(path / out_filename,
-                 components_ = list_tr[tr_key].pca.components_,
-                 explained_variance_ = list_tr[tr_key].pca.explained_variance_,
-                 explained_variance_ratio_ = list_tr[tr_key].pca.explained_variance_ratio_,
-                 singular_values_ = list_tr[tr_key].pca.singular_values_,
-                 mean_ = list_tr[tr_key].pca.mean_,
-                 n_components_ = list_tr[tr_key].pca.n_components_,
-                 n_samples_ = list_tr[tr_key].pca.n_samples_,
-                 noise_variance_ = list_tr[tr_key].pca.noise_variance_,
-                 n_features_in_ = list_tr[tr_key].pca.n_features_in_,
-                 RV_const = list_tr[tr_key].RV_const,
-                 # Individual components of RV_const, kept separately for traceability
-                 # (RV_const = mid_berv + mid_vr + RV_sys, see Transit.norv_sequence()).
-                 RV_sys = list_tr[tr_key].RV_sys,
-                 mid_berv = list_tr[tr_key].mid_berv,
-                 mid_vr = list_tr[tr_key].mid_vr,
-                 params = list_tr[tr_key].params,
-                 wave = list_tr[tr_key].wave,
-                 vrp = list_tr[tr_key].vrp,
-                 # Stellar reflex-motion excursion per exposure (recentered around the
-                 # mid-transit exposure by Transit.norv_sequence(), same convention as vrp) --
-                 # needed to Doppler-shift Fstar independently from Fp (Chantier A Phase 2).
-                 vr = list_tr[tr_key].vr,
-                 sep = list_tr[tr_key].sep,
-                 noise = list_tr[tr_key].noise,
-                 N = list_tr[tr_key].N,
-                 t_start = list_tr[tr_key].t_start, #.value,
-                 flux = list_tr[tr_key].final/list_tr[tr_key].noise,
-                 s2f = np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1),
-                 mask_flux = (list_tr[tr_key].final/list_tr[tr_key].noise).mask,
-                 mask_noise = (list_tr[tr_key].noise).mask,
-                 mask_s2f = (np.ma.sum((list_tr[tr_key].final/list_tr[tr_key].noise)**2, axis=-1)).mask,
-                 mask_N = (list_tr[tr_key].N).mask,
-                 ratio = list_tr[tr_key].ratio,
-                 reconstructed = list_tr[tr_key].reconstructed,
-                 mast_out = list_tr[tr_key].mast_out,
-                 mask_ratio = (list_tr[tr_key].ratio).mask,
-                 mask_reconstructed = (list_tr[tr_key].reconstructed).mask,
-                 mask_mast_out = (list_tr[tr_key].mast_out).mask,
-                 spec_trans = list_tr[tr_key].spec_trans,
-                 final = list_tr[tr_key].final,
-                 mask_spec_trans = list_tr[tr_key].spec_trans.mask,
-                 mask_final = list_tr[tr_key].final.mask,
-             alpha_frac = list_tr[tr_key].alpha_frac,
-             icorr = list_tr[tr_key].icorr,
-             clip_ts = list_tr[tr_key].clip_ts,
-             scaling = list_tr[tr_key].scaling,
-                 fl_norm = list_tr[tr_key].fl_norm,
-                 fl_norm_mo = list_tr[tr_key].fl_norm_mo,
-                 full_ts = list_tr[tr_key].full_ts,
-                 ts_norm = list_tr[tr_key].ts_norm,
-                 rebuilt = list_tr[tr_key].rebuilt,
-                 fl_Sref = list_tr[tr_key].fl_Sref,
-                 fl_masked = list_tr[tr_key].fl_masked,
-                 recon_time = list_tr[tr_key].recon_time,
-                 mask_fl_norm = list_tr[tr_key].fl_norm.mask,
-                 mask_fl_norm_mo = list_tr[tr_key].fl_norm_mo.mask,
-                 mask_full_ts = list_tr[tr_key].full_ts.mask,
-                 mask_ts_norm = list_tr[tr_key].ts_norm.mask,
-                 mask_rebuilt = list_tr[tr_key].rebuilt.mask,
-                 mask_fl_Sref = list_tr[tr_key].fl_Sref.mask,
-                 mask_fl_masked = list_tr[tr_key].fl_masked.mask,
-                 mask_recon_time = list_tr[tr_key].recon_time.mask,
-                 bad_indexs=bad_indexs
-                 )
+        save_reduced_sequence(filename, list_tr[tr_key], path=path, filename_end=str(i_tr),
+                               bad_indexs=bad_indexs)
 
         
-def load_sequences(filename, do_tr, path='', load_all=False):
-    """Load the `.npz` files written by `save_sequences` back into plain dicts.
+def load_sequences(filename, do_tr, n_pc, path='', **kwargs):
+    """Load the `.npz` files written by `save_sequences` back into plain dicts, applying
+    `n_pc` at read time (B3, see `load_reduced_sequence`).
 
     Parameters
     ----------
@@ -1836,158 +1663,120 @@ def load_sequences(filename, do_tr, path='', load_all=False):
         to `save_sequences`.
     do_tr : list or array
         Transit indices to load. Indices >= 10 are excluded (see `save_sequences`).
+    n_pc : int
+        Number of PCA components to remove, applied at read time for every transit.
     path : str or Path, optional
         Input directory.
-    load_all : bool, optional
-        If True, also load the intermediate reduction products saved when
-        `save_sequences` was called with `save_all=True`.
+    **kwargs
+        Passed through to `load_reduced_sequence` for every transit -- in particular
+        `planet=` to reuse an already-built `Planet` (e.g. with config `pl_kwargs`
+        overrides, as `retrieval.py` does) instead of a fresh ExoFile lookup by name for
+        every single transit loaded.
 
     Returns
     -------
     data_info : dict
-        Quantities shared across all transits (alpha_frac, icorr, N, bad_indexs).
+        alpha_frac/icorr/N/bad_indexs of the *last* loaded transit -- this used to come from
+        a separate shared `_data_info.npz` file (which just duplicated the last transit's own
+        values); B3 derives it directly instead (see `save_sequences`).
     data_trs : dict
-        One entry per transit index (as a string), each a dict of arrays/PCA object.
-        `RV_sys`/`mid_berv`/`mid_vr` are the individual components of `RV_const`
-        (`RV_const = mid_berv + mid_vr + RV_sys`); they are set to None when reading
-        an older file saved before these were tracked individually. `vr` is the
-        per-exposure stellar reflex-motion excursion (same recentering convention as
-        `vrp`); it is set to None when reading an older file that predates it.
+        One entry per transit index (as a string), each a dict of arrays/PCA object, built
+        from the corresponding `Observations` returned by `load_reduced_sequence`.
     """
-
     filename = Path(filename)
-    path = Path(path)
-
-    if len(do_tr) > 1 :
-        out_filename = Path(f'{filename.name}_data_info.npz')
-        log.info(f'Reading: {path / out_filename}')
-        data_info_file = np.load(path / out_filename)
-        data_info = {}
-
-        data_info['trall_alpha_frac'] = data_info_file['trall_alpha_frac']
-        data_info['trall_icorr'] = data_info_file['trall_icorr']
-        data_info['trall_N'] = data_info_file['trall_N']
-        data_info['bad_indexs'] = data_info_file['bad_indexs']
-
 
     data_trs = {}
-    #     flux = []
+    data_info = {}
 
     for i_tr, tr_key in enumerate(do_tr[:np.nonzero(np.array(do_tr) < 10)[0].size]):
-        data_trs[str(i_tr)] = {}
-
         out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
-        log.info(f'Reading: {path / out_filename}')
-        data_tr = np.load(path / out_filename)
+        log.info(f'Reading: {Path(path) / out_filename}')
+        tr = load_reduced_sequence(out_filename, n_pc, path=path, **kwargs)
 
-        if len(do_tr) <= 1:
-            data_info = {}
-            try:
-                data_info['trall_alpha_frac'] = data_tr['alpha_frac']
-                data_info['trall_icorr'] = data_tr['icorr']
-                data_info['trall_N'] = data_tr['N']
-                data_info['bad_indexs'] = data_tr['bad_indexs']
-            except KeyError:
-                out_filename = Path(f'{filename.name}_data_info.npz')
-                log.info(f'Reading: {path / out_filename}')
-                data_info_file = np.load(path / out_filename)
-                data_info = {}
+        data_trs[str(i_tr)] = {
+            'pca': tr.pca,
+            'RV_const': tr.RV_const,
+            'RV_sys': tr.RV_sys,
+            'mid_berv': tr.mid_berv,
+            'mid_vr': tr.mid_vr,
+            'params': tr.params,
+            'wave': tr.wave,
+            # `tr.vrp`/`tr.vr` are bare floats (km/s) after `Observations.norv_sequence` --
+            # re-attach units here to match what consumers expect (e.g. `data_tr['vr'].to(...)`
+            # in retrieval.py/logl_grid.py), same contract as the pre-B3 dict.
+            'vrp': tr.vrp * u.km / u.s,
+            # Per-exposure stellar reflex-motion excursion (same recentering convention as
+            # vrp) -- needed to Doppler-shift Fstar independently from Fp (Chantier A Phase 2).
+            'vr': tr.vr * u.km / u.s,
+            'sep': tr.sep,
+            'noise': tr.noise,
+            'N': tr.N,
+            't_start': tr.t_start,
+            'flux': tr.final / tr.noise,
+            's2f': np.ma.sum((tr.final / tr.noise) ** 2, axis=-1),
+            'ratio': tr.ratio,
+            'reconstructed': tr.reconstructed,
+            'mast_out': tr.mast_out,
+            'alpha_frac': tr.alpha_frac,
+            'final': tr.final,
+            'spec_trans': tr.spec_trans,
+            'icorr': tr.icorr,
+            'clip_ts': tr.clip_ts,
+            'scaling': tr.scaling,
+            'fl_norm': tr.fl_norm,
+            'fl_norm_mo': tr.fl_norm_mo,
+            'full_ts': tr.full_ts,
+            'ts_norm': tr.ts_norm,
+            'rebuilt': tr.rebuilt,
+            'fl_Sref': tr.fl_Sref,
+            'fl_masked': tr.fl_masked,
+            'recon_time': tr.recon_time,
+        }
 
-                data_info['trall_alpha_frac'] = data_info_file['trall_alpha_frac']
-                data_info['trall_icorr'] = data_info_file['trall_icorr']
-                data_info['trall_N'] = data_info_file['trall_N']
-                data_info['bad_indexs'] = data_info_file['bad_indexs']
+        data_info = {
+            'trall_alpha_frac': tr.alpha_frac,
+            'trall_icorr': tr.icorr,
+            'trall_N': tr.N,
+            'bad_indexs': tr.bad,
+        }
 
-        pca=PCA(data_tr['n_components_'])
-        pca.components_ = data_tr['components_']
-        pca.explained_variance_ = data_tr['explained_variance_']
-        pca.explained_variance_ratio_ = data_tr['explained_variance_ratio_']
-        pca.singular_values_ = data_tr['singular_values_']
-        pca.mean_ = data_tr['mean_']
-        pca.n_components_ = data_tr['n_components_']
-        # pca.n_features_ = data_tr['n_features_']
-        pca.n_samples_ = data_tr['n_samples_']
-        pca.noise_variance_ = data_tr['noise_variance_']
-        pca.n_features_in_ = data_tr['n_features_in_']
-
-        data_trs[str(i_tr)]['pca'] = pca
-        data_trs[str(i_tr)]['RV_const'] = data_tr['RV_const']
-        # RV_sys/mid_berv/mid_vr were added later than RV_const (their sum) — fall back to
-        # None for older .npz files that don't have them, instead of raising a KeyError.
-        try:
-            data_trs[str(i_tr)]['RV_sys'] = data_tr['RV_sys']
-            data_trs[str(i_tr)]['mid_berv'] = data_tr['mid_berv']
-            data_trs[str(i_tr)]['mid_vr'] = data_tr['mid_vr']
-        except KeyError:
-            log.info(f"RV_sys/mid_berv/mid_vr not found in {out_filename.name} (older save format). "
-                     "Only the combined RV_const is available for this transit.")
-            data_trs[str(i_tr)]['RV_sys'] = None
-            data_trs[str(i_tr)]['mid_berv'] = None
-            data_trs[str(i_tr)]['mid_vr'] = None
-        data_trs[str(i_tr)]['params'] = data_tr['params']
-        data_trs[str(i_tr)]['wave'] = data_tr['wave']
-        data_trs[str(i_tr)]['vrp'] = data_tr['vrp']*u.km/u.s
-        # Per-exposure stellar reflex-motion excursion (Chantier A Phase 2), added later than
-        # vrp -- fall back to None for older .npz files that don't have it.
-        try:
-            data_trs[str(i_tr)]['vr'] = data_tr['vr']*u.km/u.s
-        except KeyError:
-            log.info(f"vr not found in {out_filename.name} (older save format). "
-                     "Per-exposure stellar RV is unavailable for this transit.")
-            data_trs[str(i_tr)]['vr'] = None
-        data_trs[str(i_tr)]['sep'] = data_tr['sep']*u.m
-        data_trs[str(i_tr)]['noise'] = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
-        data_trs[str(i_tr)]['N'] = np.ma.array(data_tr['N'], mask=data_tr['mask_N'])
-        data_trs[str(i_tr)]['t_start'] = data_tr['t_start']
-        data_trs[str(i_tr)]['flux'] = np.ma.array(data_tr['flux'], 
-                                                  mask=data_tr['mask_flux'])
-        data_trs[str(i_tr)]['s2f'] = np.ma.array(data_tr['s2f'], 
-                                                 mask=data_tr['mask_s2f'])
-        data_trs[str(i_tr)]['ratio'] = np.ma.array(data_tr['ratio'], 
-                                                   mask=data_tr['mask_ratio'])
-        data_trs[str(i_tr)]['reconstructed'] = np.ma.array(data_tr['reconstructed'], 
-                                                           mask=data_tr['mask_reconstructed'])
-        data_trs[str(i_tr)]['mast_out'] = np.ma.array(data_tr['mast_out'],
-                                                      mask=data_tr['mask_mast_out'])
-        # alpha_frac (per-exposure eclipse/transit light-curve fraction, Chantier A Phase 2) is
-        # saved unconditionally by save_sequences() (both save_all branches) -- load it
-        # unconditionally too, instead of gating it behind load_all like the diagnostic-only
-        # reduction products below.
-        data_trs[str(i_tr)]['alpha_frac'] = data_tr['alpha_frac']
-
-        if load_all:
-            data_trs[str(i_tr)]['final'] = np.ma.array(data_tr['final'],
-                                                       mask=data_tr['mask_final'])
-            data_trs[str(i_tr)]['spec_trans'] = np.ma.array(data_tr['spec_trans'],
-                                                            mask=data_tr['mask_spec_trans'])
-            data_trs[str(i_tr)]['icorr'] = data_tr['icorr']
-            data_trs[str(i_tr)]['clip_ts'] = data_tr['clip_ts']
-            data_trs[str(i_tr)]['scaling'] = data_tr['scaling']
-
-            data_trs[str(i_tr)]['fl_norm'] = np.ma.array(data_tr['fl_norm'], 
-                                                      mask=data_tr['mask_fl_norm'])
-            data_trs[str(i_tr)]['fl_norm_mo'] = np.ma.array(data_tr['fl_norm_mo'], 
-                                                      mask=data_tr['mask_fl_norm_mo'])
-            data_trs[str(i_tr)]['full_ts'] = np.ma.array(data_tr['full_ts'], 
-                                                      mask=data_tr['mask_full_ts'])
-            data_trs[str(i_tr)]['ts_norm'] = np.ma.array(data_tr['ts_norm'], 
-                                                      mask=data_tr['mask_ts_norm'])
-            data_trs[str(i_tr)]['rebuilt'] = np.ma.array(data_tr['rebuilt'], 
-                                                      mask=data_tr['mask_rebuilt'])
-            data_trs[str(i_tr)]['fl_Sref'] = np.ma.array(data_tr['fl_Sref'], 
-                                                      mask=data_tr['mask_fl_Sref'])
-            data_trs[str(i_tr)]['fl_masked'] = np.ma.array(data_tr['fl_masked'], 
-                                                      mask=data_tr['mask_fl_masked'])
-            data_trs[str(i_tr)]['recon_time'] = np.ma.array(data_tr['recon_time'], 
-                                                      mask=data_tr['mask_recon_time'])
-        
     return data_info, data_trs
 
 
 
 def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
-                     coeffs, ld_model, kind_trans, RV_sys, polynome=None, 
-                     ratio_recon=False, cont=False, cbp=True, noise_npc=None, counting = True, **kwargs_build_ts):
+                     coeffs, ld_model, kind_trans, RV_sys, polynome=None,
+                     ratio_recon=False, cont=False, cbp=True, noise_npc=2, counting = True, **kwargs_build_ts):
+    """Build one visit's transmission spectrum sequence, with `noise` decoupled from `n_pc`.
+
+    B3 (Chantier B): `noise` is estimated once from the PCA-cleaned spectrum at a *fixed*
+    `noise_npc` (independent of whatever `n_pc` is used for science), instead of being
+    recomputed at whatever `n_pc` happens to be requested. This branch already existed
+    (dormant, never called with `noise_npc != None` before B3) -- see the PCA cleanup notes
+    for why: `noise_npc=2` matches `ReductionParams.n_pc`'s own historical default, which is
+    what most non-swept reductions used for both science and noise in practice already.
+
+    Two `build_trans_spec` calls are made when `noise_npc` is not None: the first, at
+    `noise_npc` components, fixes `tr.noise` (and caches the n_pc-independent intermediates
+    `fl_masked`/`fl_Sref`/`fl_norm`/`fl_norm_mo`/`mast_out`/`spec_trans`/`pca` on `tr`); the
+    second, at the real science `n_pc` (`params_all[5]`), reuses all of those (including the
+    already-fitted `pca`, so it only redoes the cheap PCA truncation) and does not touch
+    `tr.noise` again (`change_noise` defaults to False in `Observations.build_trans_spec`).
+
+    Parameters
+    ----------
+    noise_npc : int or None
+        Fixed number of PCA components used to estimate `noise`. `None` restores the old
+        (pre-B3) behaviour of estimating `noise` at the same `n_pc` as the science spectrum.
+    obs, transit_tag, params_all, iOut_temp, coeffs, ld_model, kind_trans, RV_sys, polynome,
+    ratio_recon, cont, cbp, counting, **kwargs_build_ts :
+        See `Observations.calc_sequence`/`Observations.build_trans_spec`.
+
+    Returns
+    -------
+    Observations
+        The visit (or merged/selected transit), with the reduction results attached.
+    """
     if transit_tag is not None:
         tr = obs.select_transit(transit_tag)
     else:
@@ -2006,26 +1795,29 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
         
     if noise_npc is None:
         tr.build_trans_spec(params= params_all, \
-                    iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
+                    iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont,
                         cbp=cbp, poly_time=poly_time, counting = counting, **kwargs_build_ts)
+        # Pre-B3 behaviour: `noise` was estimated at the same n_pc as the science spectrum.
+        tr.noise_npc = params_all[5]
     else:
-       
+
         params_copy = params_all.copy()
         params_copy[5] = noise_npc
-#         tr.build_trans_spec(params= params_all, \
-#                     iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
-#                         cbp=cbp, poly_time=poly_time, **kwargs_build_ts)
         tr.build_trans_spec(params= params_copy, \
-                        iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
+                        iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont,
                         cbp=cbp, poly_time=poly_time, **kwargs_build_ts)
+        # Reuse everything computed above (including the fitted `pca`, B3) -- only the cheap
+        # PCA truncation to the real science `n_pc` (and final normalization/masking) reruns.
         tr.build_trans_spec(params= params_all, \
-                         iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont, 
-                        cbp=False, poly_time=poly_time, 
-                       flux_masked=tr.fl_masked, flux_Sref=tr.fl_Sref, flux_norm=tr.fl_norm, 
-                        flux_norm_mo=tr.fl_norm_mo, master_out=tr.mast_out, spec_trans=tr.spec_trans, 
-                            mask_var=False, **kwargs_build_ts)
-        
-        
+                         iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont,
+                        cbp=False, poly_time=poly_time,
+                       flux_masked=tr.fl_masked, flux_Sref=tr.fl_Sref, flux_norm=tr.fl_norm,
+                        flux_norm_mo=tr.fl_norm_mo, master_out=tr.mast_out, spec_trans=tr.spec_trans,
+                            pca=tr.pca, mask_var=False, **kwargs_build_ts)
+        # `noise` was fixed by the first call above, at `noise_npc` components -- record it so
+        # a saved file is self-documenting (`save_reduced_sequence`), independently of `params_all[5]`.
+        tr.noise_npc = noise_npc
+
     return tr
 
 def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
@@ -2048,10 +1840,10 @@ def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_
 
 
 def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
-                          do_tr=[1,2,3,12,123], cbp=True, 
+                          do_tr=[1,2,3,12,123], cbp=True,
                            kind_trans='transmission', flux_all=None,
                           ld_model = 'linear', coeffs=[0.53],
-                           polynome=None, noise_npc=None, counting = True, **kwargs_build_ts):
+                           polynome=None, noise_npc=2, counting = True, **kwargs_build_ts):
     #                           
     
     ratio_recon=True

@@ -186,9 +186,17 @@ def load_planet(config_dict, visit_name):
         pl_kwargs = pl_param_units(config_dict)
         obs = Observations(name=config_dict['pl_name'], instrument=config_dict['instrument'], pl_kwargs=pl_kwargs)
     else:
+        pl_kwargs = {}
         obs = Observations(name=config_dict['pl_name'], instrument=config_dict['instrument'])
 
     p = obs.planet
+    # Manually specified planet params for *this visit* (e.g. mid_tr for a TTV/resonant
+    # system, where the transit epoch genuinely differs per visit -- load_planet is called
+    # once per visit, so config_dict['pl_params'] can already vary by visit at reduction
+    # time). Recorded on the planet so save_reduced_sequence can persist them into the
+    # reduced file (B3, Chantier B) -- otherwise this per-visit choice would be lost as soon
+    # as the file is loaded again with a different (or no) override.
+    p.reduction_overrides = pl_kwargs
 
     # set other planet parameters
     p.A_star = np.pi*u.rad * p.R_star**2
@@ -265,24 +273,27 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet, bad
     # 'all' (default) = every exposure (planetary signal negligible + diluted by its own motion,
     # so this improves the reference spectrum's S/N). null/None = the real out-of-transit/eclipse
     # exposures computed from the orbit.
+    # config_dict['noise_npc']: fixed number of PCA components used to estimate `noise` (B3),
+    # independent of whatever `n_pc` is used for the science spectrum. Defaults to 2 (see
+    # `generate_all_transits`) if not set in the config.
     list_tr = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, config_dict['iout_all'], counting = False,
+                                        noise_npc=config_dict.get('noise_npc', 2),
                                         **kwargs_gen_tr, **kwargs_build_ts)
 
     return list_tr
 
 
 def save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs=[]):
-    """Save the reduced sequence as two files: one heavy diagnostic file with every
-    intermediate reduction step, and one light file with only what a retrieval needs.
-    (Previously both files were saved with `save_all=True`, making the "light" retrieval
-    file just as heavy as the diagnostic one — a leftover `# QUICK FIX` bug.)
-    """
-    # Full diagnostic file: every intermediate step, for inspecting/debugging the reduction.
-    out_filename = f'retrieval_input' + nametag
-    pl_obs.save_single_sequences(out_filename, list_tr['1'], path=scratch_dir, save_all=True, bad_indexs = bad_indexs)
+    """Save the reduced sequence to a single file (B3, Chantier B).
 
-    # Light retrieval file: only what's needed to compute a log-likelihood.
-    pl_obs.save_sequences(f'retrieval_inputs' + nametag, list_tr, [1], path=scratch_dir, bad_indexs=bad_indexs, save_all=False)
+    Before B3, this wrote two files (a heavy "diagnostic" one with every intermediate
+    reduction step, and a "light" one with only what a retrieval needs) because `n_pc` was
+    baked into what got saved. Now that PCA truncation happens at read time (`n_pc` is no
+    longer a reduction-time axis, see `save_reduced_sequence`), there is nothing left that
+    is specific to one `n_pc` to leave out of a "light" file -- so there is only one file.
+    """
+    out_filename = f'retrieval_input' + nametag
+    pl_obs.save_reduced_sequence(out_filename, list_tr['1'], path=scratch_dir, bad_indexs=bad_indexs)
 
 
 def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag): 
@@ -300,7 +311,13 @@ def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag):
 
 def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu, mask_wings, visit_name, plot = True, saved = False):
 
-    nametag = f'_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+    # No `_pc{n_pc}` in the filename anymore (B3): the PCA fit itself does not depend on
+    # n_pc (only its truncation does, applied at read time), so a reduction only needs to
+    # run once per (mask_tellu, mask_wings) combination. When `run_pipe.py` sweeps several
+    # `n_pc` values for the same (mask_tellu, mask_wings), the first call below actually
+    # reduces and saves; every later call for a different `n_pc` hits the cache-hit branch
+    # and only pays for the cheap read-time PCA truncation (`load_reduced_sequence`).
+    nametag = f'_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
 
     # Exposures to exclude for this visit, if any (was `config_dict['bad_indexs']['visit_name']` —
     # the literal string 'visit_name' instead of the variable, which raised a KeyError on any real
@@ -313,9 +330,9 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu
     # check if reduction already exists
     if os.path.exists(scratch_dir / f'retrieval_input{nametag}_data_trs_.npz'):
         saved = True
-        print(f"Reduction already exists for {nametag}. Loading...")
-        transit = pl_obs.load_single_sequences(f'retrieval_input{nametag}_data_trs_.npz', planet.name, path=scratch_dir,
-                          load_all=True, filename_end='', planet=planet, plot = False)
+        print(f"Reduction already exists for {nametag}. Loading with n_pc={n_pc}...")
+        transit = pl_obs.load_reduced_sequence(f'retrieval_input{nametag}_data_trs_.npz', n_pc, path=scratch_dir,
+                          filename_end='', planet=planet, plot = False)
 
     else: # building the transit spectrum
         list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet, bad_indexs=bad_indexs)

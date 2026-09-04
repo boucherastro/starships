@@ -85,6 +85,21 @@ def pool_processing(config_dict, planet, obs, dirs_dict, visit_name, wave_mod, m
     ''' Function to run the main loop in parallel using multiprocessing '''
     iterables = product(config_dict['mask_tellu'], config_dict['mask_wings'], config_dict['n_pc'])
 
+    # B3 (Chantier B): the reduction file is now shared across every `n_pc` for a given
+    # (mask_tellu, mask_wings) -- PCA truncation to a given n_pc happens at read time, the
+    # fit itself no longer depends on n_pc (see `pipeline.reduction.reduce_data`). Before B3,
+    # each (mask_tellu, mask_wings, n_pc) combination wrote its own separate file, so pool
+    # workers never touched the same file concurrently. Now they would: several workers in
+    # the pool below could share the same (mask_tellu, mask_wings) with different n_pc, race
+    # to reduce+save the same file, and one could read it back mid-write. Reduce every
+    # (mask_tellu, mask_wings) combination once, sequentially, up front -- by the time the
+    # pool starts, every file `main_loop` might load is already complete on disk.
+    for mask_tellu in config_dict['mask_tellu']:
+        for mask_wings in config_dict['mask_wings']:
+            red.reduce_data(config_dict, planet, obs, dirs_dict['scratch_dir'],
+                             dirs_dict['red_steps_dir'], config_dict['n_pc'][0],
+                             mask_tellu, mask_wings, visit_name)
+
     # Input n_processes to see how many iterables to run in parallel
     n_processes = 4
     with Pool(n_processes) as pool:

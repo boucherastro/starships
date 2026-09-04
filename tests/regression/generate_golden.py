@@ -86,10 +86,12 @@ def compute_logl_1d(ds_config: dict, corrRV: np.ndarray):
         else:
             print(f"  Warning: retrieval_config not found: {ret_cfg_path}")
 
-    tr       = pl_obs.load_single_sequences(npz_path, pl_name, plot=False,
+    # B3: n_pc is now a read-time argument (no longer baked into the saved file) — must come
+    # from the regression config explicitly instead of being read back from `tr.params[5]`.
+    n_pc     = ds_config['n_pc']
+    tr       = pl_obs.load_reduced_sequence(npz_path, n_pc, name=pl_name, plot=False,
                                             pl_kwargs=pl_kwargs or None)
     model    = np.load(Path(ds_config['model_path']).expanduser())
-    n_pc     = int(tr.params[5])
     Kp_array = np.array([tr.Kp.value])
 
     _, logl_map = corr.calc_logl_injred(

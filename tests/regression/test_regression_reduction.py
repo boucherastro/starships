@@ -198,6 +198,148 @@ class TestPipelineReductionEntryPoint:
         return self._cache[ds_name]
 
 
+class TestReadTimeNPCConsistency:
+    """B3 (Chantier B): `n_pc` is now applied at read time (PCA fit once, truncated on
+    demand) instead of being baked into the reduction/save step. This checks the actual
+    end-to-end guarantee through the real pipeline entry points (`reduce_data`'s cache-hit
+    path, `load_reduced_sequence`): reading a cached reduction at a *different* `n_pc` than
+    the one that triggered the original reduction must give the exact same `final`/`noise` as
+    an independent, from-scratch reduction run directly at that `n_pc`.
+
+    This is a real regression test: it caught a real bug during development (`clip_ts` wasn't
+    threaded through `load_reduced_sequence`'s reuse call, silently skipping the sigma-clip
+    step applied before PCA truncation, producing a ~0.0078 discrepancy in `final` -- about a
+    third of its typical scale, nowhere near float-noise-sized).
+    """
+
+    @requires_reduction_data
+    @pytest.mark.parametrize("ds_name", _reduction_dataset_names())
+    def test_cached_reload_at_different_npc_matches_fresh_reduction(self, reduction_config, ds_name, tmp_path):
+        import yaml as _yaml
+        import pipeline.reduction as red
+
+        ds_cfg = reduction_config['reduction_datasets'][ds_name]
+        pipeline_cfg_path = Path(ds_cfg['pipeline_config']).expanduser()
+        if not pipeline_cfg_path.exists():
+            pytest.skip(f"Pipeline config not found: {pipeline_cfg_path}")
+        with open(pipeline_cfg_path) as f:
+            config_dict = _yaml.safe_load(f)
+
+        obs_dir = Path(config_dict.get('obs_dir', '')).expanduser()
+        if not obs_dir.exists():
+            pytest.skip(f"Raw data directory not found: {obs_dir}")
+        config_dict['obs_dir'] = obs_dir
+
+        visit_name = ds_cfg['visit_name']
+        mask_tellu = ds_cfg['mask_tellu']
+        mask_wings = ds_cfg['mask_wings']
+        n_pc_reduction = ds_cfg['n_pc']
+        n_pc_reload = n_pc_reduction + 1  # deliberately different from the reduction's own n_pc
+
+        planet, obs = red.load_planet(config_dict, visit_name)
+
+        cached_dir = tmp_path / 'cached'
+        cached_dir.mkdir()
+        print(f"\n  [{ds_name}] first reduce_data call, n_pc={n_pc_reduction} (writes the file) ...")
+        red.reduce_data(config_dict, planet, obs, cached_dir, cached_dir,
+                         n_pc_reduction, mask_tellu, mask_wings, visit_name, plot=False)
+
+        print(f"  [{ds_name}] second reduce_data call, n_pc={n_pc_reload} "
+              "(same mask_tellu/mask_wings -> cache-hit, read-time PCA truncation only) ...")
+        transit_cached = red.reduce_data(config_dict, planet, obs, cached_dir, cached_dir,
+                                          n_pc_reload, mask_tellu, mask_wings, visit_name, plot=False)
+
+        fresh_dir = tmp_path / 'fresh'
+        fresh_dir.mkdir()
+        print(f"  [{ds_name}] independent reduce_data call directly at n_pc={n_pc_reload} "
+              "(separate scratch dir, no cache reuse) ...")
+        transit_fresh = red.reduce_data(config_dict, planet, obs, fresh_dir, fresh_dir,
+                                         n_pc_reload, mask_tellu, mask_wings, visit_name, plot=False)
+
+        np.testing.assert_array_equal(
+            transit_cached.final.mask, transit_fresh.final.mask,
+            err_msg=f"[{ds_name}] final mask differs between cache-hit and fresh reduction at n_pc={n_pc_reload}",
+        )
+        valid = ~transit_cached.final.mask
+        np.testing.assert_allclose(
+            transit_cached.final.data[valid], transit_fresh.final.data[valid],
+            rtol=1e-10, atol=1e-12,
+            err_msg=f"[{ds_name}] final at n_pc={n_pc_reload}: cache-hit read-time truncation "
+                    "diverges from an independent from-scratch reduction at the same n_pc",
+        )
+        np.testing.assert_allclose(
+            transit_cached.noise.data[~transit_cached.noise.mask],
+            transit_fresh.noise.data[~transit_fresh.noise.mask],
+            rtol=1e-10, atol=1e-12,
+            err_msg=f"[{ds_name}] noise (fixed at noise_npc) differs between cache-hit and fresh reduction",
+        )
+
+
+class TestPerVisitPlanetOverride:
+    """B3 (Chantier B): a per-visit planet parameter override used at reduction time (e.g.
+    `mid_tr`, for a TTV/resonant system like Mathis's TRAPPIST-1 retrieval, where the transit
+    epoch genuinely differs from one visit to the next) must survive a save/load round trip,
+    and must not leak into a *different* visit loaded afterwards with the same shared planet
+    object (`retrieval.py` reuses one `planet` across every visit it loads).
+    """
+
+    @requires_reduction_data
+    @pytest.mark.parametrize("ds_name", _reduction_dataset_names())
+    def test_override_round_trips_without_leaking_into_a_shared_planet(self, reduction_config, ds_name, tmp_path):
+        import yaml as _yaml
+        import astropy.units as u
+        import pipeline.reduction as red
+        import starships.planet_obs as pl_obs
+
+        ds_cfg = reduction_config['reduction_datasets'][ds_name]
+        pipeline_cfg_path = Path(ds_cfg['pipeline_config']).expanduser()
+        if not pipeline_cfg_path.exists():
+            pytest.skip(f"Pipeline config not found: {pipeline_cfg_path}")
+        with open(pipeline_cfg_path) as f:
+            config_dict = _yaml.safe_load(f)
+
+        obs_dir = Path(config_dict.get('obs_dir', '')).expanduser()
+        if not obs_dir.exists():
+            pytest.skip(f"Raw data directory not found: {obs_dir}")
+        config_dict['obs_dir'] = obs_dir
+
+        # Inject a synthetic per-visit mid_tr override, like a TTV config would.
+        config_dict.setdefault('pl_params', {})
+        overridden_mid_tr = 2454163.5  # arbitrary, just needs to differ from the ExoFile default
+        config_dict['pl_params']['mid_tr'] = {'value': overridden_mid_tr, 'unit': 'd'}
+
+        visit_name = ds_cfg['visit_name']
+        planet, obs = red.load_planet(config_dict, visit_name)
+        assert planet.reduction_overrides, "load_planet should have recorded the mid_tr override"
+        np.testing.assert_allclose(planet.mid_tr.to(u.d).value, overridden_mid_tr)
+
+        scratch_dir = tmp_path / 'scratch'
+        scratch_dir.mkdir()
+        transit = red.reduce_data(config_dict, planet, obs, scratch_dir, scratch_dir,
+                                   ds_cfg['n_pc'], ds_cfg['mask_tellu'], ds_cfg['mask_wings'],
+                                   visit_name, plot=False)
+        np.testing.assert_allclose(transit.planet.mid_tr.to(u.d).value, overridden_mid_tr)
+
+        # Reload with a *different*, non-overridden shared planet passed in explicitly (as
+        # retrieval.py would for a second visit reusing the same planet) -- the saved
+        # per-visit override must still win, and the shared planet object must not be mutated.
+        shared_planet, _ = red.load_planet({**config_dict, 'pl_params': {}}, visit_name)
+        shared_mid_tr_before = float(shared_planet.mid_tr.to(u.d).value)
+
+        reloaded = pl_obs.load_reduced_sequence(
+            f"retrieval_input_{visit_name}_maskwings{ds_cfg['mask_wings']*100:n}"
+            f"_masktellu{ds_cfg['mask_tellu']*100:n}",
+            ds_cfg['n_pc'], path=scratch_dir, planet=shared_planet, name=planet.name,
+        )
+
+        assert reloaded.planet is not shared_planet, (
+            "load_reduced_sequence must apply the saved override to a private copy, "
+            "not mutate the shared planet passed in"
+        )
+        np.testing.assert_allclose(reloaded.planet.mid_tr.to(u.d).value, overridden_mid_tr)
+        np.testing.assert_allclose(shared_planet.mid_tr.to(u.d).value, shared_mid_tr_before)
+
+
 def _run_reduction_via_pipeline(reduction_config, ds_name):
     """Re-run the reduction through the real `pipeline.reduction` entry point and return
     (transit, golden_data)."""

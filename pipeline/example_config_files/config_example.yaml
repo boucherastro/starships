@@ -73,6 +73,14 @@ unberv_it: True
 # pixels that should already have been masked upstream but weren't. null (default) disables this.
 minimum_signal: null
 
+# Fixed number of PCA components used to estimate the per-pixel noise, independent of
+# whatever n_pc is used for the science spectrum (which is now applied at read time, not at
+# reduction time -- see starships.transpec.apply_pca_truncation). Historically, most
+# reductions used the same n_pc for both noise and science (2, the old default of
+# ReductionParams.n_pc) since n_pc was rarely swept in practice -- 2 is kept as the default
+# here for continuity. Defaults to 2 if omitted.
+noise_npc: 2
+
 # Deep/rarely-changed reduction parameters, exposed here for visibility but virtually never
 # overridden in practice — see starships.transpec.ReductionParams for what each one does and
 # its default value. Uncomment and set only the ones you need to change; the rest keep their

@@ -97,10 +97,12 @@ def plot_all_ccf(config_dict, mol, mask_tellu, mask_wings, scratch_dir, visit_na
         n_pc = config_dict['n_pc'][0]
     else: 
         n_pc = id_pc0
-    fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
-    transit = pl_obs.load_single_sequences(fname, planet.name, path=scratch_dir,
-                                load_all=False, filename_end='', plot=False, planet=planet)
-    
+    # B3: the reduction file no longer has `_pc{n_pc}` in its name (n_pc is a read-time
+    # argument, not a reduction axis) -- `n_pc` is passed to `load_reduced_sequence` instead.
+    fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
+    transit = pl_obs.load_reduced_sequence(fname, n_pc, name=planet.name, path=scratch_dir,
+                                filename_end='', plot=False, planet=planet)
+
     Kp_array = np.array([transit.Kp.value])
 
     ccf_maps_in = []
@@ -135,9 +137,9 @@ def plot_all_maskwings(config_dict, planet, mol, mask_tellu, n_pc, scratch_dir, 
     corrRV = np.arange(config_dict['RV_range'][0], config_dict['RV_range'][1], config_dict['RV_step'])
 
     mask_wings = config_dict['mask_wings'][0]
-    fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
-    transit = pl_obs.load_single_sequences(fname, planet.name, path=scratch_dir,
-                                load_all=False, filename_end='', plot=False, planet=planet)
+    fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
+    transit = pl_obs.load_reduced_sequence(fname, n_pc, name=planet.name, path=scratch_dir,
+                                filename_end='', plot=False, planet=planet)
     
     Kp_array = np.array([transit.Kp.value])
 
@@ -169,9 +171,9 @@ def plot_all_masktellu(config_dict, planet, mol, mask_wings, n_pc, scratch_dir, 
 
     # load in a transit to get planet/obs values, doesn't matter which values you use here
     mask_tellu = config_dict['mask_tellu'][0]
-    fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
-    transit = pl_obs.load_single_sequences(fname, planet.name, path=scratch_dir,
-                                load_all=False, filename_end='', plot=False, planet=planet)
+    fname = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
+    transit = pl_obs.load_reduced_sequence(fname, n_pc, name=planet.name, path=scratch_dir,
+                                filename_end='', plot=False, planet=planet)
 
     Kp_array = np.array([transit.Kp.value])
 
@@ -206,16 +208,16 @@ def combined_visits_ccf(planet, mol, wave_mod, mod_spec, dir_dict, config_dict, 
     # getting all the reductions to combine
     filename_dict = {}
     for idx, visit_name in enumerate(config_dict['visit_name']):
-        file_name = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
+        file_name = f'retrieval_input_{visit_name}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}'
         filename_dict[(str(idx+1), visit_name)] = file_name
-    
+
     for key, fname in filename_dict.items():
         idx = key[0]
         visit_name = key[1]
 
         # load existing reductions for each visit
-        transit = pl_obs.load_single_sequences(fname, planet.name, path=dir_dict['scratch_dir'],
-                                load_all=False, filename_end='', plot=False, planet=planet)
+        transit = pl_obs.load_reduced_sequence(fname, n_pc, name=planet.name, path=dir_dict['scratch_dir'],
+                                filename_end='', plot=False, planet=planet)
         
         out_filename = f'inj_ccf_logl_seq_{visit_name}_{mol}_maskwings{mask_wings*100:n}_masktellu{mask_tellu*100:n}_pc{n_pc}'
 

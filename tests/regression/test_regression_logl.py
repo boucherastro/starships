@@ -16,9 +16,10 @@ Prerequisites (on Narval):
     4. Run `pytest tests/regression/ -v` after every code change
 
 Each dataset in regression_config.yaml must have:
-    npz_path   : path to the reduced NPZ (passed to load_single_sequences)
+    npz_path   : path to the reduced NPZ (passed to load_reduced_sequence)
+    n_pc       : number of PCA components to remove (read-time argument since B3)
     model_path : path to the model NPZ (keys: 'wave', 'spec')
-    pl_name    : planet name for load_single_sequences (e.g. "WASP-33 b")
+    pl_name    : planet name for load_reduced_sequence (e.g. "WASP-33 b")
     kind_trans : 'emission' or 'transmission'
 
 Tests are automatically SKIPPED if the config or golden outputs are missing,
@@ -83,16 +84,20 @@ def corrRV(regression_config):
 
 
 def _load_transit(ds_config):
-    """Load full Observations object from NPZ via load_single_sequences.
+    """Load full Observations object from NPZ via load_reduced_sequence.
 
     Planet parameters from the retrieval_config YAML override ExoFile defaults,
     matching how parameters are set in the reduction/retrieval pipeline.
+
+    B3: `n_pc` is now a read-time argument (no longer baked into the saved file), so it
+    must be given explicitly in `regression_config.yaml` (`n_pc:` per dataset).
     """
     import starships.planet_obs as pl_obs
     from pipeline.reduction import pl_param_units
 
     path    = Path(ds_config['npz_path']).expanduser()
     pl_name = ds_config['pl_name']
+    n_pc    = ds_config['n_pc']
     if not path.exists():
         pytest.skip(f"Reduced data not found: {path}")
 
@@ -108,7 +113,7 @@ def _load_transit(ds_config):
         else:
             print(f"  Warning: retrieval_config not found: {ret_cfg_path}")
 
-    return pl_obs.load_single_sequences(path, pl_name, plot=False,
+    return pl_obs.load_reduced_sequence(path, n_pc, name=pl_name, plot=False,
                                         pl_kwargs=pl_kwargs or None)
 
 

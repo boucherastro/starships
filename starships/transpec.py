@@ -300,17 +300,29 @@ def build_master_out_pc(wave, flux_Sref_norm, iOut, plot=False, **kwargs):
 
 from sklearn.decomposition import PCA
 
-# returns the 'n_components' number of principal components of a dataset.  matrix is N x M, returns what is common to the M axis.  
+# returns the 'n_components' number of principal components of a dataset.  matrix is N x M, returns what is common to the M axis.
 def PCA_decompose(matrix, n_components=None):
     if n_components == None:
         n_components = np.shape(matrix)[1]
-    pca = PCA(n_components=n_components)
+    # Force the exact LAPACK SVD solver instead of sklearn's shape-based 'auto' heuristic:
+    # for our matrices (n_components close to the full rank of the data), 'auto' already
+    # picks 'full' in practice, but pinning it here makes the fit reproducible byte-for-byte
+    # from one run to the next regardless of matrix shape, instead of relying on that
+    # heuristic implicitly (see B3 cleanup notes: PCA is now fit once and reused across
+    # reads with different n_pc, so this determinism guarantee matters more than before).
+    pca = PCA(n_components=n_components, svd_solver='full')
     coefficients = pca.fit_transform(matrix)
     pcs = pca.components_
     return pca, pcs, coefficients
 
 # removes 'n_pcs' number of principal components from input
 def PCA_remove(matrix, pcs, coefficients, n_pcs, kind='rebuilt'):
+
+    if n_pcs > pcs.shape[0]:
+        raise ValueError(
+            f'Requested n_pcs={n_pcs} principal components, but only {pcs.shape[0]} were '
+            'fitted (n_comps at reduction time was too small for this read-time n_pc).'
+        )
 
     comps = pcs[:n_pcs,:]
     rebuilt = 0.0
@@ -699,6 +711,73 @@ def resolve_reference_spectrum_exposures(iOut_temp, iOut, n_exposures):
     return iOut_temp
 
 
+def apply_pca_truncation(spec_trans, n_pca, n_comps=None, pca=None, clip_ts=None, norm=True, somme=False,
+                          last_mask=True, tresh_lim=1., last_tresh=3, last_tresh_lim=1.):
+    """Remove `n_pca` principal components from a transmission spectrum and finalize it.
+
+    This is the n_pc-*dependent* tail of `build_trans_spectrum4` (PCA truncation, mean
+    removal, final high-variance masking), split out so it can be re-run cheaply for a
+    different `n_pca` without repeating the n_pc-*independent* steps upstream (normalization,
+    stellar-frame shift, telluric masking, reference spectrum, `spec_trans` itself). Pass an
+    already-fitted `pca` (e.g. saved at reduction time) to skip refitting entirely — only the
+    truncation to `n_pca` components and the normalization/masking below are then recomputed.
+
+    Parameters
+    ----------
+    spec_trans : numpy.ma.MaskedArray
+        Transmission spectrum (n_exposures, n_orders, n_pixels), n_pc-independent.
+    n_pca : int
+        Number of principal components to remove.
+    n_comps : int, optional
+        Number of components to fit if `pca` is not provided (ignored otherwise).
+    pca : sklearn.decomposition.PCA, optional
+        Already-fitted PCA to reuse (transform only, no refit). If None, a new PCA is fit
+        on `spec_trans` with `n_comps` components.
+    clip_ts : float, optional
+        Sigma-clipping threshold applied to `spec_trans` before PCA removal.
+    norm : bool
+        Whether to remove the mean and apply the final high-variance masking below.
+    somme, last_mask, tresh_lim, last_tresh, last_tresh_lim :
+        Same meaning as the corresponding parameters of `build_trans_spectrum4`.
+
+    Returns
+    -------
+    clean_ts, ts_norm, final_ts, rebuilt, mask_last, pca
+    """
+    if clip_ts is not None:
+        spec_trans = sigma_clip(spec_trans, clip_ts)
+
+    clean_ts, rebuilt, pca = remove_dem_pca_all(spec_trans, n_pcs=n_pca, n_comps=n_comps, pca=pca)
+
+    if norm is True:
+        hm.print_static('Removing the mean \n')
+        ts_norm = quick_norm(clean_ts, somme=False, take_all=False)
+
+        if last_mask is True:
+            print('Removing the remaining high variance pixels. \n')
+            if last_tresh != tresh_lim:
+                mask_last = [ext.get_mask_noise(f, last_tresh, last_tresh_lim, gwidth=0.01) for f in ts_norm.swapaxes(0, 1)]
+                mask_last = mask_last | ts_norm.mask
+                final_ts = np.ma.array(ts_norm, mask=mask_last)
+            else:
+                final_ts = sigma_clip(ts_norm, last_tresh)
+                mask_last = final_ts.mask
+
+            hm.print_static('Removing the mean. \n')
+            final_ts = quick_norm(final_ts, somme=somme, take_all=False)
+        else:
+            mask_last = ts_norm.mask
+            final_ts = ts_norm
+    else:
+        # `norm=False` is never used by any caller in the codebase (grep-confirmed) — kept
+        # for signature symmetry with `build_trans_spectrum4`, `ts_norm` is simply unset.
+        ts_norm = None
+        mask_last = clean_ts.mask
+        final_ts = clean_ts / np.ma.mean(clean_ts, axis=-1)[:, :, None]
+
+    return clean_ts, ts_norm, final_ts, rebuilt, mask_last, pca
+
+
 # def build_trans_spectrum4(wave, flux, light_curve, berv, RV_sys, vr, vrp, iIn, iOut,
 #                          lim_mask=0.75, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True, new_mask_tellu=None,
 #                           mask_var=True, last_mask=True, iOut_temp=None, plot=False, #kind_mo_lp='filter',
@@ -714,8 +793,60 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
                           poly_time=None, kind_mo="median", cont=False, cbp=False,
                           tresh=3., tresh_lim=1., last_tresh=3, last_tresh_lim=1, noise=None, somme=False, norm=True,
                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
-                          spec_trans=None, clean_ts=None, unberv_it=True, counting = True):
-    
+                          spec_trans=None, clean_ts=None, unberv_it=True, counting = True, pca=None):
+    """Build the transmission spectrum from raw flux, through PCA removal, in one pass.
+
+    This runs the full reduction chain: median normalization, high-variance pixel masking,
+    shift to the stellar reference frame (`unberv`), deep-telluric masking, reference
+    spectrum (`master_out`/`build_master_out`), `spec_trans = flux_norm_mo / master_out`,
+    and finally PCA removal of `n_pca` components (`apply_pca_truncation`).
+
+    Every step up to and including `spec_trans` is independent of `n_pca` — pass any of the
+    `flux_masked`/`flux_Sref`/`flux_norm`/`flux_norm_mo`/`master_out`/`spec_trans` arguments
+    already computed (e.g. loaded from a saved reduction) to skip recomputing that step.
+    Only the PCA removal (and, if fitting, its cost) actually depends on `n_pca` — pass an
+    already-fitted `pca` to skip the fit too and only redo the cheap truncation to `n_pca`
+    components (see `apply_pca_truncation`, which implements that tail on its own so it can
+    be re-run for a different `n_pca` without going through this function again).
+
+    Parameters
+    ----------
+    wave : numpy.ndarray
+        Wavelength grid (n_exposures, n_orders, n_pixels).
+    flux : numpy.ma.MaskedArray
+        Raw flux (n_exposures, n_orders, n_pixels).
+    berv, RV_sys, vr : array_like
+        Barycentric and systemic radial velocities used to shift to the stellar frame.
+    iOut : numpy.ndarray of int
+        Default out-of-transit/eclipse exposure indices (used when `iOut_temp` is None).
+    n_pca : int
+        Number of principal components to remove from `spec_trans`.
+    n_comps : int
+        Number of components to fit if `pca` is not provided (ignored otherwise).
+    pca : sklearn.decomposition.PCA, optional
+        Already-fitted PCA to reuse instead of refitting (see `apply_pca_truncation`).
+    flux_masked, flux_Sref, flux_norm, flux_norm_mo, master_out, spec_trans, clean_ts : optional
+        Precomputed intermediate results to reuse instead of recomputing that step; each is
+        independent of `n_pca` except `clean_ts` (which, if given, is unreachable — no caller
+        in the codebase passes it, see note below).
+    mask_tellu, mask_var, last_mask : bool
+        Whether to apply telluric masking, high-variance pixel masking, and final masking.
+    lim_mask, lim_buffer, mo_box, mo_gauss_box, kind_mo, clip_ratio, cont, cbp, tresh,
+    tresh_lim, last_tresh, last_tresh_lim, clip_ts, somme, norm, unberv_it, counting :
+        Tuning parameters for the corresponding sub-steps (masking thresholds, reference
+        spectrum smoothing box sizes, PCA truncation/normalization options) — see the
+        relevant helper (`mask_deep_tellu`, `build_master_out`, `apply_pca_truncation`).
+    poly_time, noise : optional
+        If `poly_time` is given, fits and removes a per-pixel 2nd-order polynomial in time
+        from `spec_trans` before PCA removal (not used by the current pipeline default).
+    path : str, optional
+        Path passed through to `mask_deep_tellu` for telluric reference lookup.
+
+    Returns
+    -------
+    flux_norm, flux_norm_mo, master_out, spec_trans, clean_ts, ts_norm, final_ts, rebuilt,
+    pca, flux_Sref, flux_masked, ratio, mask_last, recon_time
+    """
     rebuilt=np.ma.empty_like(flux)
     ratio=np.ma.empty_like(flux)
     
@@ -810,41 +941,21 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
     else:
         recon_time = np.ones_like(spec_trans)
 
+    # NOTE: passing a precomputed `clean_ts` to skip this block entirely is not used by any
+    # caller in the codebase (grep-confirmed) and was already unreachable before this refactor
+    # (it relied on `pca`/`rebuilt`/`ts_norm`/`final_ts`/`mask_last` being set by magic from
+    # outside the function). Not reproducing that dead path here.
     if clean_ts is None:
         hm.print_static('Removing the static noise with PCA and sigma cliping \n')
 #         print(n_pca, n_comps)
         print(spec_trans.shape)
-        if clip_ts is not None:
-            spec_trans = sigma_clip(spec_trans, clip_ts)
-            print('spec_trans all nan : {}'.format(spec_trans.mask.all()))
-        #*** mean normalize again??***
-        clean_ts, rebuilt, pca = remove_dem_pca_all(spec_trans, n_pcs=n_pca, n_comps=n_comps, plot=plot)
+        clean_ts, ts_norm, final_ts, rebuilt, mask_last, pca = apply_pca_truncation(
+            spec_trans, n_pca, n_comps=n_comps, pca=pca, clip_ts=clip_ts, norm=norm, somme=somme,
+            last_mask=last_mask, tresh_lim=tresh_lim, last_tresh=last_tresh, last_tresh_lim=last_tresh_lim)
         print('clean_ts all nan : {}'.format(clean_ts.mask.all()))
-    if norm is True:
-        hm.print_static('Removing the mean \n')
-        ts_norm = quick_norm(clean_ts, somme=False, take_all=False)
 
-        if last_mask is True:
-            print('Removing the remaining high variance pixels. \n')
-            if last_tresh != tresh_lim:
-                mask_last = [ext.get_mask_noise(f, last_tresh, last_tresh_lim, gwidth=0.01) for f in ts_norm.swapaxes(0,1)]
-                mask_last = mask_last | ts_norm.mask
-                final_ts = np.ma.array(ts_norm, mask=mask_last)
-            else:
-                final_ts = sigma_clip(ts_norm, last_tresh)
-                mask_last = final_ts.mask
-            
-            hm.print_static('Removing the mean. \n')
-            final_ts = quick_norm(final_ts, somme=somme, take_all=False)
-        else:
-            mask_last = ts_norm.mask
-            final_ts = ts_norm
-
-    else:
-        final_ts = clean_ts / np.ma.mean(clean_ts, axis=-1)[:, :, None]
-        
     return flux_norm, flux_norm_mo, master_out, spec_trans, clean_ts, ts_norm, \
-           final_ts, rebuilt, pca, flux_Sref, flux_masked, ratio, mask_last, recon_time 
+           final_ts, rebuilt, pca, flux_Sref, flux_masked, ratio, mask_last, recon_time
 #, flux_BARYref, flux_SYSref, flux_Sref
 
 

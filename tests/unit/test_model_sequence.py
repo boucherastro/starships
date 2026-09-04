@@ -1,9 +1,7 @@
 import numpy as np
 import pytest
-from sklearn.decomposition import PCA
 
 import starships.petitradtrans_utils as prt
-import starships.planet_obs as planet_obs
 from starships.convolution import SIGMA_TO_FWHM
 from starships.mask_tools import interp1d_masked
 from starships.model_sequence import (
@@ -170,59 +168,17 @@ class TestBuildModelSequence:
             build_model_sequence(wave, Fp, data_wave, vrp_orb=0.0, kind_trans='emission')
 
 
-class TestSaveLoadVr:
-    """`vr` (excursion RV stellaire par exposition, Chantier A Phase 2) suit le même
-    schéma que `RV_sys`/`mid_berv`/`mid_vr` (Phase 0) : sauvé/chargé, avec repli sur
-    `None` pour les anciens fichiers .npz qui ne l'ont pas."""
-
-    def _minimal_npz_kwargs(self, n_exp=4, n_ord=2, n_pix=6, n_feat=3):
-        rng = np.random.default_rng(0)
-        pca = PCA(n_components=n_feat)
-        pca.fit(rng.normal(size=(n_feat + 2, n_feat)))
-
-        flux = np.ma.array(rng.normal(size=(n_exp, n_ord, n_pix)),
-                           mask=np.zeros((n_exp, n_ord, n_pix), dtype=bool))
-        noise = np.ma.array(np.ones((n_exp, n_ord, n_pix)), mask=flux.mask)
-        N = np.ma.array(np.full((n_ord, n_pix), n_exp), mask=np.zeros((n_ord, n_pix), dtype=bool))
-
-        return dict(
-            components_=pca.components_, explained_variance_=pca.explained_variance_,
-            explained_variance_ratio_=pca.explained_variance_ratio_,
-            singular_values_=pca.singular_values_, mean_=pca.mean_,
-            n_components_=pca.n_components_, n_samples_=pca.n_samples_,
-            noise_variance_=pca.noise_variance_, n_features_in_=pca.n_features_in_,
-            RV_const=12.3, RV_sys=10.0, mid_berv=2.0, mid_vr=0.3,
-            params=[0, 0, 0, 0, 0, n_feat], wave=np.ones((n_ord, n_pix)),
-            vrp=np.linspace(-50, 50, n_exp),
-            sep=np.ones(n_exp), noise=np.ma.getdata(noise), mask_noise=np.ma.getmaskarray(noise),
-            N=np.ma.getdata(N), mask_N=np.ma.getmaskarray(N),
-            t_start=np.linspace(0, 1, n_exp),
-            flux=np.ma.getdata(flux), mask_flux=np.ma.getmaskarray(flux),
-            s2f=np.ma.getdata(flux)[:, :, 0], mask_s2f=np.ma.getmaskarray(flux)[:, :, 0],
-            ratio=np.ma.getdata(flux), mask_ratio=np.ma.getmaskarray(flux),
-            reconstructed=np.ma.getdata(flux), mask_reconstructed=np.ma.getmaskarray(flux),
-            mast_out=np.ma.getdata(flux), mask_mast_out=np.ma.getmaskarray(flux),
-            alpha_frac=np.linspace(0, 1, n_exp), icorr=np.arange(n_exp), bad_indexs=[],
-        )
-
-    def test_vr_round_trips(self, tmp_path):
-        kwargs = self._minimal_npz_kwargs()
-        vr = np.linspace(-0.2, 0.2, 4)
-        np.savez(tmp_path / 'test_data_trs_0.npz', vr=vr, **kwargs)
-
-        _, data_trs = planet_obs.load_sequences('test', do_tr=[0], path=tmp_path)
-
-        np.testing.assert_allclose(data_trs['0']['vr'].to('km/s').value, vr)
-
-    def test_vr_falls_back_to_none_for_legacy_file(self, tmp_path):
-        """Fichier .npz d'avant l'ajout de `vr` (Chantier A Phase 2) : pas de KeyError,
-        `vr` retombe sur `None` (même schéma que RV_sys/mid_berv/mid_vr en Phase 0)."""
-        kwargs = self._minimal_npz_kwargs()
-        np.savez(tmp_path / 'test_data_trs_0.npz', **kwargs)  # no `vr` key
-
-        _, data_trs = planet_obs.load_sequences('test', do_tr=[0], path=tmp_path)
-
-        assert data_trs['0']['vr'] is None
+# `TestSaveLoadVr` (tested `vr` round-tripping through the saved .npz, with a fallback to
+# `None` for older files missing it) was removed in Chantier B / B3: `vr`/`vrp` are no longer
+# saved/loaded at all -- they are purely a deterministic function of the planet's ephemeris
+# and exposure timestamps (`gen_rv_sequence`, `K=None`), recomputed identically every time by
+# `load_reduced_sequence`, so there is nothing left to round-trip or fall back on (see
+# `save_reduced_sequence`'s docstring). The synthetic minimal-.npz fixture this test used also
+# predates B3's unified file format (no `spec_trans`/`fl_norm`/`fl_masked`/`fl_Sref`/
+# `noise_npc`, all now required by `load_reduced_sequence`) and would need a realistic
+# reduction round trip to reconstruct meaningfully -- covered instead by
+# `tests/regression/test_regression_reduction.py::TestReadTimeNPCConsistency` against real
+# WASP-33 data.
 
 
 class _FakeAtmoObject:

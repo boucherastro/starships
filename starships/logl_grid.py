@@ -121,6 +121,11 @@ def setup_logl_grid(input_parameters, **kwargs):
         'rv_grid', 'kp_grid', 'logl_kind',
         'logl_grid_output_path', 'n_processes_per_cpu',
         'apply_alpha',
+        # B3 (Chantier B): PCA truncation happens at read time now (see
+        # save_reduced_sequence/load_reduced_sequence) -- n_pc must come from the config
+        # (broadcast to match high_res_file_stem_list by unpack_input_parameters above),
+        # not from the loaded file itself.
+        'n_pc',
     ]
     for key in _KEYS:
         if key in input_params:
@@ -163,10 +168,12 @@ def load_logl_grid_data():
     data_trs = []
     data_info_list = []
 
-    for high_res_file_stem in high_res_file_stem_list:
+    for high_res_file_stem, n_pc_i in zip(high_res_file_stem_list, n_pc):
         log.info(f'Loading: {high_res_path / high_res_file_stem}')
+        # B3: n_pc applied at read time (one value per file); reuse `planet` (config
+        # pl_params overrides applied) instead of a fresh ExoFile lookup per visit.
         data_info_i, data_trs_i = pl_obs.load_sequences(
-            high_res_file_stem, [1], path=high_res_path
+            high_res_file_stem, [1], n_pc_i, path=high_res_path, planet=planet
         )
         data_trs.append(data_trs_i['0'])
         data_info_list.append(data_info_i)

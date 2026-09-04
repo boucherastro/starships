@@ -383,8 +383,17 @@ def unpack_input_parameters(input_parameters, **kwargs):
     if len(instrum) == 1:
         instrum = instrum * len(input_params['high_res_file_stem_list'])
     input_params['instrum'] = instrum
-    
-                
+
+    # --- n_pc needs the same shape as high_res_file_stem_list (B3, Chantier B): PCA
+    # truncation now happens at read time instead of being baked into the reduced file, so
+    # the retrieval must say explicitly which n_pc to use for each visit -- same broadcasting
+    # convention as `instrum` above (one value per file, or a single value for all of them).
+    # A KeyError here means the YAML predates B3 and needs an `n_pc:` key added.
+    n_pc = input_params['n_pc']
+    if len(n_pc) == 1:
+        n_pc = n_pc * len(input_params['high_res_file_stem_list'])
+    input_params['n_pc'] = n_pc
+
     return input_params
 
 
@@ -711,10 +720,15 @@ def load_high_res_data():
     data_info = {'trall_alpha_frac': [], 'trall_icorr': [], 'trall_N': [], 'bad_indexs': []}
     data_trs = []
 
-    for high_res_file_stem in high_res_file_stem_list:
+    for high_res_file_stem, n_pc_i in zip(high_res_file_stem_list, n_pc):
         log.debug(f'Hires files stem: {high_res_path / high_res_file_stem}')
         log.info('Loading Hires files.')
-        data_info_i, data_trs_i = pl_obs.load_sequences(high_res_file_stem, do_tr, path=high_res_path)
+        # B3 (Chantier B): n_pc is applied at read time (see save_reduced_sequence/
+        # load_reduced_sequence), one value per file (n_pc, broadcast in unpack_input_parameters).
+        # Reuse the already-built `planet` (config `pl_kwargs` overrides applied) instead of
+        # a fresh ExoFile lookup by name for every visit (see load_sequences's docstring).
+        data_info_i, data_trs_i = pl_obs.load_sequences(high_res_file_stem, do_tr, n_pc_i,
+                                                          path=high_res_path, planet=planet)
         # Add index of the exposures where we expect to see the planet signal (to be used in kernel function)
         # trall_alpha_frac is the fraction of the total planet signal received during the exposure.
         data_trs_i['0']['i_pl_signal'] = data_info_i['trall_alpha_frac'] > 0.5

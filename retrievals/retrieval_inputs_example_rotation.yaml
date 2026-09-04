@@ -24,6 +24,14 @@ high_res_file_stem_list:
   - retrieval_input_6-pc_mask_wings90_day1
   - retrieval_input_6-pc_mask_wings90_day2
 
+# n_pc used for each file above (B3, Chantier B): PCA truncation now happens at read time
+# instead of being baked into the reduced file, so this must be given explicitly (was
+# previously implicit in the old per-n_pc file naming/format). One value per file, or a
+# single value to use for all of them (same broadcasting convention as `instrum` above).
+n_pc:
+  - 6
+  - 6
+
 # Dictionary of path to spectrophotometric data (ex: JWST, HST)
 # If empty, no spectrophotometric data will be used
 spectrophotometric_data:
