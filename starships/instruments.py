@@ -370,11 +370,14 @@ def read_all_sp_spirou_CADC(path, filename, file_list):
     count, wv, blaze, recon = [], [], [], []
     filenames = []
 
-    with open(path + '/' + filename) as f:
+    path = Path(path)
+    filename = Path(filename)
+
+    with open(path / filename) as f:
         for file in f:
             filenames.append(file.split('\n')[0])
 
-            hdul = fits.open(path + '/' + file.split('\n')[0])
+            hdul = fits.open(path / Path(file.split('\n')[0]))
 
             headers_princ.append(hdul[0].header)
             headers_image.append(hdul[1].header)
@@ -403,11 +406,13 @@ def read_all_sp_nirps_apero_CADC(path,filename,file_list):
     headers_princ, headers_image, headers_tellu = list_of_dict([]), list_of_dict([]), list_of_dict([])
     count, wv, blaze, recon = [], [], [], []
     filenames = []
-    with open(str(path)+'/'+filename) as f:
+    path = Path(path)
+    filename = Path(filename)
+    with open(path / filename) as f:
 
         for file in f:
             filenames.append(file.split('\n')[0])
-            hdul = fits.open(str(path)+'/'+file.split('\n')[0])
+            hdul = fits.open(path / Path(file.split('\n')[0]))
 
             headers_princ.append(hdul[0].header)
             headers_image.append(hdul[1].header)

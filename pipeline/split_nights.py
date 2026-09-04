@@ -70,7 +70,7 @@ def _sibling_filenames(e2ds_filename, patterns):
     return siblings
 
 
-def split_night(obs_dir, path_fig, instrument='SPIRou-APERO'):
+def split_night(obs_dir, path_fig, instrument='SPIRou-APERO', list_output_dir=None):
     """Group raw observation files into visits/nights, and write out the
     `list_e2ds`/`list_tcorr`/`list_recon` file lists `pipeline.reduction.load_planet` expects
     for each visit.
@@ -78,7 +78,28 @@ def split_night(obs_dir, path_fig, instrument='SPIRou-APERO'):
     Works for any instrument/DRS registered in `starships.planet_obs.instruments_drs` with a
     `list_file_patterns` entry (built in for SPIRou-APERO; see
     `starships.planet_obs.register_instrument` to add one for a custom instrument).
+
+    Parameters
+    ----------
+    obs_dir : Path
+        Where the raw FITS files live. Always used to *read* them, regardless of
+        `list_output_dir` below.
+    path_fig : str
+        Passed to `plt.savefig` for the night-splitting diagnostic figure.
+    instrument : str, optional
+    list_output_dir : Path, optional
+        Where to *write* the new `list_e2ds_*`/`list_tcorr_*`/`list_recon_*` files. Defaults
+        to `obs_dir` (the old, only behaviour) if not given -- set this to a writable
+        directory (e.g. scratch) instead when `obs_dir` is a shared, read-only data
+        directory. The raw FITS filenames written *inside* the list still resolve relative to
+        `obs_dir` when the list is read back (`instruments.py`'s `read_all_sp_*` functions
+        all join `Path(data_dir) / Path(list_file)`, and `pathlib` returns `list_file`
+        unchanged when it is itself absolute -- so a list written outside `obs_dir` is read
+        back correctly as long as its path is passed as absolute, e.g. via `pipeline.reduction`
+        config `visit_name` entries built from this function's return value).
     """
+    if list_output_dir is None:
+        list_output_dir = obs_dir
     instrument_dict = pl_obs.instruments_drs[instrument]
     patterns = instrument_dict.get('list_file_patterns')
     if patterns is None:
@@ -186,7 +207,7 @@ def split_night(obs_dir, path_fig, instrument='SPIRou-APERO'):
         for reduc_type, reduc_flist in file_lists.items():
             name_list_files = Path(f'list_{reduc_type}_{date_str}')
             print(f'Writing to {name_list_files}')
-            with open(obs_dir / name_list_files, 'w') as f:
+            with open(Path(list_output_dir) / name_list_files, 'w') as f:
                 output = '\n'.join(reduc_flist)
                 f.write(output + '\n')
             visit_name.append(date_str)

@@ -81,6 +81,32 @@ class TestCadcFormatReaders:
         assert blaze[0][0, 0] == 0.5
         assert recon is None
 
+    def test_list_file_can_live_outside_the_data_directory(self, tmp_path):
+        """The list file itself can live anywhere (e.g. a scratch dir with write access,
+        separate from a read-only shared data directory) as long as `file_list` is passed as
+        an absolute path -- `pathlib`'s `/` operator returns the right-hand side unchanged
+        when it is already absolute, so `Path(data_dir) / Path(absolute_list_path)` resolves
+        to the list file, while the FITS filenames *inside* it still resolve relative to
+        `data_dir`. This used to only work for the non-CADC readers (`read_all_sp_spirou_apero`
+        etc., already `pathlib`-based); `read_all_sp_*_CADC` used string concatenation
+        (`path + '/' + filename`), which breaks for an absolute `filename` (produces a
+        malformed double path) -- fixed to use `pathlib` too, for consistency."""
+        data_dir = tmp_path / 'data'
+        data_dir.mkdir()
+        fits_path = data_dir / 'spirou_e2ds.fits'
+        _write_multi_ext_fits(fits_path, 9, {1: 100.0, 5: 2000.0, 9: 0.5})
+
+        list_dir = tmp_path / 'elsewhere'
+        list_dir.mkdir()
+        list_file = list_dir / 'list_e2ds_test'
+        list_file.write_text(fits_path.name + '\n')
+
+        headers, wave, count, blaze, filenames, recon = read_all_sp_spirou_cadc_format(
+            data_dir, list_file)  # list_file is an absolute Path, not just a filename
+
+        assert count[0][0, 0] == 100.0
+        assert filenames == [fits_path.name]
+
     def test_instruments_are_registered(self):
         assert instruments_drs['SPIRou-APERO-CADC']['read_all_sp'] is read_all_sp_spirou_cadc_format
         assert instruments_drs['NIRPS-APERO-CADC']['read_all_sp'] is read_all_sp_nirps_apero_cadc_format
