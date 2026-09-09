@@ -2929,6 +2929,219 @@ def sigma2percent_2d(sigma):
     return 1.0 - np.exp(-0.5 * np.asarray(sigma) ** 2)
 
 
+def plot_2d_map(map_2d, x_axis, y_axis, margin_x=None, margin_y=None,
+                x_label=r'$v_{\rm sys}$ (km s$^{-1}$)',
+                y_label=r'$K_{\rm P}$ (km s$^{-1}$)',
+                levels=None, level_style='contours', crosshair_hole=0.03,
+                mark_peak=False, peak_hole=0.03,
+                x_lim=None, y_lim=None, scale='linear',
+                cbar_label=None, figsize=(6, 6), save_path=None):
+    """Generic 2D (x, y) map: pcolormesh + optional 1D side panels + optional
+    iso-value contours/crosshairs + optional peak marker.
+
+    This knows nothing about confidence regions or cumulative probability --
+    ``levels`` are plain VALUE thresholds in ``map_2d``'s own units (e.g.
+    already-in-sigma values for an empirical or likelihood-ratio sigma map).
+    See ``plot_posterior_2d`` for a thin wrapper that derives such
+    thresholds from cumulative probability mass instead, for a genuine
+    (normalizable) posterior -- it calls this function for everything else.
+
+    Works equally for a strictly-positive posterior (``scale='log'``) and a
+    signed map like a raw CCF or a sigma map (``scale='linear'`` -- log
+    doesn't apply to negative values).
+
+    Layout (when ``margin_x``/``margin_y`` are both given; otherwise just
+    the 2D map panel)::
+
+        ┌─────────────┐ ┌───┐
+        │  2D map     │ │ y │  ← right panel: y-axis marginal (x = prob, y = y_axis)
+        └─────────────┘ └───┘
+        └─────────────┘        ← bottom panel: x-axis marginal (x = x_axis, y = prob)
+
+    Parameters
+    ----------
+    map_2d : (n_x, n_y) array — any 2D map (posterior, CCF, sigma map, ...).
+        May be a masked array; non-finite/masked entries are shown blank and
+        excluded from the peak search.
+    x_axis : (n_x,) array
+    y_axis : (n_y,) array
+    margin_x : (n_x,) array, optional — 1D curve for the bottom panel (a true
+        marginal, a slice through ``map_2d`` at the peak, or anything else).
+        No side panels are created unless BOTH ``margin_x`` and ``margin_y``
+        are given.
+    margin_y : (n_y,) array, optional — 1D curve for the right panel.
+    x_label, y_label : str — axis labels
+    levels : 1D array, optional — value thresholds in ``map_2d``'s own units
+        (not probability masses — see ``plot_posterior_2d`` for that).
+        Order doesn't matter, sorted internally.
+    level_style : {'contours', 'crosshairs', 'none'}
+        * ``'contours'`` — iso-value contours on the 2D map + matching
+          position lines on the marginal panels (if present).
+        * ``'crosshairs'`` — crosshair lines at the outermost (smallest)
+          level's boundary, through the peak, mirrored on the marginal
+          panels (if present).
+        * ``'none'`` — no level indicators.
+    crosshair_hole : float — fractional gap in the level-boundary crosshair
+        lines (default 0.03).
+    mark_peak : bool — if True, mark ``map_2d``'s maximum with its own small
+        crosshair, independent of ``levels``/``level_style``. Default False.
+    peak_hole : float — fractional gap in the peak-marker crosshair (default 0.03).
+    x_lim, y_lim : (float, float), optional — display range limits.
+    scale : {'linear', 'log'}
+        Colour scale for the 2D map and the 1D panels' value axis. 'log'
+        assumes a strictly positive map (e.g. a posterior) -- use 'linear'
+        for anything signed (CCF, sigma map).
+    cbar_label : str, optional — colourbar label. Default: no label.
+    figsize : tuple
+    save_path : str or Path, optional
+
+    Returns
+    -------
+    fig, axes
+        ``axes`` is ``(ax_map, ax_y, ax_x)`` when ``margin_x``/``margin_y``
+        are both given (``ax_y`` = right panel, ``ax_x`` = bottom panel), or
+        just ``ax_map`` otherwise.
+    """
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    has_panels = margin_x is not None and margin_y is not None
+
+    # --- Crop axes ---
+    if x_lim is not None:
+        mask = (x_axis >= x_lim[0]) & (x_axis <= x_lim[1])
+        x_axis = x_axis[mask]
+        map_2d = map_2d[mask, :]
+        if has_panels:
+            margin_x = margin_x[mask]
+    if y_lim is not None:
+        mask = (y_axis >= y_lim[0]) & (y_axis <= y_lim[1])
+        y_axis = y_axis[mask]
+        map_2d = map_2d[:, mask]
+        if has_panels:
+            margin_y = margin_y[mask]
+
+    # --- Figure layout ---
+    fig = plt.figure(figsize=figsize)
+    ax_map = fig.gca()
+    if has_panels:
+        divider = make_axes_locatable(ax_map)
+        ax_y = divider.append_axes('right', size='20%', pad=0.05)
+        ax_x = divider.append_axes('bottom', size='20%', pad=0.07)
+
+    # --- Main map ---
+    norm = 'log' if scale == 'log' else None
+    map_plot = np.ma.filled(np.ma.masked_invalid(map_2d), np.nan)
+    imgrid = ax_map.pcolormesh(x_axis, y_axis, map_plot.T, norm=norm)
+
+    # Peak location, needed by both level_style='crosshairs' and mark_peak --
+    # masked/non-finite entries are excluded so they can never be "the peak".
+    map_filled = np.ma.filled(np.ma.masked_invalid(map_2d), -np.inf)
+    max_ind = np.unravel_index(np.argmax(map_filled), map_filled.shape)
+    x_peak, y_peak = x_axis[max_ind[0]], y_axis[max_ind[1]]
+
+    # --- Level indicators (contours / crosshairs at given VALUE thresholds) ---
+    if levels is not None:
+        levels_sorted = np.sort(np.asarray(levels, dtype=float))
+
+        if level_style == 'contours':
+            ax_map.contour(x_axis, y_axis, map_2d.T,
+                           levels=levels_sorted, colors='w', linewidths=0.8)
+
+        elif level_style == 'crosshairs':
+            # Outermost = smallest threshold -> largest enclosed region, for
+            # ANY monotonic map (superlevel sets shrink as the threshold grows).
+            outermost_lvl = levels_sorted[0]
+            i_lvl, j_lvl = np.nonzero(map_2d >= outermost_lvl)
+            x_lo, x_hi = x_axis[i_lvl.min()], x_axis[i_lvl.max()]
+            y_lo, y_hi = y_axis[j_lvl.min()], y_axis[j_lvl.max()]
+            hole = crosshair_hole
+            for xv in (x_lo, x_hi):
+                plot_x_y_position(xv, y_peak, x_hole=hole, y_hole=hole,
+                                  ax=ax_map, hlines=False)
+            for yv in (y_lo, y_hi):
+                plot_x_y_position(x_peak, yv, x_hole=hole, y_hole=hole,
+                                  ax=ax_map, vlines=False)
+            if has_panels:
+                ax_x.axvline(x_lo, color='gray', linestyle='--')
+                ax_x.axvline(x_hi, color='gray', linestyle='--')
+                ax_y.axhline(y_lo, color='gray', linestyle='--')
+                ax_y.axhline(y_hi, color='gray', linestyle='--')
+
+        # --- Level position lines on marginals (contours mode) ---
+        # For each level, project the enclosed region onto each axis: draw
+        # lines at the min/max x (or y) that belong to the region. This
+        # guarantees the marginal lines stay aligned with the 2D contours.
+        if level_style == 'contours' and has_panels:
+            for lvl in levels_sorted:
+                i_above, j_above = np.nonzero(map_2d >= lvl)
+                if not len(i_above):
+                    continue
+                x_lo, x_hi = x_axis[i_above.min()], x_axis[i_above.max()]
+                y_lo, y_hi = y_axis[j_above.min()], y_axis[j_above.max()]
+                ax_x.axvline(x_lo, linestyle=':', color='k', alpha=0.7)
+                ax_x.axvline(x_hi, linestyle=':', color='k', alpha=0.7)
+                ax_y.axhline(y_lo, linestyle=':', color='k', alpha=0.7)
+                ax_y.axhline(y_hi, linestyle=':', color='k', alpha=0.7)
+
+    # --- Simple peak marker (independent of levels/level_style) ---
+    if mark_peak:
+        plot_x_y_position(x_peak, y_peak, x_hole=peak_hole, y_hole=peak_hole,
+                          ax=ax_map, color='cyan')
+
+    # --- Marginal panels ---
+    if has_panels:
+        # Clip zeros before log-scale plotting to avoid blank axes.
+        def _floor(arr):
+            pos = arr[arr > 0]
+            return float(pos.min()) * 1e-3 if len(pos) else 1e-300
+
+        if scale == 'log':
+            fx, fy = _floor(margin_x), _floor(margin_y)
+            ax_x.semilogy(x_axis, np.maximum(margin_x, fx))
+            ax_y.semilogx(np.maximum(margin_y, fy), y_axis)
+            ax_x.set_ylim(bottom=fx * 0.5)
+            ax_y.set_xlim(left=fy * 0.5)
+        else:
+            ax_x.plot(x_axis, margin_x)
+            ax_y.plot(margin_y, y_axis)
+
+    # --- Colourbar ---
+    if has_panels:
+        cax_list = []
+        for _ in [ax_map, ax_y]:
+            cax_list.append(divider.append_axes('top', size='3%', pad=0.05))
+        cax_list[1].axis('off')
+        fig.colorbar(imgrid, ax=ax_map, cax=cax_list[0], orientation='horizontal')
+        cax_list[0].xaxis.set_ticks_position('top')
+        cax_list[0].xaxis.set_label_position('top')
+        if cbar_label:
+            cax_list[0].set_xlabel(cbar_label, fontsize=12)
+    else:
+        cb = fig.colorbar(imgrid, ax=ax_map)
+        if cbar_label:
+            cb.set_label(cbar_label, fontsize=12)
+
+    # --- Labels and sync ---
+    if has_panels:
+        ax_y.set_yticklabels([])
+        ax_map.set_xticks([])
+        ax_y.set_ylim(ax_map.get_ylim())
+        ax_x.set_xlim(ax_map.get_xlim())
+        ax_map.set_ylabel(y_label, fontsize=16)
+        ax_x.set_xlabel(x_label, fontsize=16)
+    else:
+        ax_map.set_xlabel(x_label, fontsize=16)
+        ax_map.set_ylabel(y_label, fontsize=16)
+
+    plt.tight_layout()
+    if save_path is not None:
+        fig.savefig(save_path, bbox_inches='tight')
+
+    if has_panels:
+        return fig, (ax_map, ax_y, ax_x)
+    return fig, ax_map
+
+
 def plot_posterior_2d(posterior, x_axis, y_axis, margin_x, margin_y,
                       x_label=r'$v_{\rm sys}$ (km s$^{-1}$)',
                       y_label=r'$K_{\rm P}$ (km s$^{-1}$)',
@@ -2938,16 +3151,19 @@ def plot_posterior_2d(posterior, x_axis, y_axis, margin_x, margin_y,
                       x_lim=None, y_lim=None,
                       scale='log',
                       figsize=(6, 6), save_path=None):
-    """Generic 2D posterior map with sigma indicators and marginal panels.
+    """Genuine-posterior 2D map: sigma contours/crosshairs + marginal panels.
 
-    Core implementation shared by ``plot_kpvsys_map`` and ``plot_alpha_rv_map``.
+    Thin wrapper around ``plot_2d_map`` -- this is the only place that knows
+    about *cumulative probability mass*: it turns ``sigma_levels`` into
+    actual posterior-value thresholds (``get_contours_posterior``) before
+    handing everything else off to ``plot_2d_map``. Core implementation
+    shared by ``plot_kpvsys_map`` and ``plot_alpha_rv_map``.
 
-    Layout::
-
-        ┌─────────────┐ ┌───┐
-        │  2D map     │ │ y │  ← right panel: y-axis marginal (x = prob, y = y_axis)
-        └─────────────┘ └───┘
-        └─────────────┘        ← bottom panel: x-axis marginal (x = x_axis, y = prob)
+    Use ``plot_2d_map`` directly instead for anything that isn't a genuine,
+    normalizable probability density -- a raw CCF map, or a sigma-scale map
+    from ``logl_grid.compute_empirical_sigma_map``/
+    ``compute_alpha_significance_map`` (those already report sigma values
+    directly, with no cumulative-probability step needed at all).
 
     Parameters
     ----------
@@ -2960,11 +3176,9 @@ def plot_posterior_2d(posterior, x_axis, y_axis, margin_x, margin_y,
     n_sigma : int — number of sigma levels (1–5) when ``sigma_levels`` is None
     sigma_levels : list of float, optional — explicit sigma values
     sigma_display : {'contours', 'crosshairs', 'none'}
-        * ``'contours'`` — iso-probability contours on 2D map + sigma-boundary lines
-          on marginal panels at the corresponding *positions* (not probabilities).
-        * ``'crosshairs'`` — crosshair lines at the outermost 2D sigma boundary,
-          mirrored on the marginal panels.
-        * ``'none'`` — no sigma indicators.
+        Same meaning as ``plot_2d_map``'s ``level_style``, plus: in
+        ``'crosshairs'`` mode, the outermost requested sigma value is
+        printed as a text label on the map (e.g. "3σ").
     crosshair_hole : float — fractional gap in crosshair lines (default 0.03).
     x_lim, y_lim : (float, float), optional — display range limits.
     scale : {'log', 'linear'}
@@ -2977,26 +3191,21 @@ def plot_posterior_2d(posterior, x_axis, y_axis, margin_x, margin_y,
     fig, (ax_map, ax_y, ax_x)
         ``ax_y`` — right panel (y-axis marginal); ``ax_x`` — bottom panel (x-axis marginal)
     """
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-    # --- Crop axes ---
+    # --- Crop axes FIRST (matches the pre-refactor behaviour: sigma levels
+    # below are derived from the cropped region's own probability mass, not
+    # the full grid's) ---
     if x_lim is not None:
         mask = (x_axis >= x_lim[0]) & (x_axis <= x_lim[1])
-        x_axis    = x_axis[mask]
-        posterior = posterior[mask, :]
-        margin_x  = margin_x[mask]
+        x_axis, posterior, margin_x = x_axis[mask], posterior[mask, :], margin_x[mask]
     if y_lim is not None:
         mask = (y_axis >= y_lim[0]) & (y_axis <= y_lim[1])
-        y_axis    = y_axis[mask]
-        posterior = posterior[:, mask]
-        margin_y  = margin_y[mask]
+        y_axis, posterior, margin_y = y_axis[mask], posterior[:, mask], margin_y[mask]
 
     d_x = x_axis[1] - x_axis[0]
     d_y = y_axis[1] - y_axis[0]
 
-    # --- Sigma mass arrays ---
+    # --- Sigma mass arrays -> actual posterior-value thresholds ---
     _s2d = [0.3935, 0.8647, 0.9889, 0.9997, 0.9999994]
-    _s1d = [0.6827, 0.9545, 0.9973, 0.99994, 0.9999994]
     if isinstance(sigma_levels, str) and sigma_levels in ('auto', 'max'):
         # Find the maximum sigma that still encloses only the primary peak,
         # then draw a single contour at that level.
@@ -3006,107 +3215,34 @@ def plot_posterior_2d(posterior, x_axis, y_axis, margin_x, margin_y,
     if sigma_levels is not None:
         sigma_levels = np.asarray(sigma_levels, dtype=float)
         sigma_masses_2d = sigma2percent_2d(sigma_levels).tolist()
-        from scipy.special import erf as _erf
-        sigma_masses_1d = _erf(sigma_levels / np.sqrt(2)).tolist()
     else:
         sigma_levels = np.arange(1, n_sigma + 1, dtype=float)
         sigma_masses_2d = _s2d[:n_sigma]
-        sigma_masses_1d = _s1d[:n_sigma]
 
-    # --- Figure layout ---
-    fig = plt.figure(figsize=figsize)
-    ax_map = fig.gca()
-    divider = make_axes_locatable(ax_map)
-    ax_y = divider.append_axes('right',  size='20%', pad=0.05)
-    ax_x = divider.append_axes('bottom', size='20%', pad=0.07)
-
-    # --- Main map ---
-    norm = 'log' if scale == 'log' else None
-    imgrid = ax_map.pcolormesh(x_axis, y_axis, posterior.T, norm=norm)
-
-    # --- 2D sigma indicators ---
     lvl_post, _ = get_contours_posterior(
         posterior, [d_x, d_y], lvls=sigma_masses_2d, renormalize=True,
     )
-    max_ind = np.unravel_index(np.argmax(posterior), posterior.shape)
-    x_peak, y_peak = x_axis[max_ind[0]], y_axis[max_ind[1]]
 
-    if sigma_display == 'contours':
-        ax_map.contour(x_axis, y_axis, posterior.T,
-                       levels=lvl_post[::-1], colors='w', linewidths=0.8)
+    level_style = 'none' if sigma_display == 'none' else sigma_display
+    fig, axes = plot_2d_map(
+        posterior, x_axis, y_axis, margin_x=margin_x, margin_y=margin_y,
+        x_label=x_label, y_label=y_label,
+        levels=lvl_post if sigma_display != 'none' else None,
+        level_style=level_style, crosshair_hole=crosshair_hole,
+        scale=scale,
+        cbar_label='Probability density', figsize=figsize, save_path=None,
+    )
+    ax_map, ax_y, ax_x = axes
 
-    elif sigma_display == 'crosshairs':
-        i_lvl, j_lvl = np.nonzero(posterior >= lvl_post[-1])
-        x_lo, x_hi = x_axis[i_lvl.min()], x_axis[i_lvl.max()]
-        y_lo, y_hi = y_axis[j_lvl.min()], y_axis[j_lvl.max()]
-        hole = crosshair_hole
-        for xv in (x_lo, x_hi):
-            plot_x_y_position(xv, y_peak, x_hole=hole, y_hole=hole,
-                              ax=ax_map, hlines=False)
-        for yv in (y_lo, y_hi):
-            plot_x_y_position(x_peak, yv, x_hole=hole, y_hole=hole,
-                              ax=ax_map, vlines=False)
-        # Mirror on marginals: lines at POSITIONS (not probability values)
-        ax_x.axvline(x_lo, color='gray', linestyle='--')
-        ax_x.axvline(x_hi, color='gray', linestyle='--')
-        ax_y.axhline(y_lo, color='gray', linestyle='--')
-        ax_y.axhline(y_hi, color='gray', linestyle='--')
+    # --- Text label for the outermost sigma level (crosshairs mode only) ---
+    if sigma_display == 'crosshairs':
+        outermost_lvl = float(np.sort(lvl_post)[0])
+        j_lvl = np.nonzero(posterior >= outermost_lvl)[1]
+        y_hi = y_axis[j_lvl.max()]
         outermost = sigma_levels[-1]
         label = (f'{outermost:.1f}' if outermost % 1 else f'{int(outermost)}') + r'$\sigma$'
         ax_map.text(x_axis.min(), y_hi, label, fontsize=16, weight='bold', color='white')
 
-    # --- Sigma position lines on marginals (contours mode) ---
-    # For each 2D contour level, project the enclosed region onto each axis:
-    # draw lines at the min/max x (or y) that belong to the region.
-    # This guarantees that the marginal lines are always aligned with the
-    # 2D contours on the main map.
-    if sigma_display == 'contours':
-        for lvl in lvl_post:
-            i_above, j_above = np.nonzero(posterior >= lvl)
-            if not len(i_above):
-                continue
-            x_lo, x_hi = x_axis[i_above.min()], x_axis[i_above.max()]
-            y_lo, y_hi = y_axis[j_above.min()], y_axis[j_above.max()]
-            ax_x.axvline(x_lo, linestyle=':', color='k', alpha=0.7)
-            ax_x.axvline(x_hi, linestyle=':', color='k', alpha=0.7)
-            ax_y.axhline(y_lo, linestyle=':', color='k', alpha=0.7)
-            ax_y.axhline(y_hi, linestyle=':', color='k', alpha=0.7)
-
-    # --- Marginal panels ---
-    # Clip zeros before log-scale plotting to avoid blank axes.
-    def _floor(arr):
-        pos = arr[arr > 0]
-        return float(pos.min()) * 1e-3 if len(pos) else 1e-300
-
-    if scale == 'log':
-        fx, fy = _floor(margin_x), _floor(margin_y)
-        ax_x.semilogy(x_axis, np.maximum(margin_x, fx))
-        ax_y.semilogx(np.maximum(margin_y, fy), y_axis)
-        ax_x.set_ylim(bottom=fx * 0.5)
-        ax_y.set_xlim(left=fy * 0.5)
-    else:
-        ax_x.plot(x_axis, margin_x)
-        ax_y.plot(margin_y, y_axis)
-
-    # --- Colourbar ---
-    cax_list = []
-    for _ in [ax_map, ax_y]:
-        cax_list.append(divider.append_axes('top', size='3%', pad=0.05))
-    cax_list[1].axis('off')
-    fig.colorbar(imgrid, ax=ax_map, cax=cax_list[0], orientation='horizontal')
-    cax_list[0].xaxis.set_ticks_position('top')
-    cax_list[0].xaxis.set_label_position('top')
-    cax_list[0].set_xlabel('Probability density', fontsize=12)
-
-    # --- Labels and sync ---
-    ax_y.set_yticklabels([])
-    ax_map.set_xticks([])
-    ax_y.set_ylim(ax_map.get_ylim())
-    ax_x.set_xlim(ax_map.get_xlim())
-    ax_map.set_ylabel(y_label, fontsize=16)
-    ax_x.set_xlabel(x_label, fontsize=16)
-
-    plt.tight_layout()
     if save_path is not None:
         fig.savefig(save_path, bbox_inches='tight')
 

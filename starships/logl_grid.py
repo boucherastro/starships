@@ -1076,34 +1076,505 @@ def compute_kpvsys_posterior(alpha_array=None, idx_signal=None,
     d_alpha = alpha_array[1] - alpha_array[0]
     log_posterior = _log_simps(logl_map_alpha, d_alpha, axis=0)   # (n_vsys, n_kp)
 
-    # Normalise to max=0 before exp().
-    finite_lp = log_posterior[np.isfinite(log_posterior)]
-    lp_max = float(finite_lp.max()) if len(finite_lp) else 0.
-    log_post_norm = log_posterior - lp_max
+    return _posterior_from_log_map(log_posterior, vsys_axis, kp_axis, oversample)
 
-    # --- Optional oversampling of the 2D posterior (display only) ---
-    if oversample > 1:
-        from starships.plotting_fcts import oversample_image
-        # Replace any residual -inf before spline interpolation.
-        floor_val = log_post_norm[np.isfinite(log_post_norm)].min()
-        log_post_safe = np.where(np.isfinite(log_post_norm), log_post_norm, floor_val)
-        log_post_os, kp_os, vsys_os = oversample_image(
-            log_post_safe, oversample, x_coords=kp_axis, y_coords=vsys_axis,
-        )
-        posterior = np.exp(log_post_os)
-        vsys_out, kp_out = vsys_os, kp_os
-        lp_for_margins = log_post_os   # per-slice max on oversampled grid
+
+def compute_kpvsys_posterior_fixed_alpha(alpha, idx_signal=None, idx_orders=None,
+                                          oversample=2, kind='BL'):
+    """Compute the Kp-Vsys posterior/likelihood map at a FIXED alpha.
+
+    Same output convention as ``compute_kpvsys_posterior`` (drop-in for
+    ``plot_kpvsys_map``), but alpha is held fixed instead of marginalized
+    over. Typical uses: ``alpha=0.`` (null-hypothesis map -- should come out
+    ~flat after normalization, a useful sanity check) or
+    ``alpha=alpha_best`` from ``compute_alpha_significance`` (visualize the
+    map at the maximum-likelihood amplitude).
+
+    See ``compute_kpvsys_bayes_factor`` and ``compute_alpha_significance``
+    for two different ways of turning a fixed-alpha comparison into a
+    detection statistic.
+
+    Parameters
+    ----------
+    alpha : float
+        Fixed model scaling factor.
+    idx_signal : 1D int array, optional
+        Same as ``compute_kpvsys_posterior``.
+    idx_orders : array-like, optional
+        Spectral orders to include. Default: all.
+    oversample : int
+        Oversampling factor, see ``compute_kpvsys_posterior``.
+    kind : {'BL', 'G'}
+        LogL prescription: 'BL' = Brogi & Line (default), 'G' = Gibson.
+
+    Returns
+    -------
+    posterior : (n_vsys_os, n_kp_os) array
+        Fixed-alpha, oversampled posterior/likelihood (linear, max = 1).
+    vsys_os : (n_vsys_os,) array  — oversampled v_sys axis
+    kp_os   : (n_kp_os,)  array  — oversampled Kp axis
+    margin_vsys : (n_vsys_os,) array  — marginalized over Kp
+    margin_kp   : (n_kp_os,)   array  — marginalized over v_sys
+    """
+    if idx_signal is None:
+        alpha_frac = _loaded_extra['alpha_frac']
+        (idx_signal,) = np.nonzero(alpha_frac > 0.5)
+
+    log_map = get_logl(alpha=float(alpha), idx_orders=idx_orders,
+                        idx_exposure=idx_signal, kind=kind, sum_axis=(-2, -1))
+
+    return _posterior_from_log_map(log_map, vsys_axis, kp_axis, oversample)
+
+
+def compute_kpvsys_bayes_factor(alpha_array=None, idx_signal=None, idx_orders=None,
+                                 kind='BL', vsys_bounds=None, kp_bounds=None):
+    """Compute the Bayes factor between the signal and null models.
+
+    Signal model: alpha, vsys, AND Kp are all free parameters, each with its
+    own *uniform* prior (alpha over ``alpha_array``'s range, vsys/Kp over
+    ``vsys_bounds``/``kp_bounds``, default: the full loaded grid). Null
+    model: alpha=0 (no planet signal, no vsys/Kp dependence at all)::
+
+        log(BF) = log[ integral( L(vsys,Kp,a) da dvsys dKp )
+                        / (a_range * vsys_range * kp_range) ]
+                  - logL(alpha=0)
+
+    Each ``1 / range`` term is an Occam factor coming from that parameter's
+    prior normalization -- it is what makes the Bayes factor penalize a
+    vague/wide prior (or a large, mostly-empty search volume). vsys and Kp
+    get their own Occam factor for the same reason alpha does: they are free
+    parameters of the signal model that the null model does not have at all,
+    so there is nothing for their priors to cancel against. **The result
+    depends on all three ranges chosen** (the alpha range explicitly, the
+    vsys/Kp ranges via ``vsys_bounds``/``kp_bounds`` or implicitly through
+    whatever grid was computed), more so for marginal detections. Report
+    log(BF) for a couple of different ranges as a sensitivity check rather
+    than trusting a single number (see the ``detection_significance``
+    tutorial notebook for a worked example) -- but see the two distinct
+    failure modes below before doing so.
+
+    Two different things can happen when you narrow a range, and they are
+    easy to conflate:
+
+    - **Truncation**: the narrower range excludes where the likelihood is
+      actually high (e.g. an ``alpha_array`` that stops before the true
+      best-fit alpha). This makes log(BF) mechanically lower because real
+      evidence got left out of the integral -- it says nothing about
+      robustness, it is simply the wrong range for this data. Always check
+      that a candidate range/bounds fully covers the peak (e.g. against
+      ``compute_alpha_significance``'s ``alpha_best``/``vsys_best``/
+      ``kp_best``) before reading anything into a lower log(BF).
+    - **Genuine Occam dilution**: the range already fully covers the peak,
+      and is simply made wider still by adding "empty" territory the data
+      disfavor. *This* is the sensitivity effect worth reporting.
+
+    ``vsys_bounds``/``kp_bounds`` in particular carry a **look-elsewhere
+    risk**: choosing them *after* seeing where the peak landed on the full
+    grid is double-dipping (you'd be reporting the evidence for a model you
+    only get to test because the data already told you where to look), not
+    a legitimate a priori restriction. Only narrow vsys/Kp using bounds
+    justified independently of this grid (e.g. known orbital constraints),
+    never by eye-balling the map first.
+
+    Parameters
+    ----------
+    alpha_array : 1D array, optional
+        Alpha values to marginalize over, defining the prior's support.
+        Default: 31 points linearly spaced in [0.01, 2.0].
+    idx_signal : 1D int array, optional
+        Indices of exposures where the planet signal is detectable.
+        Default: derived from loaded alpha_frac.
+    idx_orders : array-like, optional
+        Spectral orders to include. Default: all.
+    kind : {'BL', 'G'}
+        LogL prescription: 'BL' = Brogi & Line (default), 'G' = Gibson.
+    vsys_bounds : (float, float), optional
+        Restrict the vsys integral/prior to this sub-range of the loaded
+        grid. Default: the full ``vsys_axis`` range.
+    kp_bounds : (float, float), optional
+        Restrict the Kp integral/prior to this sub-range of the loaded grid.
+        Default: the full ``kp_axis`` range.
+
+    Returns
+    -------
+    dict
+        ``log_bf`` : natural-log Bayes factor (signal vs null).
+        ``alpha_range``, ``vsys_range``, ``kp_range`` : widths of the three
+        uniform priors actually used.
+        ``logl_evidence_signal`` : log-evidence of the signal model.
+        ``logl_null`` : logL of the null model (alpha=0).
+    """
+    if alpha_array is None:
+        alpha_array = np.linspace(0.01, 2., 31)
+    if idx_signal is None:
+        alpha_frac = _loaded_extra['alpha_frac']
+        (idx_signal,) = np.nonzero(alpha_frac > 0.5)
+
+    # --- Select the vsys/Kp sub-grid to integrate over (default: everything) ---
+    if vsys_bounds is None:
+        vsys_mask = np.ones_like(vsys_axis, dtype=bool)
     else:
-        posterior = np.exp(log_post_norm)
-        vsys_out, kp_out = vsys_axis.copy(), kp_axis.copy()
-        lp_for_margins = log_post_norm
+        vsys_mask = (vsys_axis >= vsys_bounds[0]) & (vsys_axis <= vsys_bounds[1])
+    if kp_bounds is None:
+        kp_mask = np.ones_like(kp_axis, dtype=bool)
+    else:
+        kp_mask = (kp_axis >= kp_bounds[0]) & (kp_axis <= kp_bounds[1])
+    vsys_sel = vsys_axis[vsys_mask]
+    kp_sel = kp_axis[kp_mask]
 
-    # --- Marginals with per-slice max shift ---
-    # Uses a per-row/per-column max instead of the global max so every slice
-    # retains its own scale and the profiles are smooth even for narrow peaks.
-    margin_vsys, margin_kp = _marginals_from_log(lp_for_margins, vsys_out, kp_out)
+    # --- Evidence of the signal model: integrate over alpha, then vsys, then Kp ---
+    logl_cube = get_logl(alpha=alpha_array, idx_orders=idx_orders,
+                          idx_exposure=idx_signal, kind=kind, sum_axis=(-2, -1))
+    logl_cube = logl_cube[:, vsys_mask][:, :, kp_mask]               # (n_alpha, n_vsys_sel, n_kp_sel)
+    d_alpha = alpha_array[1] - alpha_array[0]
+    log_ev_vsys_kp = _log_simps(logl_cube, d_alpha, axis=0)          # (n_vsys_sel, n_kp_sel)
 
-    return posterior, vsys_out, kp_out, margin_vsys, margin_kp
+    d_vsys = vsys_sel[1] - vsys_sel[0]
+    d_kp   = kp_sel[1]   - kp_sel[0]
+    log_ev_signal_raw = _log_simps(_log_simps(log_ev_vsys_kp, d_kp, axis=1), d_vsys, axis=0)
+
+    # Occam factors: normalize each integral by its (uniform) prior density.
+    # alpha, vsys, and Kp are all free parameters of the signal model that the
+    # null model simply doesn't have -- each needs its own normalization, there
+    # is no shared prior to cancel out of the ratio.
+    alpha_range = float(alpha_array[-1] - alpha_array[0])
+    vsys_range  = float(vsys_sel[-1] - vsys_sel[0])
+    kp_range    = float(kp_sel[-1] - kp_sel[0])
+    log_ev_signal = float(log_ev_signal_raw) - np.log(alpha_range) - np.log(vsys_range) - np.log(kp_range)
+
+    # --- Evidence of the null model: alpha=0 => chi2 = sf only, independent of vsys/Kp ---
+    logl_null_map = get_logl(alpha=0., idx_orders=idx_orders, idx_exposure=idx_signal,
+                              kind=kind, sum_axis=(-2, -1))
+    logl_null = float(np.ma.median(logl_null_map))
+
+    return dict(log_bf=log_ev_signal - logl_null, alpha_range=alpha_range,
+                vsys_range=vsys_range, kp_range=kp_range,
+                logl_evidence_signal=log_ev_signal, logl_null=logl_null)
+
+
+def _profile_alpha_logl(idx_signal, idx_orders, kind='BL'):
+    """Per-grid-point analytic profile likelihood: MLE alpha (>= 0) and logL there.
+
+    ``chi2(alpha) = sf - 2*alpha*ct + alpha**2*st`` is an upward parabola in
+    alpha (``st > 0``) for *both* ``kind='BL'`` and ``kind='G'`` -- both logL
+    prescriptions are strictly decreasing functions of chi2 (see
+    ``_logl_from_chi2_terms``), so maximizing either one over alpha is
+    exactly equivalent to minimizing this same chi2, whose unconstrained
+    minimum is at ``alpha = ct/st`` -- a closed form, no numerical optimizer
+    needed. The alpha >= 0 constraint (the model amplitude can't be
+    negative) clips negative solutions to the boundary alpha=0, which is
+    also exactly where the null model sits.
+
+    Shared by ``compute_alpha_significance`` (evaluated at the grid's best
+    point) and ``compute_alpha_significance_map`` (evaluated everywhere).
+
+    Returns
+    -------
+    alpha_map : (n_vsys, n_kp) array -- per-point alpha MLE (>= 0).
+    logl_best_map : (n_vsys, n_kp) array -- logL at ``alpha_map``.
+    logl_null_map : (n_vsys, n_kp) array -- logL at alpha=0 (constant across
+        vsys/Kp; returned as a full map only for shape convenience).
+    """
+    ct, st, sf, N, us = get_chi2_components(idx_orders=idx_orders, idx_exposure=idx_signal,
+                                             sum_axis=(-2, -1))
+    with np.errstate(divide='ignore', invalid='ignore'):
+        alpha_unclipped = np.ma.where(st > 0, ct / st, 0.)
+    alpha_map = np.ma.maximum(alpha_unclipped, 0.)
+    logl_best_map = _logl_from_chi2_terms(ct, st, sf, N, alpha=alpha_map, kind=kind, uncert_sum=us)
+    logl_null_map = _logl_from_chi2_terms(ct, st, sf, N, alpha=0., kind=kind, uncert_sum=us)
+    return alpha_map, logl_best_map, logl_null_map
+
+
+def _alpha_significance_full(idx_signal, idx_orders, kind):
+    """Core computation shared by ``compute_alpha_significance`` and
+    ``compute_alpha_significance_map`` -- full per-point maps plus the
+    location of the map's own peak. Both public functions are thin
+    extractions from this, so the D/p-value/sigma formulas exist in exactly
+    one place.
+    """
+    from scipy import stats
+
+    alpha_map, logl_best_map, logl_null_map = _profile_alpha_logl(idx_signal, idx_orders, kind)
+    logl_null = float(np.ma.median(logl_null_map))
+
+    # Numerical safety: D should be >= 0 at the true (per-point) MLE (logl_best_map
+    # >= logl_null by construction, since alpha=0 is always at least as good as the
+    # unconstrained optimum when that optimum is clipped to the boundary); guard
+    # against tiny negative values from floating-point noise.
+    D_map = np.ma.maximum(2. * (logl_best_map - logl_null), 0.)
+    p_map = 0.5 * stats.chi2.sf(np.ma.filled(D_map, 0.), df=1)
+    p_map = np.ma.array(p_map, mask=np.ma.getmaskarray(D_map))
+    sigma_map = np.ma.array(stats.norm.isf(p_map), mask=np.ma.getmaskarray(D_map))
+
+    sigma_filled = np.ma.filled(sigma_map, -np.inf)
+    i_v, i_k = np.unravel_index(np.argmax(sigma_filled), sigma_filled.shape)
+
+    return dict(alpha_map=alpha_map, logl_best_map=logl_best_map, logl_null=logl_null,
+                D_map=D_map, p_map=p_map, sigma_map=sigma_map, i_v=i_v, i_k=i_k)
+
+
+def compute_alpha_significance(idx_signal=None, idx_orders=None, kind='BL'):
+    """Compute a detection significance via the profile likelihood-ratio test.
+
+    Compares H0: alpha=0 (no signal) against H1: alpha=alpha_best, the
+    maximum-likelihood estimate jointly optimized over vsys, Kp, and alpha
+    (closed form -- see ``_profile_alpha_logl``). This sidesteps the need to
+    choose a prior over alpha (unlike ``compute_kpvsys_bayes_factor``), at
+    the cost of moving from a Bayesian to a frequentist framework.
+
+    Since alpha >= 0 is a *boundary* of the parameter space (the model
+    amplitude cannot be negative), the null distribution of the test
+    statistic ``D = 2 * (logL_best - logL_null)`` is **not** a plain
+    chi-square with 1 degree of freedom. By Chernoff's theorem (Chernoff
+    1954; Self & Liang 1987), it is a 50/50 mixture of a point mass at 0
+    and chi2(df=1), so the p-value is ``0.5 * chi2(df=1).sf(D)`` -- using
+    the unadjusted chi2(df=1) survival function would overstate the
+    significance by roughly a factor of 2 in probability.
+
+    A thin extraction (at the grid's best point only) of
+    ``compute_alpha_significance_map``, which computes the exact same
+    statistic at *every* (vsys, Kp) grid point -- see there for a full map
+    instead of just this single point's numbers.
+
+    Parameters
+    ----------
+    idx_signal : 1D int array, optional
+        Indices of exposures where the planet signal is detectable.
+        Default: derived from loaded alpha_frac.
+    idx_orders : array-like, optional
+        Spectral orders to include. Default: all.
+    kind : {'BL', 'G'}
+        LogL prescription: 'BL' = Brogi & Line (default), 'G' = Gibson.
+
+    Returns
+    -------
+    dict
+        ``alpha_best``, ``vsys_best``, ``kp_best`` : MLE location.
+        ``logl_best``, ``logl_null`` : logL at the MLE and at alpha=0.
+        ``D`` : the test statistic, 2*(logl_best - logl_null).
+        ``p_value`` : Chernoff-mixture-corrected p-value.
+        ``sigma`` : ``p_value`` converted to an equivalent Gaussian sigma.
+    """
+    if idx_signal is None:
+        alpha_frac = _loaded_extra['alpha_frac']
+        (idx_signal,) = np.nonzero(alpha_frac > 0.5)
+
+    core = _alpha_significance_full(idx_signal, idx_orders, kind)
+    i_v, i_k = core['i_v'], core['i_k']
+
+    return dict(
+        alpha_best=float(core['alpha_map'][i_v, i_k]),
+        vsys_best=float(vsys_axis[i_v]), kp_best=float(kp_axis[i_k]),
+        logl_best=float(core['logl_best_map'][i_v, i_k]), logl_null=core['logl_null'],
+        D=float(core['D_map'][i_v, i_k]), p_value=float(core['p_map'][i_v, i_k]),
+        sigma=float(core['sigma_map'][i_v, i_k]),
+    )
+
+
+def compute_alpha_significance_map(idx_signal=None, idx_orders=None, kind='BL'):
+    """Compute the profile likelihood-ratio detection-significance MAP.
+
+    Like ``compute_alpha_significance``, but evaluates the statistic at
+    *every* (vsys, Kp) grid point instead of reporting it only at the single
+    best one: for each grid point, find the alpha that maximizes logL there
+    (closed form, see ``_profile_alpha_logl``), then the Chernoff-corrected
+    sigma comparing that point's best logL to the null. Same statistic as
+    ``compute_alpha_significance``, evaluated everywhere instead of once --
+    the two agree exactly at the map's own peak (both are thin extractions
+    of ``_alpha_significance_full``).
+
+    **The look-elsewhere caveat applies just as much here as to the
+    single-point version, not less.** Each grid point's sigma is a formally
+    valid test *taken in isolation*; the map does not correct for having
+    evaluated a whole grid of them. Don't read "look, an entire region is
+    above 3 sigma" as stronger evidence than the single best point already
+    gives -- it isn't a multiple-detections argument, it's the same one
+    detection's neighbourhood.
+
+    Parameters
+    ----------
+    idx_signal : 1D int array, optional
+        Indices of exposures where the planet signal is detectable.
+        Default: derived from loaded alpha_frac.
+    idx_orders : array-like, optional
+        Spectral orders to include. Default: all.
+    kind : {'BL', 'G'}
+        LogL prescription: 'BL' = Brogi & Line (default), 'G' = Gibson.
+
+    Returns
+    -------
+    dict
+        ``sigma_map`` : (n_vsys, n_kp) array -- Chernoff-corrected sigma at
+        every grid point (can be ``+inf`` where the p-value underflows to 0
+        in float64, for a very significant point).
+        ``alpha_map`` : (n_vsys, n_kp) array -- per-point alpha MLE.
+        ``vsys_best``, ``kp_best``, ``alpha_best`` : location of the map's
+        maximum.
+        ``peak_sigma`` : sigma at that location (matches
+        ``compute_alpha_significance``'s ``sigma`` on the same data).
+        ``logl_null`` : logL of the null model (alpha=0).
+        ``vsys_coords``, ``kp_coords`` : the native grid axes (echoed back
+        for convenience, e.g. for ``plotting_fcts.plot_alpha_significance_map``).
+    """
+    if idx_signal is None:
+        alpha_frac = _loaded_extra['alpha_frac']
+        (idx_signal,) = np.nonzero(alpha_frac > 0.5)
+
+    core = _alpha_significance_full(idx_signal, idx_orders, kind)
+    i_v, i_k = core['i_v'], core['i_k']
+
+    return dict(sigma_map=core['sigma_map'], alpha_map=core['alpha_map'],
+                vsys_best=float(vsys_axis[i_v]), kp_best=float(kp_axis[i_k]),
+                alpha_best=float(core['alpha_map'][i_v, i_k]),
+                peak_sigma=float(core['sigma_map'][i_v, i_k]),
+                vsys_coords=vsys_axis.copy(), kp_coords=kp_axis.copy(),
+                logl_null=core['logl_null'])
+
+
+def compute_empirical_sigma_map(map_2d, method='clip', box_vsys=None, box_kp=None,
+                                 clip_sigma=2., clip_iter=4,
+                                 vsys_coords=None, kp_coords=None):
+    """Estimate a Kp-Vsys detection sigma map via an empirical noise floor.
+
+    A widely used, purely empirical alternative to ``compute_kpvsys_posterior``
+    / ``compute_kpvsys_bayes_factor`` / ``compute_alpha_significance``: instead
+    of a formal likelihood/probability comparison against a null hypothesis,
+    this just measures how many standard deviations the map's peak sits above
+    a noise floor estimated directly from the map itself -- no prior, no
+    reference to alpha=0, no asymptotic distribution assumption. Two ways to
+    estimate that noise floor:
+
+    - ``method='box'``: standard deviation within a user-chosen (vsys, Kp)
+      sub-region assumed to contain no signal (``box_vsys``/``box_kp``).
+    - ``method='clip'``: iterative sigma-clipping over the *entire* map
+      (removes outliers -- including the peak itself -- each iteration),
+      using the standard deviation of what survives as the noise floor.
+
+    Both give ``sigma_map = (map_2d - median) / noise_std``; the value at the
+    map's maximum is the headline "N sigma" figure this method reports.
+
+    This is a common convention in the HRCCS literature but, unlike the other
+    three methods in this module, has no formal null-hypothesis test behind
+    it -- it assumes the estimated noise floor is representative and
+    Gaussian, which is not guaranteed (e.g. a ``box`` region that isn't
+    really signal-free, or ``clip`` iterations that under/over-clip a
+    non-Gaussian map). Treat it as a convenient cross-check, not a
+    replacement for ``compute_alpha_significance``/``compute_kpvsys_bayes_factor``
+    (see the ``detection_significance`` tutorial notebook for a comparison).
+
+    **Never feed this the *linear* (exponentiated) output of**
+    ``compute_kpvsys_posterior``/``compute_kpvsys_posterior_fixed_alpha``
+    **directly.** Those posteriors are ``exp(logL - max)`` by construction, so
+    almost the entire map away from the peak is squashed to ~0 (numerical
+    underflow, not a real noise floor) -- box/clip would then measure that
+    underflow, giving a ``noise_std`` many orders of magnitude too small and a
+    wildly inflated, meaningless "sigma" (this is not a matter of
+    oversampling -- plain ``oversample=1`` posteriors have the exact same
+    problem -- it's the exponentiation itself that breaks the assumption).
+
+    A CCF/logL-*scale* map is what this method needs -- ``get_ccf(...)``
+    qualifies directly, and so does ``np.log(posterior)`` (the log-posterior,
+    i.e. exactly what the sigma-scale colour maps in this module's plots
+    already show by default, ``plot_posterior_2d``'s ``scale='log'``): taking
+    the log undoes the exponentiation and recovers a logL-like quantity, as
+    long as ``posterior`` hasn't underflowed to exact 0.0 anywhere (check
+    ``np.isfinite(np.log(posterior)).all()`` -- non-finite values are masked
+    out of the noise-floor estimate automatically, but a very large fraction
+    of them would defeat the purpose).
+
+    Non-finite values (``-inf``/``NaN``, e.g. from ``np.log(posterior)``
+    underflow, or masked/invalid grid points) are automatically excluded from
+    the median/noise-floor estimate and can't become the reported peak.
+
+    Originally written by Joost Wardenier, improved by Mathis Bouffard (June
+    2025) as ``plotting_fcts.calculate_KpVsys_map``, tied to the older
+    ``correlation_class.Correlations`` CCF object; generalized here to
+    operate on any (vsys, Kp) map -- e.g. from ``get_ccf(idx_exposure=idx_signal,
+    sum_axis=(-2, -1))`` -- so it can be compared directly against the other
+    detection statistics in this module.
+
+    Parameters
+    ----------
+    map_2d : (n_vsys, n_kp) array
+        A Kp-Vsys map -- e.g. from ``get_ccf`` (native grid), or an
+        oversampled posterior from ``compute_kpvsys_posterior`` (its
+        ``vsys_os``/``kp_os`` output, *not* the module's native
+        ``vsys_axis``/``kp_axis``, matches this case -- pass them via
+        ``vsys_coords``/``kp_coords`` below).
+    method : {'box', 'clip'}
+        Noise-floor estimation method. Default: 'clip'.
+    box_vsys, box_kp : (float, float), optional
+        (min, max) bounds in km/s defining the signal-free region used by
+        ``method='box'``. Required if ``method='box'``.
+    clip_sigma : float
+        Sigma threshold for ``method='clip'``'s iterative sigma-clipping.
+        Default: 2.
+    clip_iter : int
+        Maximum number of sigma-clipping iterations. Default: 4.
+    vsys_coords, kp_coords : 1D array, optional
+        Coordinates matching ``map_2d``'s two axes. Default: the module's
+        native ``vsys_axis``/``kp_axis`` globals -- correct for a map fresh
+        off ``get_ccf``, but **wrong (and will raise an ``IndexError``, or
+        silently mismatch, for anything on a different grid**, most commonly
+        an oversampled posterior: pass its own ``vsys_os``/``kp_os`` here
+        instead.
+
+    Returns
+    -------
+    dict
+        ``sigma_map`` : (n_vsys, n_kp) array, ``(map_2d - median) / noise_std``.
+        ``peak_sigma`` : sigma value at map_2d's maximum.
+        ``vsys_best``, ``kp_best`` : location of that maximum.
+        ``noise_std`` : the estimated noise floor used for the normalization.
+        ``method`` : the method used ('box' or 'clip').
+        ``vsys_coords``, ``kp_coords`` : the coordinates actually used (echoed
+        back for convenience, e.g. for ``plotting_fcts.plot_empirical_sigma_map``).
+        ``box_vsys``, ``box_kp`` : the box bounds used (``None`` for ``method='clip'``).
+    """
+    if vsys_coords is None:
+        vsys_coords = vsys_axis
+    if kp_coords is None:
+        kp_coords = kp_axis
+    if map_2d.shape != (len(vsys_coords), len(kp_coords)):
+        raise ValueError(
+            f"map_2d.shape={map_2d.shape} doesn't match "
+            f"(len(vsys_coords), len(kp_coords))=({len(vsys_coords)}, {len(kp_coords)}). "
+            "If map_2d came from compute_kpvsys_posterior (oversample > 1), pass its "
+            "own vsys_os/kp_os as vsys_coords/kp_coords -- they don't match the "
+            "module's native vsys_axis/kp_axis used by default."
+        )
+
+    # Mask non-finite values (-inf/NaN, e.g. from np.log(posterior) underflow, or
+    # already-masked/invalid grid points) so they can't poison the noise-floor
+    # estimate or get reported as the peak.
+    map_ma = np.ma.masked_invalid(map_2d)
+
+    if method == 'box':
+        if box_vsys is None or box_kp is None:
+            raise ValueError("method='box' requires box_vsys and box_kp.")
+        vsys_mask = (vsys_coords >= box_vsys[0]) & (vsys_coords <= box_vsys[1])
+        kp_mask = (kp_coords >= box_kp[0]) & (kp_coords <= box_kp[1])
+        submap = map_ma[np.ix_(vsys_mask, kp_mask)]
+        noise_std = float(np.ma.std(submap))
+    elif method == 'clip':
+        from astropy.stats import sigma_clip
+        clipped = sigma_clip(map_ma, sigma=clip_sigma, maxiters=clip_iter)
+        noise_std = float(np.ma.std(clipped))
+    else:
+        raise ValueError(f"method must be 'box' or 'clip', got {method!r}")
+
+    median = float(np.ma.median(map_ma))
+    sigma_map = (map_ma - median) / noise_std
+
+    map_filled = np.ma.filled(map_ma, -np.inf)
+    i_v, i_k = np.unravel_index(np.argmax(map_filled), map_filled.shape)
+    peak_sigma = float(sigma_map[i_v, i_k])
+
+    return dict(sigma_map=sigma_map, peak_sigma=peak_sigma,
+                vsys_best=float(vsys_coords[i_v]), kp_best=float(kp_coords[i_k]),
+                noise_std=noise_std, method=method,
+                vsys_coords=vsys_coords, kp_coords=kp_coords,
+                box_vsys=box_vsys, box_kp=box_kp)
 
 
 def _marginals_from_log(log_post, x_axis, y_axis):
@@ -1145,6 +1616,60 @@ def _marginals_from_log(log_post, x_axis, y_axis):
         margin_y = np.exp(np.log(intg_y) + my_safe.squeeze(0))
 
     return margin_x, margin_y
+
+
+def _posterior_from_log_map(log_map, axis0_coords, axis1_coords, oversample=2):
+    """Normalise, optionally oversample, exponentiate, and compute marginals.
+
+    Shared post-processing for any 2D log-likelihood/log-posterior map
+    (vsys x Kp, alpha x Kp, alpha x vsys) -- factored out of
+    ``compute_kpvsys_posterior``, ``compute_alpha_kp_posterior``, and
+    ``compute_alpha_vsys_posterior``, which only differ in which axis they
+    have already integrated out before calling this.
+
+    Parameters
+    ----------
+    log_map : (n0, n1) array
+        Log-likelihood or log-posterior map, may contain -inf/NaN.
+    axis0_coords : (n0,) array
+        Coordinates for the first axis of ``log_map``.
+    axis1_coords : (n1,) array
+        Coordinates for the second axis of ``log_map``.
+    oversample : int
+        Oversampling factor applied via cubic-spline interpolation before
+        computing marginals (display only). ``oversample <= 1`` disables it.
+
+    Returns
+    -------
+    posterior : (n0_out, n1_out) array
+        Normalised posterior (linear, max = 1).
+    axis0_out, axis1_out : arrays
+        Output coordinates (oversampled if requested).
+    margin_axis0, margin_axis1 : arrays
+        1D marginals (not renormalised) over axis1 and axis0 respectively.
+    """
+    finite_lp = log_map[np.isfinite(log_map)]
+    lp_max = float(finite_lp.max()) if len(finite_lp) else 0.
+    log_post_norm = log_map - lp_max
+
+    if oversample > 1:
+        from starships.plotting_fcts import oversample_image
+        # Replace any residual -inf before spline interpolation.
+        floor_val = log_post_norm[np.isfinite(log_post_norm)].min()
+        log_post_safe = np.where(np.isfinite(log_post_norm), log_post_norm, floor_val)
+        log_post_os, axis1_os, axis0_os = oversample_image(
+            log_post_safe, oversample, x_coords=axis1_coords, y_coords=axis0_coords,
+        )
+        posterior = np.exp(log_post_os)
+        axis0_out, axis1_out = axis0_os, axis1_os
+        lp_for_margins = log_post_os   # per-slice max on oversampled grid
+    else:
+        posterior = np.exp(log_post_norm)
+        axis0_out, axis1_out = axis0_coords.copy(), axis1_coords.copy()
+        lp_for_margins = log_post_norm
+
+    margin_axis0, margin_axis1 = _marginals_from_log(lp_for_margins, axis0_out, axis1_out)
+    return posterior, axis0_out, axis1_out, margin_axis0, margin_axis1
 
 
 def _build_logl_cube(alpha_array, idx_signal, idx_orders, kind='BL'):
@@ -1431,28 +1956,7 @@ def compute_alpha_kp_posterior(alpha_array=None, idx_signal=None,
     d_vsys = vsys_axis[1] - vsys_axis[0]
     log_posterior = _log_simps(logl_cube, d_vsys, axis=1)   # (n_alpha, n_kp)
 
-    finite_lp = log_posterior[np.isfinite(log_posterior)]
-    lp_max = float(finite_lp.max()) if len(finite_lp) else 0.
-    log_post_norm = log_posterior - lp_max
-
-    if oversample > 1:
-        from starships.plotting_fcts import oversample_image
-        floor_val = log_post_norm[np.isfinite(log_post_norm)].min()
-        log_post_safe = np.where(np.isfinite(log_post_norm), log_post_norm, floor_val)
-        log_post_os, kp_os, alpha_os = oversample_image(
-            log_post_safe, oversample, x_coords=kp_axis, y_coords=alpha_array,
-        )
-        posterior = np.exp(log_post_os)
-        alpha_out, kp_out = alpha_os, kp_os
-        lp_for_margins = log_post_os
-    else:
-        posterior = np.exp(log_post_norm)
-        alpha_out, kp_out = alpha_array.copy(), kp_axis.copy()
-        lp_for_margins = log_post_norm
-
-    margin_alpha, margin_kp = _marginals_from_log(lp_for_margins, alpha_out, kp_out)
-
-    return posterior, alpha_out, kp_out, margin_alpha, margin_kp
+    return _posterior_from_log_map(log_posterior, alpha_array, kp_axis, oversample)
 
 
 def compute_alpha_vsys_posterior(alpha_array=None, idx_signal=None,
@@ -1487,28 +1991,7 @@ def compute_alpha_vsys_posterior(alpha_array=None, idx_signal=None,
     d_kp = kp_axis[1] - kp_axis[0]
     log_posterior = _log_simps(logl_cube, d_kp, axis=2)   # (n_alpha, n_vsys)
 
-    finite_lp = log_posterior[np.isfinite(log_posterior)]
-    lp_max = float(finite_lp.max()) if len(finite_lp) else 0.
-    log_post_norm = log_posterior - lp_max
-
-    if oversample > 1:
-        from starships.plotting_fcts import oversample_image
-        floor_val = log_post_norm[np.isfinite(log_post_norm)].min()
-        log_post_safe = np.where(np.isfinite(log_post_norm), log_post_norm, floor_val)
-        log_post_os, vsys_os, alpha_os = oversample_image(
-            log_post_safe, oversample, x_coords=vsys_axis, y_coords=alpha_array,
-        )
-        posterior = np.exp(log_post_os)
-        alpha_out, vsys_out = alpha_os, vsys_os
-        lp_for_margins = log_post_os
-    else:
-        posterior = np.exp(log_post_norm)
-        alpha_out, vsys_out = alpha_array.copy(), vsys_axis.copy()
-        lp_for_margins = log_post_norm
-
-    margin_alpha, margin_vsys = _marginals_from_log(lp_for_margins, alpha_out, vsys_out)
-
-    return posterior, alpha_out, vsys_out, margin_alpha, margin_vsys
+    return _posterior_from_log_map(log_posterior, alpha_array, vsys_axis, oversample)
 
 
 def get_log_norm_posterior(param_1, param_2, post_grid):
