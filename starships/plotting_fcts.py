@@ -395,7 +395,7 @@ def plot_logl_grid_i(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, sw
             fig.savefig(path_fig+'fig_grid_logl_'+fig_name+'.pdf')
             
             
-def plot_all_orders_logl(tr, loglbl, var_in, var_out, 
+def plot_all_orders_logl(visit, loglbl, var_in, var_out, 
                         cmap='inferno', tresh=0.5, color_range=10):
 
     size_in, size_out = np.unique(var_in, return_counts=True)
@@ -407,18 +407,18 @@ def plot_all_orders_logl(tr, loglbl, var_in, var_out,
     var_in_list = var_in_list[::-1]    
 
     fig, ax = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
-    mean_snr = np.ma.median(tr.SNR, axis=0)
-    pix_frac = tr.N_frac
+    mean_snr = np.ma.median(visit.SNR, axis=0)
+    pix_frac = visit.N_frac
     
     for i in range(7):
         for j in range(7):
-            if i*7+j in a.bands(tr.wv, 'y'):
+            if i*7+j in a.bands(visit.wv, 'y'):
                 fg_color = 'goldenrod'
-            if i*7+j in a.bands(tr.wv, 'j'):
+            if i*7+j in a.bands(visit.wv, 'j'):
                 fg_color = 'olivedrab'
-            if i*7+j in a.bands(tr.wv, 'h'):
+            if i*7+j in a.bands(visit.wv, 'h'):
                 fg_color = 'steelblue'
-            if i*7+j in a.bands(tr.wv, 'k'):
+            if i*7+j in a.bands(visit.wv, 'k'):
                 fg_color = 'rebeccapurple'
             if pix_frac[i*7+j] < tresh:
                 fg_color = 'firebrick'
@@ -460,11 +460,11 @@ def plot_all_orders_logl(tr, loglbl, var_in, var_out,
             
 from scipy.interpolate import interp2d
 
-def plot_logl_and_corrmap(tr, var_out, var_in, corrRV0, logl_grid, corrRV, corr_map, 
+def plot_logl_and_corrmap(visit, var_out, var_in, corrRV0, logl_grid, corrRV, corr_map, 
                           good_rv_idx=0, icorr=None, cmap=None, orders=np.arange(49)):
     
-    RV_sys = tr.planet.RV_sys.value
-    Kp = tr.Kp.to(u.km/u.s).value
+    RV_sys = visit.planet.RV_sys.value
+    Kp = visit.Kp.to(u.km/u.s).value
     
     var_out_list, var_out_nb = np.unique(var_out, return_counts=True)
     var_in_list, var_in_nb = np.unique(var_in, return_counts=True)
@@ -512,26 +512,26 @@ def plot_logl_and_corrmap(tr, var_out, var_in, corrRV0, logl_grid, corrRV, corr_
         corr_map_max_i = corr_map[idx_out[idx_in_max]]
         ccf = np.nansum(corr_map_max_i[:,orders], axis=1)
 #         if icorr is None:
-#             l_curve = tr.light_curve
-#             nunu = tr.nu
+#             l_curve = visit.light_curve
+#             nunu = visit.nu
 #             icorr_shape = ccf.shape[0]
-#             berv_val = tr.berv
+#             berv_val = visit.berv
 #         else:
 #             if icorr.shape[0] < ccf.shape[0]:
 #                 ccf = ccf[icorr]
 #                 spec_num = icorr 
-#             l_curve = tr.light_curve[icorr]
-#             vrp = tr.vrp[icorr]
-#             nunu = tr.nu[icorr]
+#             l_curve = visit.light_curve[icorr]
+#             vrp = visit.vrp[icorr]
+#             nunu = visit.nu[icorr]
 #             icorr_shape = icorr.shape[0]
-#             berv_val = tr.berv[icorr] 
-        ccf, nunu, berv_val, vrp, alpha, icorr_shape = a.select_in_transit(icorr, ccf, tr.nu, tr.berv, 
-                                                                         tr.vrp, tr.alpha_frac)
+#             berv_val = visit.berv[icorr] 
+        ccf, nunu, berv_val, vrp, alpha, icorr_shape = a.select_in_transit(icorr, ccf, visit.nu, visit.berv, 
+                                                                         visit.vrp, visit.alpha_frac)
 
         interp_grid, Kp_array, sum_ccf, snr2, idx_bruit, idx_bruit2, courbe, snr = a.calc_snr_2d(ccf, 
-                                                            corrRV, vrp, tr.Kp, nunu, tr.planet.w, 
+                                                            corrRV, vrp, visit.Kp, nunu, visit.planet.w, 
                                                             limit_shift=100, interp_size=201,  
-                                                                  RV_sys=tr.planet.RV_sys, kp0=0)
+                                                                  RV_sys=visit.planet.RV_sys, kp0=0)
 
         snr_nonoise = np.ma.masked_invalid(snr2[~idx_bruit2][:,~idx_bruit])
         idx_max2 = np.where(snr_nonoise == snr_nonoise.max())
@@ -617,34 +617,34 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
     ax[1].set_title(r'with $\sigma$ division')
     
     
-# def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
+# def plot_all_orders_correl(corrRV, ccf, visit, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
 #                            vrp=None, RV_sys=None, vmin=None,vmax=None, vline=None, hline=None, kind='snr', 
 #                            return_snr=False):
 #     if icorr is None:
-#         icorr = tr.icorr
+#         icorr = visit.icorr
         
         
 #     if vrp is None:
-#         vrp = (tr.vrp-tr.vr).value
+#         vrp = (visit.vrp-visit.vr).value
 #     if RV_sys is None:
-#         RV_sys = tr.planet.RV_sys
+#         RV_sys = visit.planet.RV_sys
         
 #     fig, ax = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=sharey)
 # #     fig_shift, ax_shift = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
 #     fig_single, ax_single = plt.subplots(7,7, figsize=(16,12), sharex=True, sharey=True)
-#     mean_snr = np.ma.median(tr.SNR, axis=0)
-#     pix_frac = tr.N_frac
+#     mean_snr = np.ma.median(visit.SNR, axis=0)
+#     pix_frac = visit.N_frac
     
 #     snr_list = []
 #     for i in range(7):
 #         for j in range(7):
-#             if i*7+j in a.bands(tr.wv, 'y'):
+#             if i*7+j in a.bands(visit.wv, 'y'):
 #                 fg_color = 'goldenrod'
-#             if i*7+j in a.bands(tr.wv, 'j'):
+#             if i*7+j in a.bands(visit.wv, 'j'):
 #                 fg_color = 'olivedrab'
-#             if i*7+j in a.bands(tr.wv, 'h'):
+#             if i*7+j in a.bands(visit.wv, 'h'):
 #                 fg_color = 'steelblue'
-#             if i*7+j in a.bands(tr.wv, 'k'):
+#             if i*7+j in a.bands(visit.wv, 'k'):
 #                 fg_color = 'rebeccapurple'
 #             if pix_frac[i*7+j] < tresh:
 #                 fg_color = 'firebrick'
@@ -657,7 +657,7 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
 #             ax[i,j].plot(vrp, np.arange(ccf.shape[0]), 'k:', alpha=0.5)
 
             
-# #             ax[i,j].plot(tr.berv, np.arange(ccf.shape[0]), 'r--', alpha=0.5)
+# #             ax[i,j].plot(visit.berv, np.arange(ccf.shape[0]), 'r--', alpha=0.5)
 #             ax[i,j].set_title('{} - SNR:{:.0f} - {:.2f}'.format(i*7+j, mean_snr[i*7+j], pix_frac[i*7+j]), 
 #                               color=fg_color)
             
@@ -676,7 +676,7 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
 #                 ax_single[i,j].axvline(vline, linestyle='-', alpha=0.5, color='navy')
 #             if hline is not None:
 #                 ax_single[i,j].axhline(hline, linestyle='-', alpha=0.5, color='navy')
-#             ax_single[i,j].axvline(np.mean(tr.berv), linestyle='--', color='red', alpha=0.5)
+#             ax_single[i,j].axvline(np.mean(visit.berv), linestyle='--', color='red', alpha=0.5)
 
 #     if output_file is not None:
 #         output_file = Path(output_file)
@@ -686,7 +686,7 @@ def plot_inverse(fractions, interp_grid, snrs_corr, snrs_logl,
 #     if return_snr is True:
 #         return interp_grid, snr_list
 
-def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
+def plot_all_orders_correl(corrRV, ccf, visit, output_file=None, icorr=None, logl=False, tresh=0.4, sharey=True,
                             vrp=None, RV_sys=None, limit_shift=60., vmin=None,vmax=None, vline=None, hline=None, kind='snr',
                             return_snr=False, orders=None):
     
@@ -698,7 +698,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
        Args:
         corrRV (array-like): The RV values for correlation.
         ccf (array-like): The cross-correlation function.
-        tr (object): The transit object.
+        visit (object): The transit object.
         output_file (str, optional): The output file path. Defaults to None.
         icorr (int, optional): The index of the correlation. Defaults to None.
         logl (bool, optional): Whether to plot the logarithm of the correlation. Defaults to False.
@@ -720,12 +720,12 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
     """
     
     if icorr is None:
-        icorr = tr.icorr
+        icorr = visit.icorr
 
     if vrp is None:
-        vrp = (tr.vrp-tr.vr).value
+        vrp = (visit.vrp-visit.vr).value
     if RV_sys is None:
-        RV_sys = tr.planet.RV_sys
+        RV_sys = visit.planet.RV_sys
 
     # Get the number of orders
     n_orders = ccf.shape[1]
@@ -737,8 +737,8 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
     fig, ax = plt.subplots(n_rows,n_cols, figsize=(16,12), sharex=True, sharey=sharey)
     fig_single, ax_single = plt.subplots(n_rows,n_cols, figsize=(16,12), sharex=True, sharey=True)
 
-    mean_snr = np.ma.median(tr.SNR, axis=0)
-    pix_frac = tr.N_frac
+    mean_snr = np.ma.median(visit.SNR, axis=0)
+    pix_frac = visit.N_frac
 
     snr_list = []
     for i in range(n_rows):
@@ -746,13 +746,13 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
             index = i * n_cols + j
             if index >= n_orders:
                 break  # Exit the loop if the index is out of bounds
-            if index in a.bands(tr.wv, 'y'):
+            if index in a.bands(visit.wv, 'y'):
                 fg_color = 'goldenrod'
-            if index in a.bands(tr.wv, 'j'):
+            if index in a.bands(visit.wv, 'j'):
                 fg_color = 'olivedrab'
-            if index in a.bands(tr.wv, 'h'):
+            if index in a.bands(visit.wv, 'h'):
                 fg_color = 'steelblue'
-            if index in a.bands(tr.wv, 'k'):
+            if index in a.bands(visit.wv, 'k'):
                 fg_color = 'rebeccapurple'
             if index >= len(pix_frac) or pix_frac[index] < tresh:
                 fg_color = 'firebrick'
@@ -781,7 +781,7 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
                 ax_single[i,j].axvline(vline, linestyle='-', alpha=0.5, color='navy')
             if hline is not None:
                 ax_single[i,j].axhline(hline, linestyle='-', alpha=0.5, color='navy')
-            ax_single[i,j].axvline(np.mean(tr.berv), linestyle='--', color='red', alpha=0.5)
+            ax_single[i,j].axvline(np.mean(visit.berv), linestyle='--', color='red', alpha=0.5)
             
             if orders is not None:
                 if index not in orders:
@@ -807,34 +807,34 @@ def plot_all_orders_correl(corrRV, ccf, tr, output_file=None, icorr=None, logl=F
     if return_snr is True:
         return snr_list            
             
-def plot_all_orders_spectra(tr, flux=None):
+def plot_all_orders_spectra(visit, flux=None):
     
-    fig, ax = plt.subplots(tr.nord,1, figsize=(15,72))
-    mean_snr = np.nanmedian(tr.SNR, axis=0)
+    fig, ax = plt.subplots(visit.nord,1, figsize=(15,72))
+    mean_snr = np.nanmedian(visit.SNR, axis=0)
     
-    pix_frac = tr.N_frac
+    pix_frac = visit.N_frac
 
     if flux is None:
-        flux = tr.final
+        flux = visit.final
 
-    for i in range(tr.nord):
-        if i in a.bands(tr.wv, 'y'):
+    for i in range(visit.nord):
+        if i in a.bands(visit.wv, 'y'):
             fg_color = 'goldenrod'
-        if i in a.bands(tr.wv, 'j'):
+        if i in a.bands(visit.wv, 'j'):
             fg_color = 'olivedrab'
-        if i in a.bands(tr.wv, 'h'):
+        if i in a.bands(visit.wv, 'h'):
             fg_color = 'steelblue'
-        if i in a.bands(tr.wv, 'k'):
+        if i in a.bands(visit.wv, 'k'):
             fg_color = 'rebeccapurple'
 
-        ax[i].pcolormesh(tr.wv[i], np.arange(tr.n_spec), flux[:,i])
+        ax[i].pcolormesh(visit.wv[i], np.arange(visit.n_spec), flux[:,i])
 
         ax[i].set_title('Ord:{} / SNR:{:.1f} / % good pixel:{:.1f} '.format(i, mean_snr[i],pix_frac[i]*100), 
                         color=fg_color)
 
 import matplotlib as mpl        
         
-def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='', 
+def plot_steps(visit, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='', 
                cmap=None, bad_color='red', path_fig=None):
     
     '''
@@ -851,25 +851,25 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
     fig,(ax00,ax0,ax01,ax1,ax2,ax3,ax4) = plt.subplots(7,1, sharex=True, 
                                          gridspec_kw = {'height_ratios':[1.,1.,1.,1.,1.,1.,1.]},
                                         figsize=(13,16))
-    uncorr_fl = tr.uncorr/(tr.blaze/np.nanmax(tr.blaze, axis=-1)[:,:,None])
-    ax00.plot(tr.wv[iord], (uncorr_fl[id_spec,iord]/uncorr_fl[id_spec,iord].mean(axis=-1)[None]).T  + 0.4,
+    uncorr_fl = visit.uncorr/(visit.blaze/np.nanmax(visit.blaze, axis=-1)[:,:,None])
+    ax00.plot(visit.wv[iord], (uncorr_fl[id_spec,iord]/uncorr_fl[id_spec,iord].mean(axis=-1)[None]).T  + 0.4,
               'k', alpha=1, label='Uncorrected Flux')
-    ax00.plot(tr.wv[iord], tr.tellu[id_spec,iord],'b', label='Telluric transmission', alpha=0.8)
+    ax00.plot(visit.wv[iord], visit.tellu[id_spec,iord],'b', label='Telluric transmission', alpha=0.8)
     
-    ax00.plot(tr.wv[iord],#*(1+(tr.berv[0]*u.km/u.s)/const.c), 
-              (tr.flux[id_spec,iord]/tr.flux[id_spec,iord].mean(axis=-1)[None]).T + 0.4 + 0.4, 
+    ax00.plot(visit.wv[iord],#*(1+(visit.berv[0]*u.km/u.s)/const.c), 
+              (visit.flux[id_spec,iord]/visit.flux[id_spec,iord].mean(axis=-1)[None]).T + 0.4 + 0.4, 
               'g', alpha=1, label='Corrected Flux')
     
-#     fl_norm= tr.flux/np.ma.median(tr.flux,axis=-1)[:,:,None]
-#     ax00.plot(tr.wv[iord],#*(1+(tr.berv[0]*u.km/u.s)/const.c), 
+#     fl_norm= visit.flux/np.ma.median(visit.flux,axis=-1)[:,:,None]
+#     ax00.plot(visit.wv[iord],#*(1+(visit.berv[0]*u.km/u.s)/const.c), 
 #               (np.std(fl_norm[:,iord], axis=0)/np.std(fl_norm[:,iord], axis=0).mean())*0.4, 
 #               'r', alpha=0.5, label='Scaled Mean Noise')
 
     if masking_limit is not None:
         ax00.axhline(masking_limit, color='blue', alpha=0.4, label='Tellu. Masking limit', linestyle=':')
-#     ax00.plot(tr.wv[iord], tr.mast_out[iord],'r', label='Master Out')
+#     ax00.plot(visit.wv[iord], visit.reference_spec[iord],'r', label='Master Out')
     ax00.legend(loc='lower left')
-#     ax00.set_title('A) Mean SNR = {:.2f}'.format(45, tr.SNR[:,iord].mean()))
+#     ax00.set_title('A) Mean SNR = {:.2f}'.format(45, visit.SNR[:,iord].mean()))
     ax00.set_ylabel('Normalized\nFlux',fontsize=12)
     ax00.set_ylim(0.,2.1)
     
@@ -891,100 +891,100 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
 # plt.show()
     
 #     if sub_spec is not None:
-#         id_spec_part = np.where((tr.wv[iord] >= sub_spec[0]) & (tr.wv[iord] <= sub_spec[-1]))
+#         id_spec_part = np.where((visit.wv[iord] >= sub_spec[0]) & (visit.wv[iord] <= sub_spec[-1]))
 #     else:
-#         id_spec_part = np.where((tr.wv[iord] >= tr.wv[iord][0]) & (tr.wv[iord] <= tr.wv[iord][-1]))
+#         id_spec_part = np.where((visit.wv[iord] >= visit.wv[iord][0]) & (visit.wv[iord] <= visit.wv[iord][-1]))
     
-#     ax00.plot(tr.wv[iord][id_spec_part], (tr.uncorr[0,iord]/tr.uncorr[0,iord].mean(axis=-1)[None])[id_spec_part].T,
+#     ax00.plot(visit.wv[iord][id_spec_part], (visit.uncorr[0,iord]/visit.uncorr[0,iord].mean(axis=-1)[None])[id_spec_part].T,
 #               'k', alpha=0.5, label='Uncorr. Flux Sample')
-#     ax00.plot(tr.wv[iord][id_spec_part], (tr.uncorr[-1,iord]/tr.uncorr[-1,iord].mean(axis=-1)[None])[id_spec_part].T,
+#     ax00.plot(visit.wv[iord][id_spec_part], (visit.uncorr[-1,iord]/visit.uncorr[-1,iord].mean(axis=-1)[None])[id_spec_part].T,
 #               'k', alpha=0.5, label='')
     
-#     ax00.plot(tr.wv[iord][id_spec_part],
-#               (tr.flux[0,iord]/tr.flux[0,iord].mean(axis=-1)[None])[id_spec_part].T+0.3,
+#     ax00.plot(visit.wv[iord][id_spec_part],
+#               (visit.flux[0,iord]/visit.flux[0,iord].mean(axis=-1)[None])[id_spec_part].T+0.3,
 #               'g', alpha=0.5, label='Corr. Flux Sample')
-#     ax00.plot(tr.wv[iord][id_spec_part],
-#               (tr.flux[-1,iord]/tr.flux[-1,iord].mean(axis=-1)[None])[id_spec_part].T+0.3,
+#     ax00.plot(visit.wv[iord][id_spec_part],
+#               (visit.flux[-1,iord]/visit.flux[-1,iord].mean(axis=-1)[None])[id_spec_part].T+0.3,
 #               'g', alpha=0.5, label='')
     
-#     ax00.plot(tr.wv[iord][id_spec_part], tr.tellu[0,iord][id_spec_part]-0.25,'b', label='Telluric transm.', alpha=0.5)
+#     ax00.plot(visit.wv[iord][id_spec_part], visit.tellu[0,iord][id_spec_part]-0.25,'b', label='Telluric transm.', alpha=0.5)
     
 
     if iord == 8:
         he_lines = [1.083206, 1.083322, 1.083331]
         for hel in he_lines:
-            ax00.axvline(hel*(1+(tr.planet.RV_sys)/const.c), color='orange')
+            ax00.axvline(hel*(1+(visit.planet.RV_sys)/const.c), color='orange')
         ax00.axvline(1.083, color='green')
 
-    im0 = ax0.pcolormesh(tr.wv[iord], tr.phase, \
-                         tr.uncorr[:,iord]/(tr.blaze[:,iord]/tr.blaze[:,iord].max(axis=-1)[:,None]), 
+    im0 = ax0.pcolormesh(visit.wv[iord], visit.phase, \
+                         visit.uncorr[:,iord]/(visit.blaze[:,iord]/visit.blaze[:,iord].max(axis=-1)[:,None]), 
                          cmap="Greys_r", rasterized=True) 
-    ax0.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-    ax0.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    ax0.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+    ax0.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax0)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar00 = fig.colorbar(im0,ax=ax0, cax=cax)
 #     ax0.set_title('B) Uncorrected Flux (Earth Rest Frame)')
-    ax0.text(tr.wv[iord][40], tr.phase[-6], 'B) Uncorrected Flux (Earth Rest Frame)',
+    ax0.text(visit.wv[iord][40], visit.phase[-6], 'B) Uncorrected Flux (Earth Rest Frame)',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 #     cbar00.set_label('Flux', fontsize=14)
     
-    im01 = ax01.pcolormesh(tr.wv[iord], tr.phase, tr.flux[:,iord], cmap=cmap, rasterized=True) 
-    ax01.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-    ax01.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    im01 = ax01.pcolormesh(visit.wv[iord], visit.phase, visit.flux[:,iord], cmap=cmap, rasterized=True) 
+    ax01.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+    ax01.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax01)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar01 = fig.colorbar(im01,ax=ax01, cax=cax)
 #     ax01.set_title('C) Telluric-Corrected Flux')
-    ax01.text(tr.wv[iord][40], tr.phase[-6], 'C) Telluric-Corrected Flux',
+    ax01.text(visit.wv[iord][40], visit.phase[-6], 'C) Telluric-Corrected Flux',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
     cbar01.set_label('Flux',y=1.2, fontsize=14)
 
-    im1 = ax1.pcolormesh(tr.wv[iord], tr.phase, tr.fl_norm[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
+    im1 = ax1.pcolormesh(visit.wv[iord], visit.phase, visit.fl_norm[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
                          # vmax=1.60) 
     #, vmin=0.85, vmax=1.08
-    ax1.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-    ax1.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    ax1.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+    ax1.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax1)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar0 = fig.colorbar(im1,ax=ax1, cax=cax)
 #     ax1.set_title('D) Masked and Normalized Flux (Shifted to Star Rest Frame)')
-    ax1.text(tr.wv[iord][40], tr.phase[-6], 'D) Normalized Flux (Shifted to Pseudo SRF)',
+    ax1.text(visit.wv[iord][40], visit.phase[-6], 'D) Normalized Flux (Shifted to Pseudo SRF)',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
-    im2 = ax2.pcolormesh(tr.wv[iord], tr.phase, tr.fl_norm_mo[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
+    im2 = ax2.pcolormesh(visit.wv[iord], visit.phase, visit.fl_norm_mo[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
                          # vmax=1.60) 
     #, vmin=0.85, vmax=1.08
-    ax2.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-    ax2.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    ax2.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+    ax2.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax2)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     fig.colorbar(im2,ax=ax2, cax=cax)
 #     ax2.set_title('E) Normalized to the Continuum Flux')
-    ax2.text(tr.wv[iord][40], tr.phase[-6],'E) Normalized to the Continuum Flux',
+    ax2.text(visit.wv[iord][40], visit.phase[-6],'E) Normalized to the Continuum Flux',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
-    im3 = ax3.pcolormesh(tr.wv[iord], tr.phase, tr.spec_trans[:,iord], cmap=cmap, rasterized=True, vmin=0.955, vmax=1.035)
-    ax3.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-    ax3.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    im3 = ax3.pcolormesh(visit.wv[iord], visit.phase, visit.spec_trans[:,iord], cmap=cmap, rasterized=True, vmin=0.955, vmax=1.035)
+    ax3.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+    ax3.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax3)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     fig.colorbar(im3,ax=ax3, cax=cax)
 #     ax3.set_title('F) Transmission Spectrum')
-    ax3.text(tr.wv[iord][40], tr.phase[-6], 'F) Transmission Spectrum',
+    ax3.text(visit.wv[iord][40], visit.phase[-6], 'F) Transmission Spectrum',
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
-    im4 = ax4.pcolormesh(tr.wv[iord], tr.phase, tr.final[:,iord], cmap=cmap, rasterized=True, vmin=0.955-1, vmax=1.035-1)  
-    ax4.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-    ax4.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    im4 = ax4.pcolormesh(visit.wv[iord], visit.phase, visit.final[:,iord], cmap=cmap, rasterized=True, vmin=0.955-1, vmax=1.035-1)  
+    ax4.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+    ax4.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax4)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar1 = fig.colorbar(im4,ax=ax4, cax=cax)
-#     ax4.set_title('G) PCA-Corrected Transmission Spectrum ({} PC)'.format(tr.params[5]))
-    ax4.text(tr.wv[iord][40], tr.phase[-6], 'G) PCA-Corrected Transmission Spectrum ({} PCs)'.format(tr.params[5]),
+#     ax4.set_title('G) PCA-Corrected Transmission Spectrum ({} PC)'.format(visit.params[5]))
+    ax4.text(visit.wv[iord][40], visit.phase[-6], 'G) PCA-Corrected Transmission Spectrum ({} PCs)'.format(visit.params[5]),
              fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
-#     ax4.plot(tr.wv[iord][2044] * (1+tr.vrp/const.c), tr.phase)
+#     ax4.plot(visit.wv[iord][2044] * (1+visit.vrp/const.c), visit.phase)
 
     ax4.set_xlabel(r'Wavelength ($\mu$m)', fontsize=14)
     ax4.set_ylabel(r'Orbital phase ($\phi$)', fontsize=14)
@@ -998,7 +998,7 @@ def plot_steps(tr, iord, xlim=None, masking_limit=None, id_spec=0, fig_name='',
         fig.savefig(path_fig+'fig_STEPS'+fig_name+'.pdf')
 
     
-def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
+def plot_five_steps(visit, iord, xlim=None, masking_limit=0.8, fig_name='',
                      cmap=None, bad_color='red', length=16, id_spec=10, path_fig=None):
     
     if cmap is None:
@@ -1010,19 +1010,19 @@ def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
                                          gridspec_kw = {'height_ratios':[1.,1.,1.,1.,1.]},
                                         figsize=(length,8))
     
-    uncorr_fl = tr.uncorr/(tr.blaze/np.nanmax(tr.blaze, axis=-1)[:,:,None])
-    ax00.plot(tr.wv[iord], (uncorr_fl[id_spec,iord]/uncorr_fl[id_spec,iord].mean(axis=-1)[None]).T  + 0.45,
+    uncorr_fl = visit.uncorr/(visit.blaze/np.nanmax(visit.blaze, axis=-1)[:,:,None])
+    ax00.plot(visit.wv[iord], (uncorr_fl[id_spec,iord]/uncorr_fl[id_spec,iord].mean(axis=-1)[None]).T  + 0.45,
               'k', alpha=1, label='Uncorrected Flux')
-    ax00.plot(tr.wv[iord], tr.tellu[id_spec,iord],'b', label='Telluric transmission', alpha=0.8)
+    ax00.plot(visit.wv[iord], visit.tellu[id_spec,iord],'b', label='Telluric transmission', alpha=0.8)
     
-    ax00.plot(tr.wv[iord],#*(1+(tr.berv[0]*u.km/u.s)/const.c), 
-              (tr.flux[id_spec,iord]/tr.flux[id_spec,iord].mean(axis=-1)[None]).T + 0.45 + 0.45, 
+    ax00.plot(visit.wv[iord],#*(1+(visit.berv[0]*u.km/u.s)/const.c), 
+              (visit.flux[id_spec,iord]/visit.flux[id_spec,iord].mean(axis=-1)[None]).T + 0.45 + 0.45, 
               'g', alpha=1, label='Corrected Flux')
     if masking_limit is not None:
         ax00.axhline(masking_limit, color='blue', alpha=0.4, label='Tellu. Masking limit', linestyle=':')
-#     ax00.plot(tr.wv[iord], tr.mast_out[iord],'r', label='Master Out')
+#     ax00.plot(visit.wv[iord], visit.reference_spec[iord],'r', label='Master Out')
     ax00.legend(loc='center', ncol=4, bbox_to_anchor =(0.5, 1.2))
-#     ax00.set_title('A) Mean SNR = {:.2f}'.format(45, tr.SNR[:,iord].mean()))
+#     ax00.set_title('A) Mean SNR = {:.2f}'.format(45, visit.SNR[:,iord].mean()))
     ax00.set_ylabel('Normalized\nFlux',fontsize=12)
     ax00.set_ylim(0.,2.5)
     
@@ -1030,58 +1030,58 @@ def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
     cax00 = divider00.append_axes('right', size='3%', pad=0.05)
     cax00.axis('off')
     
-    im01 = ax01.pcolormesh(tr.wv[iord], tr.phase, tr.flux[:,iord], cmap=cmap, rasterized=True) 
-    if len(tr.iIn) > 0:
-        ax01.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-        ax01.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    im01 = ax01.pcolormesh(visit.wv[iord], visit.phase, visit.flux[:,iord], cmap=cmap, rasterized=True) 
+    if len(visit.iIn) > 0:
+        ax01.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+        ax01.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax01)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar01 = fig.colorbar(im01,ax=ax01, cax=cax)
 #     ax01.set_title('C) Tellu-Corrected Flux')
     cbar01.set_label('Flux', fontsize=14) #,y=1.2
 
-    im2 = ax2.pcolormesh(tr.wv[iord], tr.phase, tr.fl_norm_mo[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
+    im2 = ax2.pcolormesh(visit.wv[iord], visit.phase, visit.fl_norm_mo[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
                          # vmax=1.60) 
     #, vmin=0.85, vmax=1.08
-    if len(tr.iIn) > 0:
-        ax2.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-        ax2.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    if len(visit.iIn) > 0:
+        ax2.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+        ax2.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax2)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     fig.colorbar(im2,ax=ax2, cax=cax)
 #     ax2.set_title('E) Normalized to the Continuum Flux')
 
-#     im5 = ax5.pcolormesh(tr.wv[iord], tr.phase, tr.fl_norm_mo[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
+#     im5 = ax5.pcolormesh(visit.wv[iord], visit.phase, visit.fl_norm_mo[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
 #                          # vmax=1.60) 
 #     #, vmin=0.85, vmax=1.08
-#     if len(tr.iIn) > 0:
-#         ax5.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-#         ax5.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+#     if len(visit.iIn) > 0:
+#         ax5.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+#         ax5.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
 #     divider = make_axes_locatable(ax5)
 #     cax = divider.append_axes('right', size='3%', pad=0.05)
 #     fig.colorbar(im5,ax=ax5, cax=cax)
 # #     ax2.set_title('E) Normalized to the Continuum Flux')
 
 
-    im3 = ax3.pcolormesh(tr.wv[iord], tr.phase, tr.spec_trans[:,iord], cmap=cmap, rasterized=True)#, vmin=0.955, vmax=1.035)
-    if len(tr.iIn) > 0:
-        ax3.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-        ax3.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    im3 = ax3.pcolormesh(visit.wv[iord], visit.phase, visit.spec_trans[:,iord], cmap=cmap, rasterized=True)#, vmin=0.955, vmax=1.035)
+    if len(visit.iIn) > 0:
+        ax3.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+        ax3.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax3)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     fig.colorbar(im3,ax=ax3, cax=cax)
 #     ax3.set_title('F) Transmission Spectrum')
 
-    im4 = ax4.pcolormesh(tr.wv[iord], tr.phase, tr.final[:,iord], cmap=cmap, rasterized=True)#, vmin=0.955-1, vmax=1.035-1)  
-    if len(tr.iIn) > 0:
-        ax4.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-        ax4.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    im4 = ax4.pcolormesh(visit.wv[iord], visit.phase, visit.final[:,iord], cmap=cmap, rasterized=True)#, vmin=0.955-1, vmax=1.035-1)  
+    if len(visit.iIn) > 0:
+        ax4.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+        ax4.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax4)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar1 = fig.colorbar(im4,ax=ax4, cax=cax)
-#     ax4.set_title('G) PCA-Corrected Transmission Spectrum ({} PCs)'.format(tr.params[5]))
+#     ax4.set_title('G) PCA-Corrected Transmission Spectrum ({} PCs)'.format(visit.params[5]))
 
-#     ax4.plot(tr.wv[iord][2044] * (1+tr.vrp/const.c), tr.phase)
+#     ax4.plot(visit.wv[iord][2044] * (1+visit.vrp/const.c), visit.phase)
 
     ax4.set_xlabel(r'Wavelength ($\mu$m)', fontsize=14)
     ax4.set_ylabel(r'Orbital phase ($\phi$)', fontsize=14)
@@ -1092,10 +1092,10 @@ def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
         
     fig.subplots_adjust(hspace=0)
 
-    ax01.text( tr.wv[iord][100],tr.phase[10], 'A', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
-    ax2.text( tr.wv[iord][100],tr.phase[10], 'B', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
-    ax3.text( tr.wv[iord][100],tr.phase[10], 'C', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
-    ax4.text( tr.wv[iord][100],tr.phase[10], 'D', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
+    ax01.text( visit.wv[iord][100],visit.phase[10], 'A', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
+    ax2.text( visit.wv[iord][100],visit.phase[10], 'B', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
+    ax3.text( visit.wv[iord][100],visit.phase[10], 'C', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
+    ax4.text( visit.wv[iord][100],visit.phase[10], 'D', fontsize = 12, bbox ={'facecolor':'white', 'alpha':0.8})
 
     if path_fig is not None:
         # fig.tight_layout()
@@ -1106,7 +1106,7 @@ def plot_five_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
     
     
     
-def plot_small_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
+def plot_small_steps(visit, iord, xlim=None, masking_limit=0.8, fig_name='',
                      cmap=None, bad_color='red', length=14, path_fig=None):
     
     if cmap is None:
@@ -1118,46 +1118,46 @@ def plot_small_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
                                          gridspec_kw = {'height_ratios':[1.,1.,1.,1.]},
                                         figsize=(length,7))
     
-    im01 = ax01.pcolormesh(tr.wv[iord], tr.phase, tr.flux[:,iord], cmap=cmap, rasterized=True) 
-    if len(tr.iIn) > 0:
-        ax01.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-        ax01.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    im01 = ax01.pcolormesh(visit.wv[iord], visit.phase, visit.flux[:,iord], cmap=cmap, rasterized=True) 
+    if len(visit.iIn) > 0:
+        ax01.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+        ax01.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax01)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar01 = fig.colorbar(im01,ax=ax01, cax=cax)
 #     ax01.set_title('C) Tellu-Corrected Flux')
     cbar01.set_label('Flux', fontsize=14) #,y=1.2
 
-    im2 = ax2.pcolormesh(tr.wv[iord], tr.phase, tr.fl_norm_mo[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
+    im2 = ax2.pcolormesh(visit.wv[iord], visit.phase, visit.fl_norm_mo[:,iord], cmap=cmap, rasterized=True)#, vmin=0.85, vmax=1.08)
                          # vmax=1.60) 
     #, vmin=0.85, vmax=1.08
-    if len(tr.iIn) > 0:
-        ax2.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-        ax2.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    if len(visit.iIn) > 0:
+        ax2.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+        ax2.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax2)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     fig.colorbar(im2,ax=ax2, cax=cax)
 #     ax2.set_title('E) Normalized to the Continuum Flux')
 
-    im3 = ax3.pcolormesh(tr.wv[iord], tr.phase, tr.spec_trans[:,iord], cmap=cmap, rasterized=True)#, vmin=0.955, vmax=1.035)
-    if len(tr.iIn) > 0:
-        ax3.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-        ax3.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    im3 = ax3.pcolormesh(visit.wv[iord], visit.phase, visit.spec_trans[:,iord], cmap=cmap, rasterized=True)#, vmin=0.955, vmax=1.035)
+    if len(visit.iIn) > 0:
+        ax3.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+        ax3.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax3)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     fig.colorbar(im3,ax=ax3, cax=cax)
 #     ax3.set_title('F) Transmission Spectrum')
 
-    im4 = ax4.pcolormesh(tr.wv[iord], tr.phase, tr.final[:,iord], cmap=cmap, rasterized=True)#, vmin=0.955-1, vmax=1.035-1)  
-    if len(tr.iIn) > 0:
-        ax4.axhline(tr.phase[tr.iIn[-1]], alpha=0.2, color='blue')
-        ax4.axhline(tr.phase[tr.iIn[0]], alpha=0.2, color='blue')
+    im4 = ax4.pcolormesh(visit.wv[iord], visit.phase, visit.final[:,iord], cmap=cmap, rasterized=True)#, vmin=0.955-1, vmax=1.035-1)  
+    if len(visit.iIn) > 0:
+        ax4.axhline(visit.phase[visit.iIn[-1]], alpha=0.2, color='blue')
+        ax4.axhline(visit.phase[visit.iIn[0]], alpha=0.2, color='blue')
     divider = make_axes_locatable(ax4)
     cax = divider.append_axes('right', size='3%', pad=0.05)
     cbar1 = fig.colorbar(im4,ax=ax4, cax=cax)
-#     ax4.set_title('G) PCA-Corrected Transmission Spectrum ({} PCs)'.format(tr.params[5]))
+#     ax4.set_title('G) PCA-Corrected Transmission Spectrum ({} PCs)'.format(visit.params[5]))
 
-#     ax4.plot(tr.wv[iord][2044] * (1+tr.vrp/const.c), tr.phase)
+#     ax4.plot(visit.wv[iord][2044] * (1+visit.vrp/const.c), visit.phase)
 
     ax4.set_xlabel(r'Wavelength ($\mu$m)', fontsize=14)
     ax4.set_ylabel(r'Orbital phase ($\phi$)', fontsize=14)
@@ -1180,23 +1180,23 @@ def plot_small_steps(tr, iord, xlim=None, masking_limit=0.8, fig_name='',
     # cbar = plt.colorbar(im3, orientation="horizontal")
     
     
-def plot_helium(tr, spec_fin_out, spec_fin, spec_fin_Sref, vrp=None,
+def plot_helium(visit, spec_fin_out, spec_fin, spec_fin_Sref, vrp=None,
                 spec_fin_ts=None, scale_y=1., iin=None, RV=0):
 
     he_lines = [1.083206, 1.083322, 1.083331]
     
     if iin is None:
-        iin = tr.iIn
+        iin = visit.iIn
         
     if ~isinstance(RV, u.Quantity):
         RV = RV*u.km/u.s
     
 #     if add_RVsys is True : 
-#         vrp += tr.vrp + tr.planet.RV_sys + RV
+#         vrp += visit.vrp + visit.planet.RV_sys + RV
 #     else:
-#         vrp = tr.vrp + RV
+#         vrp = visit.vrp + RV
     if vrp is None:
-        vrp = tr.vrp
+        vrp = visit.vrp
         
     wave_shift_he = he_lines[0] * (1+((vrp+RV)/const.c).decompose())
     wave_shift_he2 = he_lines[1] * (1+((vrp+RV)/const.c).decompose())
@@ -1210,19 +1210,19 @@ def plot_helium(tr, spec_fin_out, spec_fin, spec_fin_Sref, vrp=None,
 #     fig,ax = plt.subplots(2,1,sharex=True, figsize=(15,8))
     plt.axhline(0,alpha=0.2, linestyle=":")
 
-    plt.step(tr.wv[iord],spec_fin_out[iord]-1, where='mid', color='k', label='Out of transit', alpha=0.8)
-    plt.fill_between(tr.wv[iord],spec_fin_out[iord]-1, step="mid", alpha=0.4, color='k')
+    plt.step(visit.wv[iord],spec_fin_out[iord]-1, where='mid', color='k', label='Out of transit', alpha=0.8)
+    plt.fill_between(visit.wv[iord],spec_fin_out[iord]-1, step="mid", alpha=0.4, color='k')
 
-    plt.step(tr.wv[iord],spec_fin[iord]-1, where='mid', color='c', label='Planet ref frame', alpha=0.8)
-    plt.fill_between(tr.wv[iord],spec_fin[iord]-1, step="mid", alpha=0.4, color='c')
+    plt.step(visit.wv[iord],spec_fin[iord]-1, where='mid', color='c', label='Planet ref frame', alpha=0.8)
+    plt.fill_between(visit.wv[iord],spec_fin[iord]-1, step="mid", alpha=0.4, color='c')
 
-    plt.step(tr.wv[iord],spec_fin_Sref[iord]-1, where='mid', color='orange', label='Star ref frame', alpha=0.8)
-    plt.fill_between(tr.wv[iord],spec_fin_Sref[iord]-1, step="mid", alpha=0.4, color='orange')
+    plt.step(visit.wv[iord],spec_fin_Sref[iord]-1, where='mid', color='orange', label='Star ref frame', alpha=0.8)
+    plt.fill_between(visit.wv[iord],spec_fin_Sref[iord]-1, step="mid", alpha=0.4, color='orange')
 
     if spec_fin_ts is not None:
-        plt.step(tr.wv[iord],spec_fin_ts[iord]-1, where='mid', color='navy', 
+        plt.step(visit.wv[iord],spec_fin_ts[iord]-1, where='mid', color='navy', 
                  label='Planet ref frame - pca corr', alpha=0.8)
-        plt.fill_between(tr.wv[iord],spec_fin_ts[iord]-1, step="mid", alpha=0.4, color='navy')
+        plt.fill_between(visit.wv[iord],spec_fin_ts[iord]-1, step="mid", alpha=0.4, color='navy')
 
     plt.legend(loc='lower right')
 
@@ -1235,23 +1235,23 @@ def plot_helium(tr, spec_fin_out, spec_fin, spec_fin_Sref, vrp=None,
     plt.xlabel('Wavelength (um)')
     plt.ylabel('Excess absorption')
     
-    _=plt.plot(tr.wv[iord].T, (tr.tellu[:,iord].T-1)*0.05+0.015, alpha=0.15, color='blue')
+    _=plt.plot(visit.wv[iord].T, (visit.tellu[:,iord].T-1)*0.05+0.015, alpha=0.15, color='blue')
 
     # ----- 2D -------
     
     plt.figure(figsize=(15,4))
-    im = plt.pcolormesh(tr.wv[iord], np.arange(tr.n_spec), tr.spec_trans[:,iord,:], cmap="viridis")
+    im = plt.pcolormesh(visit.wv[iord], np.arange(visit.n_spec), visit.spec_trans[:,iord,:], cmap="viridis")
 
-    plt.plot(wave_shift_he, np.arange(tr.n_spec), 'red',alpha=0.7)
-    plt.plot(wave_shift_he2, np.arange(tr.n_spec), 'red',alpha=0.7)
-    plt.plot(wave_shift_he3, np.arange(tr.n_spec), 'red',alpha=0.7)
+    plt.plot(wave_shift_he, np.arange(visit.n_spec), 'red',alpha=0.7)
+    plt.plot(wave_shift_he2, np.arange(visit.n_spec), 'red',alpha=0.7)
+    plt.plot(wave_shift_he3, np.arange(visit.n_spec), 'red',alpha=0.7)
     
     for hel in he_lines:
         plt.axvline(hel * (1+(RV/const.c).decompose().value), color='red',alpha=0.7)
     plt.axvline(1.083 * (1+(RV/const.c).decompose().value), color='black')
     
-    plt.axhline(np.arange(tr.n_spec)[iin[0]], color='white', linestyle='--')
-    plt.axhline(np.arange(tr.n_spec)[iin[-1]], color='white', linestyle='--')
+    plt.axhline(np.arange(visit.n_spec)[iin[0]], color='white', linestyle='--')
+    plt.axhline(np.arange(visit.n_spec)[iin[-1]], color='white', linestyle='--')
     cbar = plt.colorbar(im, orientation='vertical')
     cbar.set_label(r'Excess absorption')
     im.set_clim(0.95,1.03)
@@ -1344,7 +1344,7 @@ def plot_mcmc_current_chains(filename, labels=None, truths=None,
         
 ########################
 
-def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
+def plot_ttest_map(visit, Kp_array, RV_array, sigma, p_value):
     
     fig, ax = plt.subplots(3,1, sharex=True, figsize=(12,6))
 
@@ -1352,11 +1352,11 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
     ax[0].set_ylabel('K_p')
     cbar = fig.colorbar(im0, ax=ax[0])
     cbar.set_label(r'$t$-test $\sigma$')
-    ax[0].axhline(tr.Kp.value,color='white',alpha=0.5, linestyle=':')
+    ax[0].axhline(visit.Kp.value,color='white',alpha=0.5, linestyle=':')
     ax[0].axvline(0,color='white',alpha=0.5, linestyle=':')
     
     x = RV_array[(RV_array >= -15) & (RV_array <= 15)]
-    y = sigma[hm.nearest(Kp_array, tr.Kp.value)][(RV_array >= -15) & (RV_array <= 15)]
+    y = sigma[hm.nearest(Kp_array, visit.Kp.value)][(RV_array >= -15) & (RV_array <= 15)]
 
     chose = a.find_max_spline(x, y.copy() , kind='max')
     print('T-val : Max value = {:.2f} // Max position = {:.2f}'.format(-chose[1], chose[0]))
@@ -1366,10 +1366,10 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
     ax[1].set_ylabel('K_p')
     cbar = fig.colorbar(im1, ax=ax[1])
     cbar.set_label(r'log$_{10}$ p-value')
-    ax[1].axhline(tr.Kp.value,color='white',alpha=0.5, linestyle=':')
+    ax[1].axhline(visit.Kp.value,color='white',alpha=0.5, linestyle=':')
     ax[1].axvline(0,color='white',alpha=0.5, linestyle=':')
     
-    y = np.log10(p_value)[hm.nearest(Kp_array, tr.Kp.value)][(RV_array >= -15) & (RV_array <= 15)]
+    y = np.log10(p_value)[hm.nearest(Kp_array, visit.Kp.value)][(RV_array >= -15) & (RV_array <= 15)]
     chose = a.find_max_spline(x, np.ma.masked_invalid(y.copy()) , kind='min')
     print('P-val : Max value = {:.2f} // Max position = {:.2f}'.format(chose[1], chose[0]))
     
@@ -1378,10 +1378,10 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
     ax[2].set_ylabel('K_p')
     cbar = fig.colorbar(im2, ax=ax[2])
     cbar.set_label(r'Significance ($\sigma$)')
-    ax[2].axhline(tr.Kp.value,color='white',alpha=0.5, linestyle=':')
+    ax[2].axhline(visit.Kp.value,color='white',alpha=0.5, linestyle=':')
     ax[2].axvline(0,color='white',alpha=0.5, linestyle=':')
     
-    y = nf.pval2sigma(p_value)[hm.nearest(Kp_array, tr.Kp.value)][(RV_array >= -15) & (RV_array <= 15)]
+    y = nf.pval2sigma(p_value)[hm.nearest(Kp_array, visit.Kp.value)][(RV_array >= -15) & (RV_array <= 15)]
     chose = a.find_max_spline(x, np.ma.masked_invalid(y.copy()) , kind='max')
     print('Sigma : Max value = {:.2f} // Max position = {:.2f}'.format(-chose[1], chose[0]))
 
@@ -1389,7 +1389,7 @@ def plot_ttest_map(tr, Kp_array, RV_array, sigma, p_value):
     return -chose[1], chose[0]
 
 
-def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttest_params, ccf=None,
+def plot_ttest_map_hist(visit, corrRV, correlation, Kp_array, RV_array, sigma, ttest_params, ccf=None,
                         orders=np.arange(49), masked=False, logl=False, plot_trail=False,
                         show_rest_frame=True, Kp=None, RV=None, vrp=None, fig_name='',
                         path_fig=None, hist=True, cmap=None, tellu_loc=None):
@@ -1419,7 +1419,7 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         cbar = fig.colorbar(im0, ax=ax[0], cax=cax)
         cbar.set_label(r'$t$-test $\sigma$', fontsize=16)
 
-        ax[0].axhline(tr.Kp.value,color='r', linestyle=':', label='Planet Rest Frame')
+        ax[0].axhline(visit.Kp.value,color='r', linestyle=':', label='Planet Rest Frame')
         ax[0].axvline(0,color='r', linestyle=':')
         
         # Position of tellurics
@@ -1434,13 +1434,13 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 
         if vrp is None:
             if Kp is None:
-                Kp = tr.Kp.value
-                vrp = tr.vrp.value
+                Kp = visit.Kp.value
+                vrp = visit.vrp.value
             else:
-                vrp = rv_theo_nu(Kp, tr.nu*u.rad, tr.planet.w, plnt=True).value
+                vrp = rv_theo_nu(Kp, visit.nu*u.rad, visit.planet.w, plnt=True).value
         else:
             if Kp is None:
-                Kp = tr.Kp.value
+                Kp = visit.Kp.value
 
         x = RV_array[(RV_array >= -15) & (RV_array <= 15)]
         y = sigma[hm.nearest(Kp_array, Kp)][(RV_array >= -15) & (RV_array <= 15)]
@@ -1473,19 +1473,19 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 
         if plot_trail is True:
             plt.figure(figsize=(8,5))
-            plt.pcolormesh(corrRV, np.arange(tr.n_spec),ccf)
-            plt.plot(tr.berv, np.arange(tr.n_spec),'b')
-            plt.plot(vrp+wind-speed_limit, np.arange(tr.n_spec),'k', label="In-trail (inside the lines)")
-            plt.plot(vrp+wind+speed_limit, np.arange(tr.n_spec),'k')
+            plt.pcolormesh(corrRV, np.arange(visit.n_spec),ccf)
+            plt.plot(visit.berv, np.arange(visit.n_spec),'b')
+            plt.plot(vrp+wind-speed_limit, np.arange(visit.n_spec),'k', label="In-trail (inside the lines)")
+            plt.plot(vrp+wind+speed_limit, np.arange(visit.n_spec),'k')
 
             if both_side is True:
-                plt.plot(vrp+wind+limit_out, np.arange(tr.n_spec),'r', label="Out-of-trail (outside the lines)")
-                plt.plot(vrp+wind-limit_out, np.arange(tr.n_spec),'r')
+                plt.plot(vrp+wind+limit_out, np.arange(visit.n_spec),'r', label="Out-of-trail (outside the lines)")
+                plt.plot(vrp+wind-limit_out, np.arange(visit.n_spec),'r')
             else:
-                plt.plot(vrp+wind+limit_out, np.arange(tr.n_spec),'r')
+                plt.plot(vrp+wind+limit_out, np.arange(visit.n_spec),'r')
 
-            plt.axhline(tr.iIn[0], linestyle='--', color='white', label="In transit observations")
-            plt.axhline(tr.iIn[-1], linestyle='--', color='white')
+            plt.axhline(visit.iIn[0], linestyle='--', color='white', label="In transit observations")
+            plt.axhline(visit.iIn[-1], linestyle='--', color='white')
             
             plt.xlabel(r'$v_{\rm rad}$ [km s$^{-1}$]', fontsize=16)
             plt.ylabel("Observation number", fontsize=16)
@@ -1493,11 +1493,11 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 
 
 
-        in_ccf, out_ccf = nf.get_corr_in_out_trail(tr.iIn, corrRV, ccf, tr, wind=wind, 
+        in_ccf, out_ccf = nf.get_corr_in_out_trail(visit.iIn, corrRV, ccf, visit, wind=wind, 
                                                 speed_limit=speed_limit, limit_out=limit_out, 
                                                 both_side=both_side, vrp=vrp)
 
-    #     in_ccf_af, out_ccf_af = nf.get_corr_in_out_trail(tr.iOut, corrRV, ccf, tr, wind=wind, 
+    #     in_ccf_af, out_ccf_af = nf.get_corr_in_out_trail(visit.iOut, corrRV, ccf, visit, wind=wind, 
     #                                                   speed_limit=speed_limit, limit_out=limit_out, 
     #                                             both_side=both_side, vrp=vrp)
 
@@ -1530,20 +1530,20 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
         cbar.set_label(r'$t$-test $\sigma$', fontsize=16)
 
         if show_rest_frame:
-            ax.axhline(tr.Kp.value,color='indigo',alpha=0.5, linestyle=':', label='Planet Rest Frame')
+            ax.axhline(visit.Kp.value,color='indigo',alpha=0.5, linestyle=':', label='Planet Rest Frame')
             ax.axvline(0,color='indigo',alpha=0.5, linestyle=':')
         fig.tight_layout(pad=1.0)
 
 
         if vrp is None:
             if Kp is None:
-                Kp = tr.Kp.value
-                vrp = tr.vrp.value
+                Kp = visit.Kp.value
+                vrp = visit.vrp.value
             else:
-                vrp = rv_theo_nu(Kp, tr.nu*u.rad, tr.planet.w, plnt=True).value
+                vrp = rv_theo_nu(Kp, visit.nu*u.rad, visit.planet.w, plnt=True).value
         else:
             if Kp is None:
-                Kp = tr.Kp.value
+                Kp = visit.Kp.value
 
         x = RV_array[(RV_array >= -15) & (RV_array <= 15)]
         y = sigma[hm.nearest(Kp_array, Kp)][(RV_array >= -15) & (RV_array <= 15)]
@@ -1575,27 +1575,27 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 
 #         if plot_trail is True:
 #             plt.figure()
-#             plt.pcolormesh(corrRV, np.arange(tr.n_spec),ccf)
-#             plt.plot(tr.berv, np.arange(tr.n_spec),'b')
-#             plt.plot(vrp+wind-speed_limit, np.arange(tr.n_spec),'k')
-#             plt.plot(vrp+wind+speed_limit, np.arange(tr.n_spec),'k')
+#             plt.pcolormesh(corrRV, np.arange(visit.n_spec),ccf)
+#             plt.plot(visit.berv, np.arange(visit.n_spec),'b')
+#             plt.plot(vrp+wind-speed_limit, np.arange(visit.n_spec),'k')
+#             plt.plot(vrp+wind+speed_limit, np.arange(visit.n_spec),'k')
 
 #             if both_side is True:
-#                 plt.plot(vrp+wind+limit_out, np.arange(tr.n_spec),'r')
-#                 plt.plot(vrp+wind-limit_out, np.arange(tr.n_spec),'r')
+#                 plt.plot(vrp+wind+limit_out, np.arange(visit.n_spec),'r')
+#                 plt.plot(vrp+wind-limit_out, np.arange(visit.n_spec),'r')
 #             else:
-#                 plt.plot(vrp+wind+limit_out, np.arange(tr.n_spec),'r')
+#                 plt.plot(vrp+wind+limit_out, np.arange(visit.n_spec),'r')
 
-#             plt.axhline(tr.iIn[0],linestyle='--',color='white')
-#             plt.axhline(tr.iIn[-1],linestyle='--',color='white')
+#             plt.axhline(visit.iIn[0],linestyle='--',color='white')
+#             plt.axhline(visit.iIn[-1],linestyle='--',color='white')
 
         
 
-        in_ccf, out_ccf = nf.get_corr_in_out_trail(tr.iIn, corrRV, ccf, tr, wind=wind, 
+        in_ccf, out_ccf = nf.get_corr_in_out_trail(visit.iIn, corrRV, ccf, visit, wind=wind, 
                                                 speed_limit=speed_limit, limit_out=limit_out, 
                                                 both_side=both_side, vrp=vrp)
 
-    #     in_ccf_af, out_ccf_af = nf.get_corr_in_out_trail(tr.iOut, corrRV, ccf, tr, wind=wind, 
+    #     in_ccf_af, out_ccf_af = nf.get_corr_in_out_trail(visit.iOut, corrRV, ccf, visit, wind=wind, 
     #                                                   speed_limit=speed_limit, limit_out=limit_out, 
     #                                             both_side=both_side, vrp=vrp)
 
@@ -1683,17 +1683,17 @@ def plot_ttest_map_hist(tr, corrRV, correlation, Kp_array, RV_array, sigma, ttes
 #     return tresh_array, contrast, contrast_sig     
 
 
-def plot_order(tr, iord, flux=None, xaxis=None, yaxis=None, show_slice=None, figsize=(16,4),
+def plot_order(visit, iord, flux=None, xaxis=None, yaxis=None, show_slice=None, figsize=(16,4),
                xlabel='', ylabel='', cbar=False, clim=[None,None], xlim=None, ylim=None, 
                fontsize=12, title='', **kwargs):
     
     if flux is None:
-        flux = tr.final
+        flux = visit.final
         
     if xaxis is None:
-        xaxis = tr.wv[iord]
+        xaxis = visit.wv[iord]
     if yaxis is None:
-        yaxis = np.arange(tr.n_spec)
+        yaxis = np.arange(visit.n_spec)
     
     fig = plt.figure(figsize=figsize)
     
@@ -1781,132 +1781,116 @@ def plot_logl_grid(logl_grid, n_pcas, cases, cond, pCloud, corrRV0, sig='with', 
 
 
 
-def plot_airmass(list_tr, markers=['o','s','d'], 
-                colors=['darkblue','dodgerblue','darkorange'], fig_name='', path_fig=None):
+def plot_airmass(visit, ax=None, marker='o', color='darkblue', label='Transit',
+                  fig_name='', path_fig=None):
+    """Plot one visit's airmass/S/N summary (3 panels: airmass, mean S/N per order,
+    mean H-band S/N per exposure), all vs. orbital phase or wavelength.
 
-    ig, ax = plt.subplots(3,1, figsize=(9,8))
+    Call once per visit, passing the `ax` returned by the previous call, to combine
+    several visits on the same figure (each visit gets its own `marker`/`color`/`label`
+    and draws its own ingress/egress/total-transit shading). A fresh figure is created
+    automatically on the first call (`ax=None`).
+    """
+    if ax is None:
+        _, ax = plt.subplots(3, 1, figsize=(9, 8))
 
-    # plt.figure(figsize=(8,3.5))
+    ax[0].plot(visit.phase, visit.AM, '-', marker=marker, color=color, label=label)
 
-    for i,tr in enumerate(list_tr):
-        ax[0].plot(tr.phase, tr.AM,'-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
-
-    phase_t1 = np.min([tr.phase[tr.iIn[0]] for tr in list_tr])
-    phase_t2 = np.min([tr.phase[tr.total[0]] for tr in list_tr])
-    phase_t3 = np.max([tr.phase[tr.total[-1]] for tr in list_tr])
-    phase_t4 = np.max([tr.phase[tr.iIn[-1]] for tr in list_tr])
+    phase_t1 = visit.phase[visit.iIn[0]]
+    phase_t2 = visit.phase[visit.total[0]]
+    phase_t3 = visit.phase[visit.total[-1]]
+    phase_t4 = visit.phase[visit.iIn[-1]]
 
     ax[0].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[0].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[0].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
 
-    ax[0].ylabel('Airmass', fontsize=16)
-    ax[0].xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+    ax[0].set_ylabel('Airmass', fontsize=16)
+    ax[0].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
     ax[0].legend(loc='upper left', fontsize=12)
-    ax[0].tight_layout()
 
-    # if path_fig is not None:
-    #     plt.savefig(path_fig+'fig_airmass{}.pdf'.format(fig_name))
+    hband = a.bands(visit.wv, 'h')[2:-2]
 
-    # fig, ax = plt.subplots(2,1, figsize=(9,8))
-    
-    hband = a.bands(tr.wv,'h')[2:-2]
-    
-    for i,tr in enumerate(list_tr):
-        ax[1].plot(np.mean(tr.wv,axis=-1).T, np.nanmean(tr.SNR,axis=0).T,
-                   '-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
-
-
+    ax[1].plot(np.mean(visit.wv, axis=-1).T, np.nanmean(visit.SNR, axis=0).T,
+               '-', marker=marker, color=color, label=label)
     ax[1].set_ylabel('Mean S/N\nper order', fontsize=16)
     ax[1].set_xlabel(r'Wavelength ($\mu$m)', fontsize=16)
-    # ax[0].axvspan(np.mean(tr.wv,axis=-1)[28], np.mean(tr.wv,axis=-1)[36], alpha=0.2, color='darkorange',label='H-band')
-    ax[1].legend(loc='upper left', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+    ax[1].legend(loc='upper left', fontsize=12)
 
-    for i,tr in enumerate(list_tr):
-        ax[2].plot(tr.phase, np.nanmean(tr.SNR[:, hband],axis=-1),'-', marker=markers[i], color=colors[i])
-
-
+    ax[2].plot(visit.phase, np.nanmean(visit.SNR[:, hband], axis=-1), '-', marker=marker, color=color)
     ax[2].set_ylabel('Mean H-band S/N\nper exposure', fontsize=16)
     ax[2].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
-
     ax[2].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[2].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[2].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+    ax[2].legend(loc='best', fontsize=12)
 
-    ax[2].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+    ax[0].get_figure().tight_layout()
 
     if path_fig is not None:
         plt.savefig(path_fig+'fig_SNR{}.pdf'.format(fig_name))
 
+    return ax
 
-def plot_night_summary_NIRPS(list_tr, obs, markers=['o','s','d'], 
-                colors=['darkblue','dodgerblue','darkorange'], fig_name='', path_fig=None):
 
-    fig, ax = plt.subplots(6,1, figsize=(8,15))
-    
+def plot_night_summary_NIRPS(visit, obs, ax=None, marker='o', color='darkblue',
+                              fig_name='', path_fig=None):
+    """Plot one visit's night-summary panels (S/N per order, airmass, S/N per exposure
+    in the Y/H bands, H2O and other telluric pre-clean exponents, mean seeing).
+
+    Call once per visit, passing the `ax` returned by the previous call, to combine
+    several visits on the same figure. A fresh figure is created automatically on the
+    first call (`ax=None`). `obs` provides header-level quantities (telluric exponents,
+    seeing) not stored on `visit` itself -- these are read from `obs.headers` (the
+    reduction's header collection, see Chantier B B2's `CADC` cleanup) rather than the
+    now-removed `obs.headers_tellu`/`obs.headers_image`.
+    """
+    if ax is None:
+        _, ax = plt.subplots(6, 1, figsize=(8, 15))
+
     # plot mean s/n per order
-    for i,tr in enumerate(list_tr):
-        ax[0].plot(np.mean(tr.wv,axis=-1).T, np.nanmean(tr.SNR,axis=0).T,
-                   '-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
-
-
+    ax[0].plot(np.mean(visit.wv, axis=-1).T, np.nanmean(visit.SNR, axis=0).T,
+               '-', marker=marker, color=color, label='Transit')
     ax[0].set_ylabel('Mean S/N\nper order', fontsize=16)
     ax[0].set_xlabel(r'Wavelength ($\mu$m)', fontsize=16)
-    ax[0].legend(loc='best', fontsize=12) #, bbox_to_anchor=(0.9, 0.71)
+    ax[0].legend(loc='best', fontsize=12)
 
     # plot airmass
-    for i,tr in enumerate(list_tr):
-        ax[1].plot(tr.phase, tr.AM,'-', marker=markers[i], color=colors[i], label='Transit {}'.format(i+1))
+    ax[1].plot(visit.phase, visit.AM, '-', marker=marker, color=color, label='Transit')
 
-    phase_t1 = np.min([tr.phase[tr.iIn[0]] for tr in list_tr])
-    phase_t2 = np.min([tr.phase[tr.total[0]] for tr in list_tr])
-    phase_t3 = np.max([tr.phase[tr.total[-1]] for tr in list_tr])
-    phase_t4 = np.max([tr.phase[tr.iIn[-1]] for tr in list_tr])
+    phase_t1 = visit.phase[visit.iIn[0]]
+    phase_t2 = visit.phase[visit.total[0]]
+    phase_t3 = visit.phase[visit.total[-1]]
+    phase_t4 = visit.phase[visit.iIn[-1]]
 
     ax[1].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[1].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[1].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
-
     ax[1].set_ylabel('Airmass', fontsize=16)
-    # ax[1].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
     ax[1].legend(loc='best', fontsize=12)
-    
 
     # plot mean s/n per exposure in Y and H band
-    hband = a.bands(tr.wv,'h')[2:-2]
-    yband = a.bands(tr.wv,'y')[2:-2]
-    
-    for i,tr in enumerate(list_tr):
-        ax[2].plot(tr.phase, np.nanmean(tr.SNR[:, hband],axis=-1),'-', marker=markers[i], color=colors[0], label = 'H-band')
-        ax[2].plot(tr.phase, np.nanmean(tr.SNR[:, yband],axis=-1),'-', marker=markers[i], color='darkred', label = 'Y-band')
+    hband = a.bands(visit.wv, 'h')[2:-2]
+    yband = a.bands(visit.wv, 'y')[2:-2]
 
+    ax[2].plot(visit.phase, np.nanmean(visit.SNR[:, hband], axis=-1), '-', marker=marker, color=color, label='H-band')
+    ax[2].plot(visit.phase, np.nanmean(visit.SNR[:, yband], axis=-1), '-', marker=marker, color='darkred', label='Y-band')
     ax[2].set_ylabel('Mean S/N\nper exposure', fontsize=16)
-#     ax[2].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
-
     ax[2].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[2].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[2].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+    ax[2].legend(loc='best', fontsize=12, ncol=2)
 
-    ax[2].legend(loc='best', fontsize=12, ncol = 2) #, bbox_to_anchor=(0.9, 0.71)
-    
     # plot H2O telluric pre-clean exponent
-    for i,tr in enumerate(list_tr):
-        ax[3].plot(tr.phase, obs.headers_tellu.get_all('TLPEH2O')[0], '-', marker=markers[i], color=colors[0])
-    
+    ax[3].plot(visit.phase, obs.headers.get_all('TLPEH2O')[0], '-', marker=marker, color=color)
     ax[3].set_ylabel('Telluric exp. H2O', fontsize=16)
-#     ax[3].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
-
     ax[3].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[3].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[3].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
-    
-    # plot other tellurice pre-clean exponents
-    for i,tr in enumerate(list_tr):
-        ax[4].plot(tr.phase, obs.headers_tellu.get_all('TLPEOTR')[0], '-', marker=markers[i], color=colors[i])
-    
-    ax[4].set_ylabel('Telluric exp. \nother species', fontsize=16)
-    # ax[4].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
 
+    # plot other telluric pre-clean exponents
+    ax[4].plot(visit.phase, obs.headers.get_all('TLPEOTR')[0], '-', marker=marker, color=color)
+    ax[4].set_ylabel('Telluric exp. \nother species', fontsize=16)
     ax[4].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[4].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[4].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
@@ -1915,18 +1899,21 @@ def plot_night_summary_NIRPS(list_tr, obs, markers=['o','s','d'],
     end = np.array(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM END')[0])
     mean_seeing = (start + end) / 2
 
-    ax[5].plot(tr.phase, mean_seeing, '-', marker=markers[i], color = colors[i])
-    ax[5].set_ylabel('Mean seeing', fontsize = 16)
+    ax[5].plot(visit.phase, mean_seeing, '-', marker=marker, color=color)
+    ax[5].set_ylabel('Mean seeing', fontsize=16)
     ax[5].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
     ax[5].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
     ax[5].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[5].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
 
-    fig.tight_layout()
+    ax[0].get_figure().tight_layout()
 
     if path_fig is not None:
         plt.savefig(path_fig+'night_summary{}.pdf'.format(fig_name), bbox_inches='tight')
-        
+
+    return ax
+
+
             
 # def plot_logl(corrRV0, loglbl, var_in, var_out, n_pcas, good_rv_idx=0, switch=False):
 
@@ -1987,7 +1974,7 @@ def plot_night_summary_NIRPS(list_tr, obs, markers=['o','s','d'],
 #         plt.tight_layout()
                         
 
-# def plot_logl_map(tr, var_out, var_in, logl_grid, n_pcas, good_rv_idx=0, n_lvl=None, vmin=None):
+# def plot_logl_map(visit, var_out, var_in, logl_grid, n_pcas, good_rv_idx=0, n_lvl=None, vmin=None):
 
 #     var_out_list, var_out_nb = np.unique(var_out, return_counts=True)
 #     var_in_list, var_in_nb = np.unique(var_in, return_counts=True)

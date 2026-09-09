@@ -37,7 +37,7 @@ class ReductionParams:
     (see individual field descriptions).
 
     For backward compatibility with existing code that still indexes into
-    reduction parameters positionally (e.g. ``tr.params[5]``), this class
+    reduction parameters positionally (e.g. ``visit.params[5]``), this class
     also supports ``len()``, integer indexing/assignment (``params[i]``) and
     ``.copy()``, in the same order as the old 10-element list.
 
@@ -184,34 +184,34 @@ def unberv(wave, flux_masked, berv, vr, counting = True):  #, norm=False
     return np.ma.masked_invalid(flux_Sref)
 
 
-def build_master_out(wave, flux_Sref_norm, iOut, kind_lp='filter', 
-                     box=201, gauss_box=5, master_out=None, kind_mo='median', 
+def build_reference_spec(wave, flux_Sref_norm, iOut, kind_lp='filter', 
+                     box=201, gauss_box=5, reference_spec=None, kind_mo='median', 
                      clip_ratio=None, cont=False): #, light_curve
     
     nspec, nord, _ = flux_Sref_norm.shape
     
-    if master_out is None:
+    if reference_spec is None:
         # --- Building the master out-of-transit spectrum
         if kind_mo == "median":
-            master_out = np.ma.median(flux_Sref_norm[iOut],  axis=0)
+            reference_spec = np.ma.median(flux_Sref_norm[iOut],  axis=0)
         elif kind_mo == "mean":
-            master_out = np.ma.mean(flux_Sref_norm[iOut],  axis=0)
-    #     master_out = np.ma.average(flux_Sref_norm[iOut], weights=light_curve[iOut], axis=0)
+            reference_spec = np.ma.mean(flux_Sref_norm[iOut],  axis=0)
+    #     reference_spec = np.ma.average(flux_Sref_norm[iOut], weights=light_curve[iOut], axis=0)
         
     if cont is True:
-        master_out_ratio = a.remove_pseudo_cont(wave[0], np.clip(master_out.copy(),0.95,None), 
+        reference_spec_ratio = a.remove_pseudo_cont(wave[0], np.clip(reference_spec.copy(),0.95,None), 
                                                 kWidth=30, wSize=55)
-        master_out = master_out.copy()/master_out_ratio
-#         master_out_ratio = a.remove_pseudo_cont(wave[0], master_out.copy(), 5, 31)
-#         master_out = master_out/master_out_ratio
+        reference_spec = reference_spec.copy()/reference_spec_ratio
+#         reference_spec_ratio = a.remove_pseudo_cont(wave[0], reference_spec.copy(), 5, 31)
+#         reference_spec = reference_spec/reference_spec_ratio
         
 #     plt.figure()
-#     plt.plot(wave[0],master_out.T)
+#     plt.plot(wave[0],reference_spec.T)
     # plt.show()
 
     # -- Polynome fiting on the ratio of spec/master
 
-    ratio  = np.ma.array(flux_Sref_norm/master_out)
+    ratio  = np.ma.array(flux_Sref_norm/reference_spec)
 
 #     fit = np.ma.array(np.ones_like(ratio)) * np.nan
     ratio_filt = np.ma.array(np.ones_like(ratio)) * np.nan
@@ -220,7 +220,7 @@ def build_master_out(wave, flux_Sref_norm, iOut, kind_lp='filter',
         for iOrd in range(nord):
             hm.print_static(iOrd)
 
-            # -- normalizing the spectra to get them at the same level as the master_out
+            # -- normalizing the spectra to get them at the same level as the reference_spec
             if kind_lp == 'poly':
                 for n in range(nspec):           
                     fit_fct = ext.poly_fct(wave[n, iOrd], ratio[n, iOrd], 4)
@@ -251,21 +251,21 @@ def build_master_out(wave, flux_Sref_norm, iOut, kind_lp='filter',
     flux_norm_mo = flux_Sref_norm/ratio_filt
     
 #     plt.figure()
-#     plt.plot(wave[0,33], flux_Sref_norm[0,33].T/master_out[33])
+#     plt.plot(wave[0,33], flux_Sref_norm[0,33].T/reference_spec[33])
 #     plt.plot(wave[0,33], ratio_filt[0,33].T)
 #     plt.plot(wave[0,33], sigma_clip(ratio_filt[0,33],5))
 #     hm.stop()
     
-    if master_out is None:
-    #     new_master_out = np.ma.average(flux_norm_mo[iOut], weights=light_curve[iOut], axis=0)
-        new_master_out = np.ma.median(flux_norm_mo[iOut], axis=0)
+    if reference_spec is None:
+    #     new_reference_spec = np.ma.average(flux_norm_mo[iOut], weights=light_curve[iOut], axis=0)
+        new_reference_spec = np.ma.median(flux_norm_mo[iOut], axis=0)
     else:
-        new_master_out = master_out
+        new_reference_spec = reference_spec
 
-    return flux_norm_mo, new_master_out, np.ma.masked_invalid(ratio_filt)
+    return flux_norm_mo, new_reference_spec, np.ma.masked_invalid(ratio_filt)
 
 
-def build_master_out_pc(wave, flux_Sref_norm, iOut, plot=False, **kwargs):
+def build_reference_spec_pc(wave, flux_Sref_norm, iOut, plot=False, **kwargs):
     
     nspec, nord, npix = flux_Sref_norm.shape
     
@@ -286,14 +286,14 @@ def build_master_out_pc(wave, flux_Sref_norm, iOut, plot=False, **kwargs):
     
     # --- Building the master out-of-transit spectrum
 
-    master_out = np.ma.median(flux_norm[iOut],  axis=0)
+    reference_spec = np.ma.median(flux_norm[iOut],  axis=0)
     
     if plot is True:
         plt.figure()
         plt.plot(wave[0,35], flux_norm[0,35])
-        plt.plot(wave[0,35], master_out[35])
+        plt.plot(wave[0,35], reference_spec[35])
 
-    return flux_norm, master_out
+    return flux_norm, reference_spec
 
 
 # TRANSMISSION SPECTRUM
@@ -565,26 +565,26 @@ def clean_bad_pixels(wave, uncorr0, plot=False, t1=None, iOrd=34, tresh=4, tresh
 # from spirou_exo import plotting_fcts as pf
 
 # added condition to skip completely masked orders in the noise floor fits (happens sometimes with nirps)
-def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34, cmap=None, **kwargs):
+def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, visit=None, iOrd=34, cmap=None, **kwargs):
 #     if plot is True:
-#         pf.plot_order(tr,iOrd,tr.uncorr, **kwargs)
+#         pf.plot_order(visit,iOrd,visit.uncorr, **kwargs)
     n_spec, nord,_ = uncorr0.shape
     
     median_wv = np.ma.median(uncorr0, axis=-1)[:,:,None]
     uncorr_mean_norm = uncorr0/median_wv
 #     if plot is True:
-#         pf.plot_order(tr,iOrd,uncorr_mean_norm, cmap=cmap, ylabel='uncorr_mean_norm', **kwargs)
+#         pf.plot_order(visit,iOrd,uncorr_mean_norm, cmap=cmap, ylabel='uncorr_mean_norm', **kwargs)
 
     median_time = np.ma.median(uncorr_mean_norm, axis=0)[None,:,:]
     uncorr_norm = uncorr_mean_norm/median_time
 
 #     if plot is True:
-#         pf.plot_order(tr,iOrd, uncorr_norm, cbar=True, cmap=cmap, ylabel='uncorr_norm', **kwargs)
+#         pf.plot_order(visit,iOrd, uncorr_norm, cbar=True, cmap=cmap, ylabel='uncorr_norm', **kwargs)
 
     noise_level = np.abs((uncorr_norm-np.ma.median(uncorr_norm, axis=-1)[:,:,None])/np.ma.std(uncorr_norm, axis=-1)[:,:,None])
 
 #     if plot is True:
-#         pf.plot_order(tr,iOrd, noise_level, cbar=True, cmap=cmap, ylabel='noise_level', **kwargs)
+#         pf.plot_order(visit,iOrd, noise_level, cbar=True, cmap=cmap, ylabel='noise_level', **kwargs)
 
     good = np.where((noise_level <= 8) , uncorr_norm, np.nan)
     master = np.ma.masked_invalid(np.nanmean(good , axis=0))
@@ -629,26 +629,26 @@ def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34,
             
             
             try:
-#                 fct_sp=interp1d_masked(tr.wv[iord][~cond], uncorr_norm[n,iord][~cond], 
+#                 fct_sp=interp1d_masked(visit.wv[iord][~cond], uncorr_norm[n,iord][~cond], 
 #                                    kind='cubic', fill_value='extrapolate')
                 fct_sp=interp1d_masked(wave[iord], master[iord], 
                                    kind='cubic', fill_value='extrapolate')
                 clipped_noise[n,iord][single] = np.ma.masked_array(fct_sp(wave[iord][single]))
             except ValueError:
                 print('chunks are overlapping at {}, {}'.format(n, iord))
-    #             print(tr.wv[iord][~cond], uncorr_norm[n,iord][~cond])
+    #             print(visit.wv[iord][~cond], uncorr_norm[n,iord][~cond])
                 pass
-    #         print(fct_sp(tr.wv[iord][single][0]))
+    #         print(fct_sp(visit.wv[iord][single][0]))
 #             clipped_noise[n,iord][multiple] = np.nan
             try:
-#                 fct_lin=interp1d_masked(tr.wv[iord][~cond], uncorr_norm[n,iord][~cond], 
+#                 fct_lin=interp1d_masked(visit.wv[iord][~cond], uncorr_norm[n,iord][~cond], 
 #                                     kind='linear', fill_value='extrapolate')
                 fct_lin=interp1d_masked(wave[iord], master[iord], 
                                     kind='linear', fill_value='extrapolate')
                 clipped_noise[n,iord][multiple] = np.ma.masked_array(fct_lin(wave[iord][multiple]))
             except ValueError:
     #             print('chunks are overlapping at {}, {}'.format(n, iord))
-    #             print(tr.wv[iord][~cond], uncorr_norm[n,iord][~cond])
+    #             print(visit.wv[iord][~cond], uncorr_norm[n,iord][~cond])
                 pass
             
             for k, g in groupby(enumerate(multiple), lambda ix : ix[0] - ix[1]):
@@ -656,19 +656,19 @@ def clean_bad_pixels_time(wave, uncorr0, tresh=3., plot=False, tr=None, iOrd=34,
                     clipped_noise[n,iord][list(map(itemgetter(1), g))] = np.nan
 
     if plot is True:
-        pf.plot_order(tr,iOrd, clipped_noise, cbar=True, cmap=cmap, ylabel='clipped_noise', **kwargs)
+        pf.plot_order(visit,iOrd, clipped_noise, cbar=True, cmap=cmap, ylabel='clipped_noise', **kwargs)
     if plot is True:
-        pf.plot_order(tr,iOrd, clipped_noise*median_time, cbar=True, cmap=cmap, ylabel='clipped*median_time', **kwargs)
+        pf.plot_order(visit,iOrd, clipped_noise*median_time, cbar=True, cmap=cmap, ylabel='clipped*median_time', **kwargs)
     if plot is True:
-        pf.plot_order(tr,iOrd,tr.fl_norm, cbar=True, cmap=cmap, ylabel='tr.fl_norm', **kwargs)
+        pf.plot_order(visit,iOrd,visit.fl_norm, cbar=True, cmap=cmap, ylabel='visit.fl_norm', **kwargs)
         
     return np.ma.masked_invalid(clipped_noise*median_time)  #*median_wv
 
 
 
 
-def resolve_reference_spectrum_exposures(iOut_temp, iOut, n_exposures):
-    """Resolve which exposures are used to build the reference spectrum ("master-out").
+def resolve_reference_spec_exposures(iOut_temp, iOut, n_exposures):
+    """Resolve which exposures are used to build the reference spectrum.
 
     Two modes:
 
@@ -784,7 +784,7 @@ def apply_pca_truncation(spec_trans, n_pca, n_comps=None, pca=None, clip_ts=None
 #                           mo_box=51, mo_gauss_box=5, n_pca=1, n_comps=10, clip_ratio=None, clip_ts=None,
 #                           poly_time=None, kind_mo="median", cont=False, cbp=False, ##blaze=None,
 #                           tresh=3., tresh_lim=1., tresh2=3, tresh_lim2=1, noise=None, somme=False, norm=True,
-#                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
+#                           flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, reference_spec=None,
 #                           spec_trans=None, full_ts=None, unberv_it=True, wave_mo=None, template=None):
 def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
                           lim_mask=0.5, lim_buffer=0.97, tellu=None, path=None, mask_tellu=True,
@@ -792,17 +792,17 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
                           mo_box=51, mo_gauss_box=5, n_pca=1, n_comps=10, clip_ratio=None, clip_ts=None,
                           poly_time=None, kind_mo="median", cont=False, cbp=False,
                           tresh=3., tresh_lim=1., last_tresh=3, last_tresh_lim=1, noise=None, somme=False, norm=True,
-                          flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, master_out=None,
+                          flux_masked=None, flux_Sref=None, flux_norm=None, flux_norm_mo=None, reference_spec=None,
                           spec_trans=None, clean_ts=None, unberv_it=True, counting = True, pca=None):
     """Build the transmission spectrum from raw flux, through PCA removal, in one pass.
 
     This runs the full reduction chain: median normalization, high-variance pixel masking,
     shift to the stellar reference frame (`unberv`), deep-telluric masking, reference
-    spectrum (`master_out`/`build_master_out`), `spec_trans = flux_norm_mo / master_out`,
+    spectrum (`reference_spec`/`build_reference_spec`), `spec_trans = flux_norm_mo / reference_spec`,
     and finally PCA removal of `n_pca` components (`apply_pca_truncation`).
 
     Every step up to and including `spec_trans` is independent of `n_pca` — pass any of the
-    `flux_masked`/`flux_Sref`/`flux_norm`/`flux_norm_mo`/`master_out`/`spec_trans` arguments
+    `flux_masked`/`flux_Sref`/`flux_norm`/`flux_norm_mo`/`reference_spec`/`spec_trans` arguments
     already computed (e.g. loaded from a saved reduction) to skip recomputing that step.
     Only the PCA removal (and, if fitting, its cost) actually depends on `n_pca` — pass an
     already-fitted `pca` to skip the fit too and only redo the cheap truncation to `n_pca`
@@ -825,7 +825,7 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         Number of components to fit if `pca` is not provided (ignored otherwise).
     pca : sklearn.decomposition.PCA, optional
         Already-fitted PCA to reuse instead of refitting (see `apply_pca_truncation`).
-    flux_masked, flux_Sref, flux_norm, flux_norm_mo, master_out, spec_trans, clean_ts : optional
+    flux_masked, flux_Sref, flux_norm, flux_norm_mo, reference_spec, spec_trans, clean_ts : optional
         Precomputed intermediate results to reuse instead of recomputing that step; each is
         independent of `n_pca` except `clean_ts` (which, if given, is unreachable — no caller
         in the codebase passes it, see note below).
@@ -835,7 +835,7 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
     tresh_lim, last_tresh, last_tresh_lim, clip_ts, somme, norm, unberv_it, counting :
         Tuning parameters for the corresponding sub-steps (masking thresholds, reference
         spectrum smoothing box sizes, PCA truncation/normalization options) — see the
-        relevant helper (`mask_deep_tellu`, `build_master_out`, `apply_pca_truncation`).
+        relevant helper (`mask_deep_tellu`, `build_reference_spec`, `apply_pca_truncation`).
     poly_time, noise : optional
         If `poly_time` is given, fits and removes a per-pixel 2nd-order polynomial in time
         from `spec_trans` before PCA removal (not used by the current pipeline default).
@@ -844,7 +844,7 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
 
     Returns
     -------
-    flux_norm, flux_norm_mo, master_out, spec_trans, clean_ts, ts_norm, final_ts, rebuilt,
+    flux_norm, flux_norm_mo, reference_spec, spec_trans, clean_ts, ts_norm, final_ts, rebuilt,
     pca, flux_Sref, flux_masked, ratio, mask_last, recon_time
     """
     rebuilt=np.ma.empty_like(flux)
@@ -885,28 +885,28 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
         else:
             flux_masked = flux_Sref.copy()            
     print('flux_masked all nan : {}'.format(flux_masked.mask.all()))
-    iOut_temp = resolve_reference_spectrum_exposures(iOut_temp, iOut, flux.shape[0])
+    iOut_temp = resolve_reference_spec_exposures(iOut_temp, iOut, flux.shape[0])
 
-    if master_out is None:
+    if reference_spec is None:
         hm.print_static('Building the master out #1 \n')
         if flux_norm_mo is None:
-            flux_norm_mo, master_out, ratio = build_master_out(wave, flux_masked, iOut_temp, 
+            flux_norm_mo, reference_spec, ratio = build_reference_spec(wave, flux_masked, iOut_temp, 
                                             box=mo_box, gauss_box=mo_gauss_box, kind_mo=kind_mo, 
                                                                clip_ratio=clip_ratio, cont=cont)
         else:
-            _, master_out, ratio = build_master_out(wave, flux_masked, iOut_temp,  
+            _, reference_spec, ratio = build_reference_spec(wave, flux_masked, iOut_temp,  
                                             box=mo_box, gauss_box=mo_gauss_box, kind_mo=kind_mo, 
                                                     clip_ratio=clip_ratio, cont=cont)
     else:
         if flux_norm_mo is None:
-            flux_norm_mo, master_out, ratio = build_master_out(wave, flux_masked, iOut_temp, master_out=master_out,
+            flux_norm_mo, reference_spec, ratio = build_reference_spec(wave, flux_masked, iOut_temp, reference_spec=reference_spec,
                                             box=mo_box, gauss_box=mo_gauss_box, 
                                                                clip_ratio=clip_ratio, cont=cont)
     print('flux_norm_mo all nan : {}'.format(flux_norm_mo.mask.all()))
-    print('master_out all nan : {}'.format(master_out.mask.all()))
+    print('reference_spec all nan : {}'.format(reference_spec.mask.all()))
     if spec_trans is None:
         hm.print_static('Building the transmission spectrum #1 \n')
-        spec_trans = flux_norm_mo/master_out                             # comment out the division to keep the master out
+        spec_trans = flux_norm_mo/reference_spec                             # comment out the division to keep the master out
         print('spec-trans all nan : {}'.format(spec_trans.mask.all()))
     if poly_time is not None:
         if noise is None:
@@ -954,20 +954,20 @@ def build_trans_spectrum4(wave, flux, berv, RV_sys, vr, iOut,
             last_mask=last_mask, tresh_lim=tresh_lim, last_tresh=last_tresh, last_tresh_lim=last_tresh_lim)
         print('clean_ts all nan : {}'.format(clean_ts.mask.all()))
 
-    return flux_norm, flux_norm_mo, master_out, spec_trans, clean_ts, ts_norm, \
+    return flux_norm, flux_norm_mo, reference_spec, spec_trans, clean_ts, ts_norm, \
            final_ts, rebuilt, pca, flux_Sref, flux_masked, ratio, mask_last, recon_time
 #, flux_BARYref, flux_SYSref, flux_Sref
 
 
 
-def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, #iOut=None,
+def build_trans_spectrum_mod2(wave, flux, reference_spec, pca, noise, #iOut=None,
                               plot=False, n_pca=2, n_comps=10, somme=False,
 #                               mo_box=51, mo_gauss_box=3, blaze=None, debug=False, verbose=False,
                               norm=True, ratio=None):
 #     if debug is True:
 #         print('wave', wave[10,34,2000], np.isnan(wave).all())
 #         print('flux', flux[10,34,2000], np.isnan(flux).all())
-#         print('master_out', master_out[34,2000], np.isnan(master_out).all())
+#         print('reference_spec', reference_spec[34,2000], np.isnan(reference_spec).all())
 #         print('pca', pca)
 #         print('noise', noise[10,34,2000], np.isnan(noise).all())
 #         print(n_pca)
@@ -982,7 +982,7 @@ def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, #iOut=None,
     flux_norm_mo = flux/np.ma.median(flux,axis=-1)[:,:,None]
 
 #     if iOut is not None:
-#         flux_norm_mo, master_out, ratio = build_master_out(wave, flux_norm, iOut, master_out=master_out,
+#         flux_norm_mo, reference_spec, ratio = build_reference_spec(wave, flux_norm, iOut, reference_spec=reference_spec,
 #                                                     box=mo_box, gauss_box=mo_gauss_box)
 #     else:
 #         flux_norm_mo = flux_norm
@@ -993,7 +993,7 @@ def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, #iOut=None,
 
 #     if verbose :
 #         hm.print_static('Building the transmission spectrum #1 \n')
-#     spec_trans = flux_norm_mo/master_out
+#     spec_trans = flux_norm_mo/reference_spec
         
 #     if verbose :
 #         hm.print_static('Removing the static noise with PCA and sigma cliping \n')
@@ -1002,9 +1002,9 @@ def build_trans_spectrum_mod2(wave, flux, master_out, pca, noise, #iOut=None,
 #         if debug is True:
 #             print(spec_trans, n_pca, pca)
 #             print(np.isnan(spec_trans), np.isnan(spec_trans).all(), n_pca)
-        full_ts, _, _ = remove_dem_pca_all(flux_norm_mo/master_out, pca=pca, n_pcs=n_pca, n_comps=n_comps, plot=plot)
+        full_ts, _, _ = remove_dem_pca_all(flux_norm_mo/reference_spec, pca=pca, n_pcs=n_pca, n_comps=n_comps, plot=plot)
     else:
-        full_ts = flux_norm_mo/master_out
+        full_ts = flux_norm_mo/reference_spec
     
     if norm is True:
 #         if verbose :   
@@ -1033,16 +1033,16 @@ def build_trans_spectrum_mod_fast(flux, pca,
     return final_ts#, final_ts_std
 
 
-def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False, 
+def build_trans_spectrum_mod_new(visit, flux, z=None, z_t=None, plot=False, 
                                  clip=3, npc=3, id_ord=34, xlim=[None,None]):
     
     if z is None:
-        z = tr.z
+        z = visit.z
     if z_t is None:
-        z_t = tr.z_t    
+        z_t = visit.z_t    
         
     if plot is True:
-        plot_order(tr, id_ord, flux)
+        plot_order(visit, id_ord, flux)
         plt.colorbar()
         plt.xlim(*xlim)
 #     uncorr_lp=flux
@@ -1057,20 +1057,20 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
 #     for iord in range(nord):
 #         hm.print_static('{}/10  - {}  '.format(6, iord))
 
-#         for n in range(tr.n_spec):
+#         for n in range(visit.n_spec):
 #             idx = idx_x[iord] & np.isfinite(flux[n,iord])
 #             recon_poly[n,iord, idx] = polyval(x[iord][idx], z[n, iord][::-1])
 #         recon_poly[:,iord, idx[iord]] = polyval(x[iord][idx[iord]], z[:, iord][::-1].T, tensor=True)
 
-    recon_poly = tr.recon_poly #np.ma.masked_invalid(recon_poly)
+    recon_poly = visit.recon_poly #np.ma.masked_invalid(recon_poly)
 
     if plot is True:
-        plot_order(tr, id_ord, recon_poly)
-#         pf.plot_order(tr, id_ord, recon_poly)
+        plot_order(visit, id_ord, recon_poly)
+#         pf.plot_order(visit, id_ord, recon_poly)
         plt.colorbar()
         plt.xlim(*xlim)
-        plot_order(tr, id_ord, sigma_clip(recon_poly/tr.recon_poly, 3))
-#         pf.plot_order(tr, id_ord, recon_poly)
+        plot_order(visit, id_ord, sigma_clip(recon_poly/visit.recon_poly, 3))
+#         pf.plot_order(visit, id_ord, recon_poly)
         plt.colorbar()
         plt.xlim(*xlim)
         
@@ -1078,18 +1078,18 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
     uncorr_nostar = flux/recon_poly
     
     if plot is True:
-        plot_order(tr, id_ord, uncorr_nostar)
+        plot_order(visit, id_ord, uncorr_nostar)
         plt.colorbar()
         plt.xlim(*xlim)
 
     # --- Polynomial fit on time --- #
     hm.print_static('{}/10'.format(7))
     recon_time = np.ones_like(uncorr_nostar)*np.nan
-    x = tr.t.value
+    x = visit.t.value
     idx = np.isfinite(x)
     for iord in range(nord):
         hm.print_static('{}/10  - {}  '.format(7, iord))
-#         for col in range(tr.npix):
+#         for col in range(visit.npix):
 #             idx &= np.isfinite(uncorr_nostar[:,iord,col])
 #             recon_time[idx, iord, col] = polyval(x[idx], z_t[iord,col][::-1], tensor=True)
         recon_time[idx, iord, :] = polyval(x[idx], z_t[iord,:].T[::-1], tensor=True).T
@@ -1103,7 +1103,7 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
 #     # --- Polynomial fit on master spectrum --- #
 #     hm.print_static('{}/10'.format(6))
 #     recon_poly = np.ones_like(uncorr_lp)*np.nan
-#     z = np.zeros((tr.n_spec, tr.nord, 3))
+#     z = np.zeros((visit.n_spec, visit.nord, 3))
 
 #     x = np.nanmedian(uncorr_lp,axis=0)
 #     idx_x = np.isfinite(x)
@@ -1112,7 +1112,7 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
 #         if idx_x[iord].sum()==0:
 #             continue
         
-#         for n in range(tr.n_spec):
+#         for n in range(visit.n_spec):
 
 #             y = uncorr_lp[n,iord]
 
@@ -1125,25 +1125,25 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
 #     recon_poly = np.ma.masked_invalid(recon_poly)
 
 #     if plot is True:
-#         pf.plot_order(tr, id_ord, recon_poly)
+#         pf.plot_order(visit, id_ord, recon_poly)
 #         plt.colorbar()
 #         plt.xlim(*xlim)
 
 #     uncorr_nostar = uncorr_lp/recon_poly
 #     if plot is True:
-#         pf.plot_order(tr, id_ord, uncorr_nostar)
+#         pf.plot_order(visit, id_ord, uncorr_nostar)
 #         plt.colorbar()
 #         plt.xlim(*xlim)
 
 #     # --- Polynomial fit on time --- #
 #     hm.print_static('{}/10'.format(7))
 #     recon_time = np.ones_like(uncorr_nostar)*np.nan
-#     x = tr.t.value
-#     z_t = np.zeros((tr.nord, tr.npix, 3))
+#     x = visit.t.value
+#     z_t = np.zeros((visit.nord, visit.npix, 3))
 
 #     for iord in range(nord):
 
-#         for col in range(tr.npix):
+#         for col in range(visit.npix):
 
 #             y = uncorr_nostar[:,iord, col]
 
@@ -1161,36 +1161,36 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
 
 
     if plot is True:
-        plot_order(tr, id_ord, sigma_clip(recon_time/tr.recon_time,3) )
+        plot_order(visit, id_ord, sigma_clip(recon_time/visit.recon_time,3) )
         plt.colorbar()
         plt.xlim(*xlim)
         
-        plot_order(tr, id_ord, uncorr_nostar/recon_time )
+        plot_order(visit, id_ord, uncorr_nostar/recon_time )
         plt.colorbar()
         plt.xlim(*xlim)
 
     spec_trans = uncorr_nostar/recon_time
     
     if plot is True:
-        plot_order(tr, id_ord, sigma_clip(spec_trans, 3) )
+        plot_order(visit, id_ord, sigma_clip(spec_trans, 3) )
         plt.colorbar()
         plt.xlim(*xlim)
     
-#     tr.mast_out = recon_time*recon_poly
-#     tr.spec_trans = spec_trans
+#     visit.reference_spec = recon_time*recon_poly
+#     visit.spec_trans = spec_trans
 
     # --- PCA clean up --- #
     hm.print_static('{}/10'.format(8))
     if npc >0 :
-        pca_clean_ts, rebuilt, pca = remove_dem_pca_all(spec_trans, n_pcs=npc)#, pca= tr.pca)
-#         tr.pca = pca
-#         tr.rebuilt = rebuilt 
+        pca_clean_ts, rebuilt, pca = remove_dem_pca_all(spec_trans, n_pcs=npc)#, pca= visit.pca)
+#         visit.pca = pca
+#         visit.rebuilt = rebuilt 
     else:
         pca_clean_ts = spec_trans
-#         tr.rebuilt = np.ones_like(spec_trans)
+#         visit.rebuilt = np.ones_like(spec_trans)
 
     if plot is True:
-        plot_order(tr, id_ord, pca_clean_ts )
+        plot_order(visit, id_ord, pca_clean_ts )
         plt.colorbar()
         plt.xlim(*xlim)
     
@@ -1198,7 +1198,7 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
 #     hm.print_static('{}/10'.format(9))
 # #     new_mask = [ext.get_mask_noise(f, 3, 1., gwidth=0.01) for f in pca_clean_ts.swapaxes(0,1)]
 # #     new_mask = new_mask | pca_clean_ts.mask
-#     final_ts = np.ma.array(pca_clean_ts, mask=tr.final.mask)
+#     final_ts = np.ma.array(pca_clean_ts, mask=visit.final.mask)
     final_ts = pca_clean_ts
 
     # --- Mean removal --- #
@@ -1206,50 +1206,50 @@ def build_trans_spectrum_mod_new(tr, flux, z=None, z_t=None, plot=False,
     final_ts = ext.quick_norm(final_ts, take_all=False)
 
     if plot is True:
-        plot_order(tr, id_ord, final_ts )
+        plot_order(visit, id_ord, final_ts )
         plt.colorbar()
         plt.xlim(*xlim)
     
-#     tr.final = final_ts
-#     tr.reconstructed = tr.mast_out * tr.rebuilt * tr.ratio * (tr.blaze/np.nanmax(tr.blaze, axis=-1)[:,:,None])
+#     visit.final = final_ts
+#     visit.reconstructed = visit.reference_spec * visit.rebuilt * visit.ratio * (visit.blaze/np.nanmax(visit.blaze, axis=-1)[:,:,None])
     
     
     return final_ts  #, final_ts_std
 
 
 
-def calc_stacked_spectra(tr, flux=None, weight=None, pca_red=False, kind='average', 
+def calc_stacked_spectra(visit, flux=None, weight=None, pca_red=False, kind='average', 
                          iOrd0=None, iin=None, iout=None, RV=None, vr=None, vrp=None, alpha=None, RV_star=None):
     
     if flux is None:
-        flux = tr.spec_trans
+        flux = visit.spec_trans
     if weight is None:
-        weight = tr.light_curve
+        weight = visit.light_curve
     if iin is None:
-        iin = tr.iIn
+        iin = visit.iIn
     if iout is None:
-        iout = tr.iOut
+        iout = visit.iOut
     if vr is None:
-        vr = tr.vr
+        vr = visit.vr
     if vrp is None:
-        vrp = tr.vrp   
+        vrp = visit.vrp   
     if alpha is None:
-        alpha = tr.alpha_frac
+        alpha = visit.alpha_frac
     
-    spec_fin, _ = build_stacked_st(tr.wv, flux[iin], vr[iin], vrp[iin], 
+    spec_fin, _ = build_stacked_st(visit.wv, flux[iin], vr[iin], vrp[iin], 
                                    weight[iin], kind=kind, iOrd0=iOrd0, RV=RV, alpha=alpha[iin])
 
-    spec_fin_out, _ = build_stacked_st(tr.wv, flux[iout], vr[iout], vrp[iout],
+    spec_fin_out, _ = build_stacked_st(visit.wv, flux[iout], vr[iout], vrp[iout],
                                        weight[iout], kind=kind, iOrd0=iOrd0, RV=RV, alpha=alpha[iout])
 
     if RV_star is None:
         spec_fin_Sref = np.ma.average(flux[iin], axis=0, weights=weight[iin])
     else:
-        spec_fin_Sref, _ = build_stacked_st(tr.wv, flux[iin], np.zeros_like(vr)[iin], np.zeros_like(vrp)[iin],
+        spec_fin_Sref, _ = build_stacked_st(visit.wv, flux[iin], np.zeros_like(vr)[iin], np.zeros_like(vrp)[iin],
                                        weight[iin], kind=kind, iOrd0=iOrd0, RV=RV_star, alpha=alpha[iin])
     
     if pca_red is True:
-        spec_fin_ts, _ = build_stacked_st(tr.wv, tr.final[iin], vr, vrp[iin], 
+        spec_fin_ts, _ = build_stacked_st(visit.wv, visit.final[iin], vr, vrp[iin], 
                                           weight[iin], kind=kind, iOrd0=iOrd0, RV=RV, alpha=alpha[iin])
         return spec_fin, spec_fin_out, spec_fin_Sref, spec_fin_ts
     else:

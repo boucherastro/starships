@@ -10,7 +10,7 @@ class TestReductionParams:
     `[0.2, 0.97, 51, 41, 5, 2, 5.0, 5.0, 5.0, 5.0]`). Named fields make each value
     documented and easy to change; list-like access (`__getitem__`/`__setitem__`/
     `len`/`.copy()`) keeps it a drop-in replacement for code that still reads/writes
-    reduction parameters positionally (e.g. `tr.params[5]`, `params_all.copy()`).
+    reduction parameters positionally (e.g. `visit.params[5]`, `params_all.copy()`).
     """
 
     def test_defaults_match_legacy_positional_list(self):

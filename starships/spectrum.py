@@ -2144,7 +2144,7 @@ def out_SPIROU(wl, flux, t_exp=None, noisy=True, nb_transit=1, print_info=False,
 
 
 # def inject_a_signal(wave, flux, wave_model, flux_model, dv_pl, sep, R_star, A_star, 
-#                     resol=70000, boost=1., level=0., tr=None):
+#                     resol=70000, boost=1., level=0., visit=None):
 
 #     n_spec, nord, _ = flux.shape
     
@@ -2203,12 +2203,12 @@ def box_binning(model, box_size=2):
     return convolve(model, Box1DKernel(box_size))
 
 
-def calc_bin_edges(tr, pad=0):
+def calc_bin_edges(visit, pad=0):
     
     wv_borders_ord = []
     wv_ord = []
-    for iOrd in range(tr.nord):
-        wv = tr.wv[iOrd]
+    for iOrd in range(visit.nord):
+        wv = visit.wv[iOrd]
         dwv = np.diff(wv)
         wv_border_down = np.insert(wv[1:]-dwv/2, 0, wv[0]-dwv[0]/2)
         wv_borders = np.append(wv_border_down, wv[-1]+dwv[-1]/2)
@@ -2233,8 +2233,8 @@ def calc_bin_edges(tr, pad=0):
             
         
     wv_borders_ord = np.array(wv_borders_ord)
-    tr.wv_bins = wv_borders_ord
-    tr.wv_ext = wv_ord
+    visit.wv_bins = wv_borders_ord
+    visit.wv_ext = wv_ord
 
 
 from scipy import stats

@@ -136,22 +136,22 @@ def _run_logl(ds_config, corrRV):
     import starships.correlation as corr
     from starships.correlation_class import Correlations
 
-    tr         = _load_transit(ds_config)
+    visit         = _load_transit(ds_config)
     model      = np.load(Path(ds_config['model_path']).expanduser())
     kind_trans = ds_config.get('kind_trans', 'emission')
-    n_pc       = int(tr.params[5])
-    Kp_array   = np.array([tr.Kp.value])
+    n_pc       = int(visit.params[5])
+    Kp_array   = np.array([visit.Kp.value])
 
     _, logl_map = corr.calc_logl_injred(
-        tr, 'seq', tr.planet, Kp_array, corrRV, [n_pc],
+        visit, 'seq', visit.planet, Kp_array, corrRV, [n_pc],
         model['wave'], model['spec'], kind_trans,
         counting=False,
     )
 
     logl_obj = Correlations(logl_map, kind='logl', rv_grid=corrRV,
                             n_pcas=[n_pc], kp_array=Kp_array)
-    logl_obj.calc_logl(tr, orders=np.arange(tr.nord),
-                       N=tr.N, nolog=True, icorr=tr.icorr, std_robust=True)
+    logl_obj.calc_logl(visit, orders=np.arange(visit.nord),
+                       N=visit.N, nolog=True, icorr=visit.icorr, std_robust=True)
 
     return np.array(logl_obj.logl).squeeze()   # (n_rv,)
 

@@ -61,7 +61,7 @@ def compute_logl_1d(ds_config: dict, corrRV: np.ndarray):
 
     Returns
     -------
-    tr        : loaded Observations object
+    visit        : loaded Observations object
     logl_1d   : 1D logL profile, shape (n_rv,)
     """
     import starships.planet_obs as pl_obs
@@ -87,32 +87,32 @@ def compute_logl_1d(ds_config: dict, corrRV: np.ndarray):
             print(f"  Warning: retrieval_config not found: {ret_cfg_path}")
 
     # B3: n_pc is now a read-time argument (no longer baked into the saved file) — must come
-    # from the regression config explicitly instead of being read back from `tr.params[5]`.
+    # from the regression config explicitly instead of being read back from `visit.params[5]`.
     n_pc     = ds_config['n_pc']
-    tr       = pl_obs.load_reduced_sequence(npz_path, n_pc, name=pl_name, plot=False,
+    visit       = pl_obs.load_reduced_sequence(npz_path, n_pc, name=pl_name, plot=False,
                                             pl_kwargs=pl_kwargs or None)
     model    = np.load(Path(ds_config['model_path']).expanduser())
-    Kp_array = np.array([tr.Kp.value])
+    Kp_array = np.array([visit.Kp.value])
 
     _, logl_map = corr.calc_logl_injred(
-        tr, 'seq', tr.planet, Kp_array, corrRV, [n_pc],
+        visit, 'seq', visit.planet, Kp_array, corrRV, [n_pc],
         model['wave'], model['spec'], kind_trans,
         counting=False,
     )
 
     logl_obj = Correlations(logl_map, kind='logl', rv_grid=corrRV,
                             n_pcas=[n_pc], kp_array=Kp_array)
-    logl_obj.calc_logl(tr, orders=np.arange(tr.nord),
-                       N=tr.N, nolog=True, icorr=tr.icorr, std_robust=True)
+    logl_obj.calc_logl(visit, orders=np.arange(visit.nord),
+                       N=visit.N, nolog=True, icorr=visit.icorr, std_robust=True)
 
-    return tr, np.array(logl_obj.logl).squeeze()  # (n_rv,)
+    return visit, np.array(logl_obj.logl).squeeze()  # (n_rv,)
 
 
 # ---------------------------------------------------------------------------
 # Diagnostic plots
 # ---------------------------------------------------------------------------
 
-def _plot_logl(ds_name, corrRV, logl_1d, tr, plots_dir):
+def _plot_logl(ds_name, corrRV, logl_1d, visit, plots_dir):
     """Save logL(RV) profile (1D) as a PNG file."""
     try:
         import matplotlib
@@ -129,11 +129,11 @@ def _plot_logl(ds_name, corrRV, logl_1d, tr, plots_dir):
     fig, ax = plt.subplots(figsize=(9, 4))
     ax.plot(corrRV, logl_1d, lw=1.5)
     ax.axvline(peak_rv, color='r', ls='--', label=f'Pic = {peak_rv:+.1f} km/s')
-    ax.axvline(float(tr.RV_const), color='gray', ls=':', lw=1,
-               label=f'V_sys config = {float(tr.RV_const):.1f} km/s')
+    ax.axvline(float(visit.RV_const), color='gray', ls=':', lw=1,
+               label=f'V_sys config = {float(visit.RV_const):.1f} km/s')
     ax.set_xlabel('RV (km/s)')
     ax.set_ylabel('logL  [in-transit, Σ ordres]')
-    ax.set_title(f'{ds_name} — logL 1D  (Kp={tr.Kp:.1f}, n_pc={int(tr.params[5])})')
+    ax.set_title(f'{ds_name} — logL 1D  (Kp={visit.Kp:.1f}, n_pc={int(visit.params[5])})')
     ax.legend()
     fig.tight_layout()
     out = plots_dir / f'{ds_name}_logl_profile.png'
@@ -243,7 +243,7 @@ def generate_logl_goldens(cfg, output_dir, plots_dir=None):
 
         print(f"  Loading transit ({ds_cfg['pl_name']}) and running "
               f"calc_logl_injred ...")
-        tr, logl_1d = compute_logl_1d(ds_cfg, corrRV)
+        visit, logl_1d = compute_logl_1d(ds_cfg, corrRV)
 
         peak_rv = corrRV[np.nanargmax(logl_1d)]
 
@@ -254,14 +254,14 @@ def generate_logl_goldens(cfg, output_dir, plots_dir=None):
             logl_1d = logl_1d,
         )
 
-        print(f"  Pic   : RV = {peak_rv:+.1f} km/s  (V_sys config = {float(tr.RV_const):.1f} km/s)")
+        print(f"  Pic   : RV = {peak_rv:+.1f} km/s  (V_sys config = {float(visit.RV_const):.1f} km/s)")
         print(f"  Max logL : {float(np.nanmax(logl_1d)):.6f}")
         print(f"  Saved : {out_path}")
         summary[ds_name] = {'peak_rv': float(peak_rv),
                             'max_logl': float(np.nanmax(logl_1d))}
 
         if plots_dir is not None:
-            _plot_logl(ds_name, corrRV, logl_1d, tr, plots_dir)
+            _plot_logl(ds_name, corrRV, logl_1d, visit, plots_dir)
 
     return summary
 
@@ -480,11 +480,11 @@ def generate_reduction_goldens(cfg, plots_dir=None):
 
         print(f"  Running reduction "
               f"(n_pc={n_pc}, mask_tellu={mask_tellu}, mask_wings={mask_wings}) ...")
-        list_tr = pl_obs.generate_all_transits(
+        visits = pl_obs.generate_all_transits(
             obs, transit_tags, [0.0], params_all, config_dict['iout_all'],
             counting=False, **kwargs_gen_tr, **kwargs_build_ts,
         )
-        transit = list_tr['1']
+        transit = visits['1']
 
         golden_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(

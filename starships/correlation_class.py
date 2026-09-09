@@ -88,7 +88,7 @@ class Correlations():
 #                 alpha = np.ones_like(data_obj.alpha_frac)
 #             elif inj_alpha == 'ones':
 #                 alpha = data_obj.alpha_frac
-# #             alpha = np.ones_like(tr.alpha_frac)  #tr.alpha_frac  # np.ones_like(tr.alpha_frac)
+# #             alpha = np.ones_like(visit.alpha_frac)  #visit.alpha_frac  # np.ones_like(visit.alpha_frac)
 # #         print(orders, icorr, alpha)
 # #         print(self.data)
 
@@ -331,7 +331,7 @@ class Correlations():
         self.snr2d = snr2d
         self.snr_fct2d = interp2d(interp_grid, Kp_array, snr2d)
             
-    def calc_correl_snr_2d(self, tr, icorr=None, limit_shift=100, interp_size=201, RV_sys=0, Kp0=None,
+    def calc_correl_snr_2d(self, visit, icorr=None, limit_shift=100, interp_size=201, RV_sys=0, Kp0=None,
                            kp0=0, kp1=2, rv_limit=15, kp_limit=70, RV_shift=0,
                            vr_orb=None, vrp_kind='t',
                            kind='', orders=np.arange(49), plot=True, counting = True):
@@ -339,20 +339,20 @@ class Correlations():
         if isinstance(RV_sys, u.Quantity):
             RV_sys = (RV_sys.to(u.km / u.s)).value
         if icorr is None:
-            icorr = tr.icorr
+            icorr = visit.icorr
         self.icorr = icorr
-        self.Kp0 = (tr.Kp.to(u.km / u.s)).value
+        self.Kp0 = (visit.Kp.to(u.km / u.s)).value
         self.RV_shift = RV_shift
         
-        # interp_grid = np.linspace(-limit_shift - 2 * (tr.vrp)[icorr][0] + RV_sys,
-        #                           limit_shift - 2 * (tr.vrp)[icorr][-1] + RV_sys,
+        # interp_grid = np.linspace(-limit_shift - 2 * (visit.vrp)[icorr][0] + RV_sys,
+        #                           limit_shift - 2 * (visit.vrp)[icorr][-1] + RV_sys,
         #                           interp_size).squeeze()
         interp_grid = np.linspace(-limit_shift + RV_sys,
                                    limit_shift + RV_sys,
                                   interp_size).squeeze()
         self.interp_grid = interp_grid
         
-        Kp_array = np.arange(kp0, int(tr.Kp.value * kp1))
+        Kp_array = np.arange(kp0, int(visit.Kp.value * kp1))
         self.Kp_array = Kp_array
 
         sum_ccf = np.zeros((Kp_array.size, interp_grid.size))
@@ -363,24 +363,24 @@ class Correlations():
             # if vrp_orb is None:
             if vrp_kind == 'nu':
 #                 print('nu')
-                vrp_orb = o.rv_theo_nu(Kpi, tr.nu*u.rad, tr.planet.w, plnt=True).to(u.km/u.s).value
+                vrp_orb = o.rv_theo_nu(Kpi, visit.nu*u.rad, visit.planet.w, plnt=True).to(u.km/u.s).value
                 if Kp0 is not None:
-                    vrp_orb0 = o.rv_theo_nu(Kp0, tr.nu * u.rad, tr.planet.w, plnt=True).to(u.km / u.s).value
+                    vrp_orb0 = o.rv_theo_nu(Kp0, visit.nu * u.rad, visit.planet.w, plnt=True).to(u.km / u.s).value
                     vrp_orb -= vrp_orb0
             elif vrp_kind == 't':
 #                 print('t')
-                vrp_orb = o.rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).to(u.km/u.s).value
+                vrp_orb = o.rv_theo_t(Kpi, visit.t, visit.planet.mid_tr, visit.planet.period, plnt=True).to(u.km/u.s).value
                 if Kp0 is not None:
-                    vrp_orb0 =  o.rv_theo_t(Kp0, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).to(u.km/u.s).value
+                    vrp_orb0 =  o.rv_theo_t(Kp0, visit.t, visit.planet.mid_tr, visit.planet.period, plnt=True).to(u.km/u.s).value
                     vrp_orb -= vrp_orb0
 
-#             vrp_orb = o.rv_theo_nu(Kpi, tr.nu[icorr] * u.rad, tr.planet.w, plnt=True).to(u.km/u.s)
+#             vrp_orb = o.rv_theo_nu(Kpi, visit.nu[icorr] * u.rad, visit.planet.w, plnt=True).to(u.km/u.s)
             if vr_orb is None:
-                vr_orb = (-vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose())#.to(u.km/u.s).value
+                vr_orb = (-vrp_orb*(visit.planet.M_pl/visit.planet.M_star).decompose())#.to(u.km/u.s).value
             if Kp0 is not None:
-                vr_orb0 =  (-vrp_orb0*(tr.planet.M_pl/tr.planet.M_star).decompose())
+                vr_orb0 =  (-vrp_orb0*(visit.planet.M_pl/visit.planet.M_star).decompose())
                 vr_orb -= vr_orb0
-    #                 vr_orb = tr.vr[icorr] #(Kpi*u.km/u.s/tr.planet.M_star*tr.planet.M_pl).to(u.km/u.s)
+    #                 vr_orb = visit.vr[icorr] #(Kpi*u.km/u.s/visit.planet.M_star*visit.planet.M_pl).to(u.km/u.s)
     #             print(vrp_orb.shape,vr_orb.shape,RV_shift[icorr].shape)
     #         print(vrp_orb[[0,-1]])
             shifted_ccf = np.ma.masked_invalid(a.shift_correl(interp_grid, self.ccf[icorr], 
@@ -393,7 +393,7 @@ class Correlations():
                 plt.plot(self.rv_grid, nologl_i, label='ccf')
                 plt.plot(interp_grid, np.sum(shifted_ccf, axis=0), label='shifted')
                 plt.legend()
-                logl_i = corr.nolog2log(nologl_i, tr.N[icorr][:, [14, 15, 30, 31, 46, 47]], sum_N=True).squeeze()
+                logl_i = corr.nolog2log(nologl_i, visit.N[icorr][:, [14, 15, 30, 31, 46, 47]], sum_N=True).squeeze()
                 plt.figure()
                 plt.title('logl_i'+ str(Kpi))
                 plt.plot(self.rv_grid,logl_i, label='ccf')
@@ -405,7 +405,7 @@ class Correlations():
 
             elif kind == "logl_sig":
                 nolog_L_sig = np.ma.masked_invalid(np.ma.sum(shifted_ccf, axis=0)).squeeze()
-                sum_ccf[i] = corr.nolog2log(nolog_L_sig, tr.N[icorr][:, orders], sum_N=True).squeeze()
+                sum_ccf[i] = corr.nolog2log(nolog_L_sig, visit.N[icorr][:, orders], sum_N=True).squeeze()
                 if ((i <30) or (i >Kp_array.size-30)) and plot is True:
                     plt.plot(interp_grid, sum_ccf[i], label='shifted')
             else:
@@ -418,7 +418,7 @@ class Correlations():
         self.curve_fct2d = interp2d(interp_grid, Kp_array, sum_ccf)
 
         self.get_snr_2d(kp_limit=kp_limit, rv_limit=rv_limit, RV_sys=RV_sys, 
-                   Kp0 = (tr.Kp.to(u.km / u.s)).value)
+                   Kp0 = (visit.Kp.to(u.km / u.s)).value)
         
         sum_ccf_nonoise = sum_ccf[~self.idx_bruit_kp][:, ~self.idx_bruit_rv]
         self.sum_ccf_nonoise = np.ma.masked_invalid(sum_ccf_nonoise)
@@ -521,24 +521,24 @@ class Correlations():
             plt.plot(interp_grid[idx_bruit], self.snr[idx_bruit])
         
         
-    def calc_correl_snr_1d(self, tr, Kp=None, icorr=None, limit_shift=60, interp_size=201, 
+    def calc_correl_snr_1d(self, visit, Kp=None, icorr=None, limit_shift=60, interp_size=201, 
                            RV_sys=0, rv_limit=8, plot=True, RV = 0., RV_shift=0,
                            vrp_kind = 't', vrp_orb=None, vr_orb=None):
 
         if isinstance(RV_sys, u.Quantity):
             RV_sys = (RV_sys.to(u.km / u.s)).value
         if icorr is None:
-            icorr = tr.icorr
+            icorr = visit.icorr
         if Kp is None:
-            Kp = tr.Kp.value
+            Kp = visit.Kp.value
         if vrp_orb is None:  
             if vrp_kind == 'nu':
-                vrp_orb = o.rv_theo_nu(Kp, tr.nu*u.rad, tr.planet.w, plnt=True).to(u.km/u.s)
+                vrp_orb = o.rv_theo_nu(Kp, visit.nu*u.rad, visit.planet.w, plnt=True).to(u.km/u.s)
             elif vrp_kind == 't':
-                vrp_orb = o.rv_theo_t(Kp, tr.t_start, tr.planet.mid_tr, tr.planet.period, plnt=True).to(u.km/u.s)
+                vrp_orb = o.rv_theo_t(Kp, visit.t_start, visit.planet.mid_tr, visit.planet.period, plnt=True).to(u.km/u.s)
         if vr_orb is None:
-            vr_orb = (-vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose()).to(u.km/u.s)
-#             dvr = o.rv_theo_nu(Kp, tr.nu * u.rad, tr.planet.w, plnt=True)
+            vr_orb = (-vrp_orb*(visit.planet.M_pl/visit.planet.M_star).decompose()).to(u.km/u.s)
+#             dvr = o.rv_theo_nu(Kp, visit.nu * u.rad, visit.planet.w, plnt=True)
 
         interp_grid = np.linspace(-limit_shift + RV_sys, limit_shift + RV_sys, interp_size).squeeze()
         self.interp_grid = interp_grid
@@ -548,7 +548,7 @@ class Correlations():
         self.shifted_ccf = ccf_shifted
         
         if plot is True:
-            self.plot_PRF(tr, RV=RV)
+            self.plot_PRF(visit, RV=RV)
 #             idx_mid = hm.nearest(self.interp_grid, RV)
 #             colum3 = np.ma.mean(self.shifted_ccf[:,idx_mid-1:idx_mid+2],axis=-1)
             
@@ -559,15 +559,15 @@ class Correlations():
 #             spec = gridspec.GridSpec(ncols=2, nrows=1,  width_ratios=[3, 1]) 
 
 #             ax0 = fig.add_subplot(spec[0]) 
-#             ax0.pcolormesh(self.interp_grid, np.arange(tr.n_spec)[icorr], self.shifted_ccf[icorr])
+#             ax0.pcolormesh(self.interp_grid, np.arange(visit.n_spec)[icorr], self.shifted_ccf[icorr])
 #             ax0.axvline(RV, alpha=0.5, color='k')
 
 #             ax1 = fig.add_subplot(spec[1]) 
-#             ax1.plot(colum3[icorr], np.arange(tr.n_spec)[icorr],'o-') 
+#             ax1.plot(colum3[icorr], np.arange(visit.n_spec)[icorr],'o-') 
 #             ax1.set_xlim(colum3[icorr].min()*1.5, colum3[icorr].max()*1.5)
 
         # if kind_ccf == 'logl_corr':
-        #     self.courbe = self.calc_ccf2d( tr, ccf=ccf_shifted, kind='logl_corr', id_pc=None,
+        #     self.courbe = self.calc_ccf2d( visit, ccf=ccf_shifted, kind='logl_corr', id_pc=None,
         #            remove_mean=False, index=None, orders=None)
         # else:
         self.courbe = np.ma.sum(ccf_shifted[icorr], axis=0)
@@ -608,7 +608,7 @@ class Correlations():
         return up-self.pos_kp, self.pos_kp-down
     
 
-    def full_plot(self, tr, icorr, wind=None, kind_max='spline',
+    def full_plot(self, visit, icorr, wind=None, kind_max='spline',
                   fig_larg=8, fig_haut=3, cmap='plasma', path_fig='', fig_name='', tag_max=False,
                   Kp_slice=None, clim=None, get_logl=False, hline=None, save_fig='', show_legend=True):
         
@@ -622,15 +622,15 @@ class Correlations():
         idx_bruit_kp = self.idx_bruit_kp
         idx_max = self.idx_max
         
-        # tr attributes
-        berv = tr.berv
+        # visit attributes
+        berv = visit.berv
         try:
-            phase = tr.phase.value
+            phase = visit.phase.value
         except AttributeError:
-            phase = tr.phase
-        vrp = tr.vrp
-        mid_vrp = tr.mid_vrp
-        Kp = tr.Kp.to(u.km / u.s).value
+            phase = visit.phase
+        vrp = visit.vrp
+        mid_vrp = visit.mid_vrp
+        Kp = visit.Kp.to(u.km / u.s).value
         
         figs, (ax1,ax0,ax2) = plt.subplots(3, 1, figsize=(fig_larg, 3 * fig_haut), sharex=False)
 
@@ -650,7 +650,7 @@ class Correlations():
         if clim is not None:
             im1.set_clim(clim[0],clim[1])
             
-        ax1.plot((berv-tr.planet.RV_sys.value), phase, '--',color='darkred', alpha=0.8, label='BERV')
+        ax1.plot((berv-visit.planet.RV_sys.value), phase, '--',color='darkred', alpha=0.8, label='BERV')
         ax1.set_ylabel(r'$\phi$', fontsize=14)
         if fig_name != '':
             ax1.set_title(fig_name, fontsize=16)
@@ -750,7 +750,7 @@ class Correlations():
                 if (kpslice < 0):
                     axi[0].set_ylim(Kp_array[0], Kp_array[-1])   
                 
-                vrp_orb_slice = o.rv_theo_nu(kpslice, tr.nu * u.rad, tr.planet.w, plnt=True)
+                vrp_orb_slice = o.rv_theo_nu(kpslice, visit.nu * u.rad, visit.planet.w, plnt=True)
                 ax1.plot(vrp_orb_slice[iout].value, phase[iout], 
                  '.', color=(0.3,0, (k+1)/len(Kp_slice)), alpha=0.5, label=r'Kp = {:.2f}'.format(kpslice))
         
@@ -923,7 +923,7 @@ class Correlations():
     #     plt.invert_yaxis()
 
     
-    def calc_ccf2d(self, tr, ccf=None, kind='logl_corr', id_pc=None, 
+    def calc_ccf2d(self, visit, ccf=None, kind='logl_corr', id_pc=None, 
                    remove_mean=False, debug=False, index=None, orders=None):
         if orders is None:
             orders = np.arange(49)
@@ -937,7 +937,7 @@ class Correlations():
 
             elif kind == "logl_sig":
                 nolog_L_sig = np.ma.masked_invalid(np.ma.sum(self.data[:, orders], axis=1)).squeeze()
-                ccf = corr.nolog2log(nolog_L_sig, tr.N[:, orders], sum_N=True).squeeze()
+                ccf = corr.nolog2log(nolog_L_sig, visit.N[:, orders], sum_N=True).squeeze()
                 remove_mean = True
 
         if remove_mean is True:     
@@ -968,7 +968,7 @@ class Correlations():
         
         return ccf
    
-    def plot_PRF(self, tr, interp_grid=None, ccf=None, orders=None, RV=0., icorr=None, split_fig=[0], peak_center=None,
+    def plot_PRF(self, visit, interp_grid=None, ccf=None, orders=None, RV=0., icorr=None, split_fig=[0], peak_center=None,
                      hlines=None, texts=None, kind='logl_corr', index=None, snr_1d=None, labels=None, clim=None, 
                      path_fig='', fig_name=None, id_pc=None, map_kind='snr', debug=False, remove_mean=False,
                  minus_kp=False, figwidth=10, cmap="plasma"):
@@ -989,14 +989,14 @@ class Correlations():
 #             elif kind == 'logl_corr':
 #                 ccf = np.ma.masked_invalid(np.ma.sum(self.data, axis=1)).squeeze()
 #     #                 if nolog_L.ndim == 2:
-#     #                     ccf = 1/np.ma.sum(tr.N, axis=1)[:,None]*nolog_L
+#     #                     ccf = 1/np.ma.sum(visit.N, axis=1)[:,None]*nolog_L
 #     #                 elif nolog_L.ndim == 3:
-#     #                     ccf = 1/np.ma.sum(tr.N, axis=1)[:,None,None]*nolog_L
+#     #                     ccf = 1/np.ma.sum(visit.N, axis=1)[:,None,None]*nolog_L
 #                 print(ccf.shape)
 
 #             elif kind == "logl_sig":
 #                 nolog_L_sig = np.ma.masked_invalid(np.ma.sum(self.data, axis=1)).squeeze()
-#                 ccf = corr.nolog2log(nolog_L_sig, tr.N, sum_N=True).squeeze()
+#                 ccf = corr.nolog2log(nolog_L_sig, visit.N, sum_N=True).squeeze()
 #                 remove_mean = True
 
 #         if remove_mean is True:     
@@ -1020,7 +1020,7 @@ class Correlations():
 #         self.map_prf = ccf
 #         print(ccf.mean())
 
-        ccf = self.calc_ccf2d(tr, ccf=ccf, kind=kind, id_pc=id_pc, 
+        ccf = self.calc_ccf2d(visit, ccf=ccf, kind=kind, id_pc=id_pc, 
                               remove_mean=remove_mean, index=index, orders=orders)
     
         
@@ -1033,9 +1033,9 @@ class Correlations():
             peak_rv = np.arange(-nb_pix * 2.3, (nb_pix + 1) * 2.3, 2.3)
             # nb_pix = np.floor(np.round((self.rv_grid[-1] - self.rv_grid[0]) / 2.3) / 2)
             # peak_rv = np.arange(-nb_pix*2.3 + self.pos, (nb_pix)*2.3 + self.pos, 2.3)
-            peak_ccf = np.ones((tr.n_spec, peak_rv.size))*np.nan
+            peak_ccf = np.ones((visit.n_spec, peak_rv.size))*np.nan
 
-            for n in range(tr.n_spec):
+            for n in range(visit.n_spec):
                 fct = interp1d(self.rv_grid, ccf[n], fill_value="extrapolate")
                 peak_ccf[n] = fct(peak_rv)
 
@@ -1046,7 +1046,7 @@ class Correlations():
         else:
             idx_bruit_rv = self.idx_bruit_rv 
 #         if icorr is None:
-#             icorr = np.arange(tr.n_spec)
+#             icorr = np.arange(visit.n_spec)
 
         idx_mid = hm.nearest(interp_grid, RV)
 
@@ -1069,7 +1069,7 @@ class Correlations():
 
                 id_range.append([split_fig[i-1],split_fig[i]])
     #             print(id_range)
-                y.append(tr.phase[split_fig[i-1]:split_fig[i]]) #np.arange(tr.n_spec)[:split_fig]
+                y.append(visit.phase[split_fig[i-1]:split_fig[i]]) #np.arange(visit.n_spec)[:split_fig]
                 if map_kind == 'snr':
                     ccf_i = ccf[split_fig[i - 1]:split_fig[i]]
                     # std_i = np.nanstd(ccf[:, idx_bruit_rv][split_fig[i - 1]:split_fig[i]], axis=-1)
@@ -1086,7 +1086,7 @@ class Correlations():
                 if map_kind == 'curve':
                     z.append(ccf[split_fig[i-1]:split_fig[i]])
         else:
-            y=tr.phase  #np.arange(split_fig, tr.n_spec)-split_fig
+            y=visit.phase  #np.arange(split_fig, visit.n_spec)-split_fig
             if map_kind == 'snr':
                 z=ccf/np.nanstd(ccf[:,idx_bruit_rv])
             if map_kind == 'curve':
@@ -1106,7 +1106,7 @@ class Correlations():
 
             height = []
             for i in range(len(split_fig)-1):
-                height.append(np.sum(tr.dt[id_range[i][0]:id_range[i][1]]).to(u.h).value)
+                height.append(np.sum(visit.dt[id_range[i][0]:id_range[i][1]]).to(u.h).value)
             height.append(height[0]/2)
 
             fig = plt.figure(constrained_layout=True, figsize=(figwidth, 2 * len(split_fig)))
@@ -1129,7 +1129,7 @@ class Correlations():
             ax_ccf = fig.add_subplot(gs[0, -1], sharey=ax_map)
             ax_snr = fig.add_subplot(gs[-1, :-1], sharex=ax_map)
 
-        berv_rv = -tr.vrp-tr.mid_vrp-tr.RV_sys-(tr.mid_vr+tr.vr)-(tr.mid_berv+tr.berv)
+        berv_rv = -visit.vrp-visit.mid_vrp-visit.RV_sys-(visit.mid_vr+visit.vr)-(visit.mid_berv+visit.berv)
 
         if len(split_fig) > 1:
             for i in range(len(split_fig))[:-1]:
@@ -1151,7 +1151,7 @@ class Correlations():
                     ax_map[i].pcolormesh(x, y[i][idx_zero[0]:idx_end], z[i][idx_zero[0]:idx_end] , 
                                      cmap='nipy_spectral_r', rasterized=True,)
                 try: 
-                    id_out = tr.iOut[(tr.iOut>=id_range[i][0]) & (tr.iOut<id_range[i][1])]-id_range[i][0]
+                    id_out = visit.iOut[(visit.iOut>=id_range[i][0]) & (visit.iOut<id_range[i][1])]-id_range[i][0]
                     ax_map[i].plot(np.ones_like(y[i])[id_out]*RV, y[i][id_out],
                                    'k.', alpha=0.5, label="Out of transit observations")
                 except IndexError:
@@ -1164,7 +1164,7 @@ class Correlations():
                     ax_map[i].plot(berv_rv[id_range[i][0]:id_range[i][1]][::-1], y[i], '--', color='darkred', label="Tellurics")
                 if clim is not None:
                     im.set_clim(clim[0],clim[1])
-#                 ax_map[i].set_ylim(tr.phase.min(), tr.phase.max())
+#                 ax_map[i].set_ylim(visit.phase.min(), visit.phase.max())
 
                 ax_map[i].legend(loc="best")
     
@@ -1173,7 +1173,7 @@ class Correlations():
         else:
             ax_map.set_ylabel(r'Orbital Phase', fontsize=16)
             im = ax_map.pcolormesh(x, y, z , cmap=cmap, rasterized=True)
-            ax_map.plot(np.ones_like(y)[tr.iOut]*RV, y[tr.iOut],'k.', alpha=0.5, label="Out of transit observations")
+            ax_map.plot(np.ones_like(y)[visit.iOut]*RV, y[visit.iOut],'k.', alpha=0.5, label="Out of transit observations")
             ax_map.axvline(0, linestyle=':', color='black', alpha=0.8, label="$V_{rad}$ = 0")
             if minus_kp is False:
                 ax_map.plot(berv_rv, y, '--', color='darkred', label="Tellurics")
@@ -1218,7 +1218,7 @@ class Correlations():
                 ax_ccf[i].plot(colum3[id_range[i][0]:id_range[i][1]][crossing_cond], y[i][crossing_cond],
                                '.', color='lightgrey')
 #                 ax_ccf[i].set_ylim(y[i][0]-np.diff(y[i])[0], y[i][-1]+np.diff(y[i])[-1])
-#                 ax_ccf[i].set_ylim(tr.phase.min(), tr.phase.max())
+#                 ax_ccf[i].set_ylim(visit.phase.min(), visit.phase.max())
         else:
             ax_ccf.plot(colum3, y,'.') 
             plt.setp(ax_ccf.get_yticklabels(), visible=False)
@@ -1277,8 +1277,8 @@ class Correlations():
         
         # --- overplot all CCF ---
         if len(split_fig) > 1:
-            ymin = np.min(tr.phase)
-            ymax = np.max(tr.phase)
+            ymin = np.min(visit.phase)
+            ymax = np.max(visit.phase)
             diff_y = [np.diff(y[i])[0] for i in range(len(split_fig))[:-1]]
             print(ymin,ymax)
             print(diff_y)
@@ -1294,11 +1294,11 @@ class Correlations():
             plt.pcolormesh(x, common_y, np.array(ccf_interp).sum(axis=0) , cmap=cmap, rasterized=True)
             plt.xlabel(r'$v_{\rm rad}$ [km s$^{-1}$]', fontsize=16)
             plt.ylabel(r'Orbital Phase', fontsize=16)
-            plt.axhline(tr.phase[tr.iIn[0]], color='white',linestyle='--')
-            plt.axhline(tr.phase[tr.iIn[-1]], color='white',linestyle='--')
+            plt.axhline(visit.phase[visit.iIn[0]], color='white',linestyle='--')
+            plt.axhline(visit.phase[visit.iIn[-1]], color='white',linestyle='--')
             try:
-                plt.axhline(tr.phase[tr.total[0]], color='white', linestyle=':')
-                plt.axhline(tr.phase[tr.total[-1]], color='white', linestyle=':')
+                plt.axhline(visit.phase[visit.total[0]], color='white', linestyle=':')
+                plt.axhline(visit.phase[visit.total[-1]], color='white', linestyle=':')
             except AttributeError:
                 pass
             plt.axvline(0, color='black',linestyle=':', alpha=0.7)
@@ -1309,7 +1309,7 @@ class Correlations():
 
         
         
-#     def plot_PRF(self, tr, interp_grid=None, ccf=None, RV=0., icorr=None, split_fig=0,
+#     def plot_PRF(self, visit, interp_grid=None, ccf=None, RV=0., icorr=None, split_fig=0,
 #                  hlines=None, texts=None, kind='shift', index=None, snr_1d=None, labels=None, clim=None, 
 #                  fig_name='', extension='.pdf', id_pc=None, map_kind='snr', debug=False, remove_mean=False):
             
@@ -1319,14 +1319,14 @@ class Correlations():
 #             elif kind == 'logl_corr':
 #                 ccf = np.ma.masked_invalid(np.ma.sum(self.data, axis=1)).squeeze()
 # #                 if nolog_L.ndim == 2:
-# #                     ccf = 1/np.ma.sum(tr.N, axis=1)[:,None]*nolog_L
+# #                     ccf = 1/np.ma.sum(visit.N, axis=1)[:,None]*nolog_L
 # #                 elif nolog_L.ndim == 3:
-# #                     ccf = 1/np.ma.sum(tr.N, axis=1)[:,None,None]*nolog_L
+# #                     ccf = 1/np.ma.sum(visit.N, axis=1)[:,None,None]*nolog_L
 #                 print(ccf.shape)
 
 #             elif kind == "logl_sig":
 #                 nolog_L_sig = np.ma.masked_invalid(np.ma.sum(self.data, axis=1)).squeeze()
-#                 ccf = corr.nolog2log(nolog_L_sig, tr.N, sum_N=True).squeeze()
+#                 ccf = corr.nolog2log(nolog_L_sig, visit.N, sum_N=True).squeeze()
 #                 remove_mean = True
                 
 #         if remove_mean is True:     
@@ -1350,7 +1350,7 @@ class Correlations():
 #             interp_grid = self.interp_grid
 
 #         if icorr is None:
-#             icorr = np.arange(tr.n_spec)
+#             icorr = np.arange(visit.n_spec)
 
 #         idx_mid = hm.nearest(interp_grid, RV)
         
@@ -1373,9 +1373,9 @@ class Correlations():
  
 #             fig = plt.figure(constrained_layout=True, figsize=(10,8))
 #             gs = fig.add_gridspec(3, 3, width_ratios=[3,3, 1.1], 
-#                                   height_ratios=[3*(tr.n_spec-split_fig)*np.diff(tr.phase[split_fig:])[0]/tr.n_spec,
-#                                                  3*split_fig*np.diff(tr.phase[:split_fig])[0]/tr.n_spec, 
-#                                                  1*np.diff(tr.phase[:split_fig])[0]])
+#                                   height_ratios=[3*(visit.n_spec-split_fig)*np.diff(visit.phase[split_fig:])[0]/visit.n_spec,
+#                                                  3*split_fig*np.diff(visit.phase[:split_fig])[0]/visit.n_spec, 
+#                                                  1*np.diff(visit.phase[:split_fig])[0]])
 #             ax02 = fig.add_subplot(gs[0, :-1])
 #             ax01 = fig.add_subplot(gs[1, :-1], sharex=ax02)
 #             ax12 = fig.add_subplot(gs[0, -1], sharey=ax02)
@@ -1392,24 +1392,24 @@ class Correlations():
 
 
 #         x = interp_grid
-#         y2 = tr.phase[split_fig:]  #np.arange(split_fig, tr.n_spec)-split_fig
+#         y2 = visit.phase[split_fig:]  #np.arange(split_fig, visit.n_spec)-split_fig
 #         if map_kind == 'snr':
 #             z2 = ccf[split_fig:]/np.nanstd(ccf[:,self.idx_bruit_rv][split_fig:])
 #         if map_kind == 'curve':
 #             z2 = ccf[split_fig:]
         
 #         if split_fig > 0:
-#             y1 = tr.phase[:split_fig] #np.arange(tr.n_spec)[:split_fig]
+#             y1 = visit.phase[:split_fig] #np.arange(visit.n_spec)[:split_fig]
 #             if map_kind == 'snr':
 #                 z1 = ccf[:split_fig]/np.nanstd(ccf[:,self.idx_bruit_rv][:split_fig])
 #             if map_kind == 'curve':
 #                 z1 = ccf[:split_fig]
         
         
-#         berv_rv = -tr.vrp.value-tr.mid_vrp.value-tr.RV_sys-(tr.mid_vr.value+tr.vr.value)-(tr.mid_berv+tr.berv)
+#         berv_rv = -visit.vrp.value-visit.mid_vrp.value-visit.RV_sys-(visit.mid_vr.value+visit.vr.value)-(visit.mid_berv+visit.berv)
 #         im2 = ax02.pcolormesh(x, y2, z2 , cmap='plasma', rasterized=True)
-#         ax02.plot(np.ones_like(y2)[tr.iOut[tr.iOut>=split_fig]-split_fig]*RV,
-#                  y2[tr.iOut[tr.iOut>=split_fig]-split_fig],'k.', alpha=0.2)
+#         ax02.plot(np.ones_like(y2)[visit.iOut[visit.iOut>=split_fig]-split_fig]*RV,
+#                  y2[visit.iOut[visit.iOut>=split_fig]-split_fig],'k.', alpha=0.2)
 #         ax02.set_ylabel(r'Exposure Number', fontsize=16)
 #         ax02.axvline(0, linestyle=':', color='black', alpha=0.8)
 #         ax02.plot(berv_rv[split_fig:], y2, '--', color='darkred')
@@ -1417,8 +1417,8 @@ class Correlations():
 #         if split_fig > 0:
 #             ax02.set_ylabel(r'Orbital Phase', fontsize=16, y=-0.00)
 #             im1 = ax01.pcolormesh(x, y1, z1 , cmap='plasma', rasterized=True)
-#             ax01.plot(np.ones_like(y1)[tr.iOut[tr.iOut<split_fig]]*RV,
-#                      y1[tr.iOut[tr.iOut<split_fig]],'k.', alpha=0.2)
+#             ax01.plot(np.ones_like(y1)[visit.iOut[visit.iOut<split_fig]]*RV,
+#                      y1[visit.iOut[visit.iOut<split_fig]],'k.', alpha=0.2)
 #             ax01.axvline(0, linestyle=':', color='black', alpha=0.8)
 #             ax01.plot(berv_rv[:split_fig], y1, '--', color='darkred')
             
@@ -1428,8 +1428,8 @@ class Correlations():
 #                 im1.set_clim(clim[0],clim[1])
 #             im2.set_clim(clim[0],clim[1])
 
-# #         ax0.axhline(tr.iIn[0], linestyle=':', color='white', alpha=0.8)
-# #         ax0.axhline(tr.iIn[-1]+1, linestyle=':', color='white', alpha=0.8)
+# #         ax0.axhline(visit.iIn[0], linestyle=':', color='white', alpha=0.8)
+# #         ax0.axhline(visit.iIn[-1]+1, linestyle=':', color='white', alpha=0.8)
 
 #         if hlines is not None:
 #             for hline in hlines:
@@ -1449,7 +1449,7 @@ class Correlations():
 
 #         # ---- MEAN CCF ----
 # #         ax1 = fig.add_subplot(spec[1], sharey=ax0) 
-#     #     ax1.plot(colum0[icorr], np.arange(tr.n_spec)[icorr],'ko-', alpha=0.3) 
+#     #     ax1.plot(colum0[icorr], np.arange(visit.n_spec)[icorr],'ko-', alpha=0.3) 
 
     
 #         ax12.plot(colum3[split_fig:], y2,'.') 
@@ -1471,8 +1471,8 @@ class Correlations():
 #         else:
 #             ax12.set_xlabel(r'$\overline{\rm CCF}$', fontsize=13)
 
-# #         ax1.axhline(tr.iIn[0], linestyle=':', color='black', alpha=0.8)
-# #         ax1.axhline(tr.iIn[-1]+1, linestyle=':', color='black', alpha=0.8)
+# #         ax1.axhline(visit.iIn[0], linestyle=':', color='black', alpha=0.8)
+# #         ax1.axhline(visit.iIn[-1]+1, linestyle=':', color='black', alpha=0.8)
         
 #         if hlines is not None:
 #             for hline in hlines:
@@ -1501,7 +1501,7 @@ class Correlations():
 #                 snr_1d = [self.snr]
             
 # #         ax2 = fig.add_subplot(spec[2], sharex=ax0)
-#     #     ax2.plot(interp_grid, np.nansum(ccf[tr.icorr], axis=0))
+#     #     ax2.plot(interp_grid, np.nansum(ccf[visit.icorr], axis=0))
 #         for i,snr_i in enumerate(snr_1d):
 #             ax2.plot(interp_grid, snr_i, label=labels[i]) 
 #         ax2.set_xlabel(r'$v_{\rm rad}$ (km s$^{-1}$)', fontsize=16)
@@ -1527,7 +1527,7 @@ class Correlations():
             
         
             
-    def ccf_map_plot(self, tr, fig_larg=8, fig_haut=3, cmap='plasma',
+    def ccf_map_plot(self, visit, fig_larg=8, fig_haut=3, cmap='plasma',
                      Kp_slice=None, clim=None, path_fig = '',save_fig='', map2d=None, minmax='max', label_curve='All Tr',
                     snr_1d=None, labels=None, force_max_pos=None, fig_name='', tag_max=False):
         
@@ -1548,7 +1548,7 @@ class Correlations():
         print('Highest SNR = {} // Kp = {} // RV = {} '.format(self.max, 
                                                   self.Kp_array[~self.idx_bruit_kp][self.idx_max[0]],
                                                                self.pos))
-        self.get_curve_at_slice(tr.Kp, minmax=minmax)
+        self.get_curve_at_slice(visit.Kp, minmax=minmax)
         print(r'Max SNR = {:.2f}$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
         print('')
         # hm.printmd(r'Max SNR = **{:.2f}**$\sigma$, Max position = {:.2f}'.format(self.max, self.pos))
@@ -1560,9 +1560,9 @@ class Correlations():
             pos_max = force_max_pos
         
             # - Lines enclosing the maximum -
-        axi[0].axhline(tr.Kp.to(u.km / u.s).value, linestyle='-', alpha=0.7, color='indigo', 
+        axi[0].axhline(visit.Kp.to(u.km / u.s).value, linestyle='-', alpha=0.7, color='indigo', 
                       xmin=0,xmax=hm.nearest(self.interp_grid, pos_max-10)/self.interp_grid.size )
-        axi[0].axhline(tr.Kp.to(u.km / u.s).value, linestyle='-', alpha=0.7, color='indigo',
+        axi[0].axhline(visit.Kp.to(u.km / u.s).value, linestyle='-', alpha=0.7, color='indigo',
                       xmin=hm.nearest(self.interp_grid, pos_max+10)/self.interp_grid.size ,xmax=1) 
 
 #         axi[0].axvline(self.pos, linestyle='-', alpha=0.7, color='indigo', 
@@ -1570,9 +1570,9 @@ class Correlations():
 #         axi[0].axvline(self.pos, linestyle='-', alpha=0.7, color='indigo',
 #                           ymin=(self.Kp_array[~self.idx_bruit_kp][self.idx_max[0]]+50)/self.Kp_array[-1] , ymax=1) 
         axi[0].axvline(pos_max, linestyle='-', alpha=0.7, color='indigo', 
-                          ymin=0, ymax=(tr.Kp.value - 60)/self.Kp_array[-1] )
+                          ymin=0, ymax=(visit.Kp.value - 60)/self.Kp_array[-1] )
         axi[0].axvline(pos_max, linestyle='-', alpha=0.7, color='indigo',
-                          ymin=(tr.Kp.value + 60)/self.Kp_array[-1] , ymax=1) 
+                          ymin=(visit.Kp.value + 60)/self.Kp_array[-1] , ymax=1) 
 
         axi[0].axvline(0, color='indigo', linestyle=':')
         axi[0].set_ylim(0, self.Kp_array[-1])
@@ -1586,7 +1586,7 @@ class Correlations():
         cbar.set_label('SNR', fontsize=14)
         
         if tag_max is True:
-            axi[0].plot(self.pos, tr.Kp.to(u.km / u.s).value,'k+', 
+            axi[0].plot(self.pos, visit.Kp.to(u.km / u.s).value,'k+', 
                 label='Pos = {:.2f} // Max = {:.2f}'.format(self.pos, self.max))
             axi[0].legend(loc='best')
 
@@ -1622,8 +1622,8 @@ class Correlations():
                 if (kpslice < 0):
                     axi[0].set_ylim(self.Kp_array[0], self.Kp_array[-1])   
                 
-#                 vrp_orb_slice = o.rv_theo_nu(kpslice, tr.nu * u.rad, tr.planet.w, plnt=True)
-#                 ax1.plot(vrp_orb_slice[iout].value, np.arange(tr.vrp.size)[iout], 
+#                 vrp_orb_slice = o.rv_theo_nu(kpslice, visit.nu * u.rad, visit.planet.w, plnt=True)
+#                 ax1.plot(vrp_orb_slice[iout].value, np.arange(visit.vrp.size)[iout], 
 #                  '.', color=(0.3,0, (k+1)/len(Kp_slice)), alpha=0.5, label=r'Kp = {:.2f}'.format(kpslice))
         
                 axi[0].axhline(kpslice, linestyle='--', color=(0.3,0, (k+1)/len(Kp_slice)), 
@@ -1657,17 +1657,17 @@ class Correlations():
             figs.savefig(path_fig + 'fig_CCF_map_'+save_fig+'.pdf')#, rasterize=True)
             print('Saved file to : ', path_fig + 'fig_CCF_map_'+save_fig+'.pdf')
 
-    def ttest_value(self, tr, orders=np.arange(49), wind=None, vrp=None, plot=True, 
+    def ttest_value(self, visit, orders=np.arange(49), wind=None, vrp=None, plot=True, 
                     kind='corr', speed_limit=2.5, ccf0=None, peak_center=None, verbose=True,**kwargs):
         if wind is None:
             wind = self.pos
         if kind == 'corr':
             if vrp is None:
-                vrp = tr.vrp.value+tr.RV_const+tr.mid_vrp.value
+                vrp = visit.vrp.value+visit.RV_const+visit.mid_vrp.value
             ccf = self.ccf0
         elif kind == 'logl':
             if vrp is None:
-                vrp = np.zeros_like(tr.vrp.value)#+tr.RV_const+tr.mid_vrp.value
+                vrp = np.zeros_like(visit.vrp.value)#+visit.RV_const+visit.mid_vrp.value
             ccf = self.map_prf
         
         if ccf0 is not None:
@@ -1678,19 +1678,19 @@ class Correlations():
             peak_rv = np.arange(-nb_pix * 2.3, (nb_pix + 1) * 2.3, 2.3)
             # nb_pix = np.floor(np.round((self.rv_grid[-1] - self.rv_grid[0]) / 2.3) / 2)
             # peak_rv = np.arange(-nb_pix*2.3 + wind, (nb_pix)*2.3 + wind, 2.3)
-            peak_ccf = np.ones((tr.n_spec, peak_rv.size))*np.nan
+            peak_ccf = np.ones((visit.n_spec, peak_rv.size))*np.nan
 
-            for n in range(tr.n_spec):
+            for n in range(visit.n_spec):
                 fct = interp1d(self.rv_grid, ccf[n], fill_value='extrapolate')
                 # print('RV = ', peak_rv[[0,-1]])
                 peak_ccf[n] = fct(peak_rv)
 
-            (t_in, p_in), (t_out, p_out) = nf.single_t_test(tr, peak_rv, peak_ccf, orders, wind=wind, 
+            (t_in, p_in), (t_out, p_out) = nf.single_t_test(visit, peak_rv, peak_ccf, orders, wind=wind, 
                                                             ccf=peak_ccf.copy(), vrp=vrp,
                                                             plot=plot, speed_limit=speed_limit,
                                                             verbose=verbose, **kwargs) 
         else:
-            (t_in, p_in), (t_out, p_out) = nf.single_t_test(tr, self.rv_grid, ccf.copy(), orders, wind=wind, 
+            (t_in, p_in), (t_out, p_out) = nf.single_t_test(visit, self.rv_grid, ccf.copy(), orders, wind=wind, 
                                                         ccf=ccf.copy(), vrp=vrp, plot=plot, speed_limit=speed_limit, 
                                                             verbose=verbose, **kwargs) 
         if verbose is True:
@@ -1698,7 +1698,7 @@ class Correlations():
             print('Out-of-transit t-val = {:.2f} / p-val {:.2e} / sig = {:.2f}'.format(t_out, p_out, nf.pval2sigma(p_out)))
         self.ttest_val = t_in
         
-    def ttest_map(self, tr, kind='corr', vrp=None, orders=np.arange(49), 
+    def ttest_map(self, visit, kind='corr', vrp=None, orders=np.arange(49), 
                   kp0=0, RV_limit=100, kp_step=5, rv_step=1, RV=None, 
                   fig_name='', path_fig=None, speed_limit=2.5, ccf=None, peak_center=None, hist=True,
                   cmap=None, tellu_loc=None, **kwargs):
@@ -1709,9 +1709,9 @@ class Correlations():
             prf = False
             
             if RV is None:
-                RV = tr.RV_const
+                RV = visit.RV_const
 #             if vrp is None:
-#                 vrp = tr.vrp.value+tr.RV_const+tr.mid_vrp.value
+#                 vrp = visit.vrp.value+visit.RV_const+visit.mid_vrp.value
         elif kind == 'logl':
             if ccf is None:
                 ccf = self.map_prf
@@ -1720,16 +1720,16 @@ class Correlations():
             if RV is None:
                 RV = 0
 #             if vrp is None:
-#                 vrp = np.zeros_like(tr.vrp.value)+tr.RV_const #+tr.mid_vrp.value
+#                 vrp = np.zeros_like(visit.vrp.value)+visit.RV_const #+visit.mid_vrp.value
 
         if peak_center is not None:
             nb_pix = np.round(peak_center / 2.3)
             peak_rv = np.arange(-nb_pix * 2.3, (nb_pix + 1) * 2.3, 2.3)
             # nb_pix = np.floor(np.round((self.rv_grid[-1] - self.rv_grid[0]) / 2.3) / 2)
             # peak_rv = np.arange(-nb_pix*2.3 + self.pos, (nb_pix)*2.3 + self.pos, 2.3)
-            peak_ccf = np.ones((tr.n_spec, peak_rv.size))*np.nan
+            peak_ccf = np.ones((visit.n_spec, peak_rv.size))*np.nan
 
-            for n in range(tr.n_spec):
+            for n in range(visit.n_spec):
                 fct = interp1d(self.rv_grid, ccf[n], fill_value='extrapolate')
                 peak_ccf[n] = fct(peak_rv)
             rv_grid = peak_rv
@@ -1741,7 +1741,7 @@ class Correlations():
             RV_array = None
         
         Kp_array, RV_array, \
-        t_value, p_value, ttest_params = nf.ttest_map(tr, rv_grid, ccf.copy(),  ccf=ccf.copy(),
+        t_value, p_value, ttest_params = nf.ttest_map(visit, rv_grid, ccf.copy(),  ccf=ccf.copy(),
                                                       orders=orders, kp0=kp0, RV_limit=RV_limit,
                                                       kp_step=kp_step, rv_step=rv_step, RV=RV, RV_array=RV_array,
                                                       prf=prf, speed_limit=speed_limit, wind=self.pos, **kwargs)
@@ -1753,12 +1753,12 @@ class Correlations():
         self.ttest_map_params = ttest_params
         
         if Kp_array.size > 1 :
-            self.plot_ttest_map(tr, vrp=vrp, kind=kind, orders=orders, fig_name=fig_name,
+            self.plot_ttest_map(visit, vrp=vrp, kind=kind, orders=orders, fig_name=fig_name,
                                 cmap=cmap, hist=hist, path_fig=path_fig, tellu_loc=tellu_loc)
         
         
         
-    def plot_ttest_map(self, tr, 
+    def plot_ttest_map(self, visit, 
                        RV=None, kind='corr', vrp=None, orders=np.arange(49), fig_name='',
                        cmap=None, hist=True, path_fig=None, tellu_loc=None):
         
@@ -1772,15 +1772,15 @@ class Correlations():
             ccf = self.ccf0
             prf = False
             if vrp is None:
-                vrp = tr.vrp + tr.RV_const + tr.mid_vrp
+                vrp = visit.vrp + visit.RV_const + visit.mid_vrp
                 
         elif kind == 'logl':
             ccf = self.map_prf
             prf = True
             if vrp is None:
-                vrp = np.zeros_like(tr.vrp) + tr.RV_const  # + tr.mid_vrp
+                vrp = np.zeros_like(visit.vrp) + visit.RV_const  # + visit.mid_vrp
                 
-        (t_in, p_in), fig = pf.plot_ttest_map_hist(tr, self.rv_grid, ccf.copy(), Kp_array, RV_array, t_value, ttest_params,
+        (t_in, p_in), fig = pf.plot_ttest_map_hist(visit, self.rv_grid, ccf.copy(), Kp_array, RV_array, t_value, ttest_params,
                                orders=orders, plot_trail=False, masked=True, ccf=ccf.copy(),
                               vrp=vrp, RV=RV, fig_name=fig_name, path_fig=path_fig, hist=hist, cmap=cmap, tellu_loc=tellu_loc)
         print(t_in, p_in, nf.pval2sigma(p_in))
@@ -1860,7 +1860,7 @@ def plot_ccf_timeseries(t, rv_star, correlation, plot_gauss=True, plot_spline=Tr
     return tc, pos_ga, pos_err_ga, pos_sp
 
 
-def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
+def plot_ccflogl(visit, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                  swapaxes=None, orders=np.arange(49), map=False, id_pc0=None, RV_limit=None,
                  indexs=None, icorr=None, RV=0.0, split_fig=False, std_robust=True,
                  fig_name=None, path_fig=None, vlines=[0], param = 'nPC', plot_prf = True, cmap="plasma", **kwargs):
@@ -1879,18 +1879,18 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
         logl_map = np.swapaxes(logl_map, *swapaxes)
 
     if icorr is None:
-        icorr = tr.iIn
+        icorr = visit.iIn
 
     if RV_limit is None:
         RV_limit = corrRV0.max()
 
     ccf_obj = Correlations(ccf_map, kind="logl", rv_grid=corrRV0,
                                     n_pcas=n_pcas, kp_array=Kp_array)
-    ccf_obj.calc_logl(tr, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
+    ccf_obj.calc_logl(visit, orders=orders, index=indexs, N=None, nolog=False, icorr=icorr, std_robust=std_robust)
     
     logl_obj = Correlations(logl_map, kind="logl", rv_grid=corrRV0,
                                     n_pcas=n_pcas, kp_array=Kp_array)
-    logl_obj.calc_logl(tr, orders=orders, index=indexs, N=tr.N, nolog=True,  icorr=icorr, std_robust=std_robust)
+    logl_obj.calc_logl(visit, orders=orders, index=indexs, N=visit.N, nolog=True,  icorr=icorr, std_robust=std_robust)
     
     # plotting the multi-param plots
     if dir_dict != None: path_fig = str(dir_dict['param_dir']) + '/'
@@ -1925,17 +1925,17 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
             label = None
 
         if dir_dict != None: path_fig = str(dir_dict['injected_ccf_dir']) + '/'
-        ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
+        ccf_obj.plot_PRF(visit, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
                          kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
                          map_kind='snr', id_pc=id_pc0, figwidth=9, fig_name=label, path_fig=path_fig, cmap=cmap,
                          **kwargs)
-        ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
+        ccf_obj.ttest_value(visit, kind='logl', vrp=np.zeros_like(visit.vrp), orders=orders,
                             plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
         if map is True:
             if dir_dict != None: path_fig = str(dir_dict['ttest_dir']) + '/'
-            ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
+            ccf_obj.ttest_map(visit, kind='logl', vrp=np.zeros_like(visit.vrp), orders=orders,
                               kp0=0, RV_limit=corrRV0.max() - 20, kp_step=5, rv_step=2, RV=None, speed_limit=3,
-                              icorr=tr.iIn,
+                              icorr=visit.iIn,
                               equal_var=False,  fig_name=label, path_fig=path_fig)
     elif plot_prf:
         for id_pc in range(len(n_pcas)):
@@ -1948,23 +1948,23 @@ def plot_ccflogl(tr, ccf_map, logl_map, corrRV0, Kp_array, n_pcas,
                 label = None
 
             if dir_dict != None: path_fig = str(dir_dict['injected_ccf_dir']) +'/'
-            ccf_obj.plot_PRF(tr, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
+            ccf_obj.plot_PRF(visit, RV=ccf_obj.pos, icorr=None, split_fig=split_fig,
                              kind='logl_corr', index=indexs, orders=orders, # remove_mean=False,
                              map_kind='snr', id_pc=id_pc, figwidth=9, fig_name=label, path_fig=path_fig, cmap=cmap,
                              **kwargs)
-            ccf_obj.ttest_value(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
+            ccf_obj.ttest_value(visit, kind='logl', vrp=np.zeros_like(visit.vrp), orders=orders,
                                 plot=False, speed_limit=3, peak_center=corrRV0.max() - 20, equal_var=False)
             if map is True:
                 if dir_dict != None: path_fig = str(dir_dict['ttest_dir']) + '/'
-                ccf_obj.ttest_map(tr, kind='logl', vrp=np.zeros_like(tr.vrp), orders=orders,
+                ccf_obj.ttest_map(visit, kind='logl', vrp=np.zeros_like(visit.vrp), orders=orders,
                                   kp0=0, RV_limit=RV_limit, kp_step=5, rv_step=2, RV=None, speed_limit=3,
-                                  icorr=tr.iIn,
+                                  icorr=visit.iIn,
                                   equal_var=False, fig_name=label, path_fig=path_fig)
                 t_value = ccf_obj.ttest_map_tval
                 ccf = ccf_obj.map_prf
-                vrp = np.zeros_like(tr.vrp) + tr.RV_const  # +tr.mid_vrp.value
+                vrp = np.zeros_like(visit.vrp) + visit.RV_const  # +visit.mid_vrp.value
 
-                _,_ = pf.plot_ttest_map_hist(tr, ccf_obj.rv_grid, ccf.copy(),  ccf_obj.ttest_map_kp, ccf_obj.ttest_map_rv,
+                _,_ = pf.plot_ttest_map_hist(visit, ccf_obj.rv_grid, ccf.copy(),  ccf_obj.ttest_map_kp, ccf_obj.ttest_map_rv,
                                                     t_value * (-3) / t_value.min(), ccf_obj.ttest_map_params,
                                                     orders=orders, plot_trail=True, masked=True, ccf=ccf.copy(),
                                                     vrp=np.zeros_like(vrp), RV=ccf_obj.pos, hist=True,

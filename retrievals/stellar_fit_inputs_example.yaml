@@ -37,7 +37,7 @@
 star_name: 'WASP-33'
 
 # Path to the .npz reduction file produced by starships.
-# This file must contain: mast_out, mask_mast_out, wave, noise, RV_const.
+# This file must contain: reference_spec, mask_reference_spec, wave, noise, RV_const.
 data_file: '~/scratch/DataAnalysis/SPIRou/Reductions/WASP-33/my_reduction.npz'
 
 # Maximum fraction of masked pixels allowed **in the interior** of a spectral

@@ -375,12 +375,11 @@ def _run_reduction_via_pipeline(reduction_config, ds_name):
 
     print(f"  [{ds_name}] pipeline.reduction.build_trans_spec "
           f"(n_pc={n_pc}, mask_tellu={mask_tellu}, mask_wings={mask_wings}) ...")
-    list_tr = red.build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet,
-                                    bad_indexs=bad_indexs)
-    transit = list_tr['1']
+    visit = red.build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet,
+                                  bad_indexs=bad_indexs)
 
     golden = np.load(golden_path, allow_pickle=True)
-    return transit, golden
+    return visit, golden
 
 
 # ---------------------------------------------------------------------------
@@ -463,11 +462,11 @@ def _run_reduction(reduction_config, ds_name):
 
     print(f"  [{ds_name}] Running reduction "
           f"(n_pc={n_pc}, mask_tellu={mask_tellu}, mask_wings={mask_wings}) ...")
-    list_tr = pl_obs.generate_all_transits(
+    visits = pl_obs.generate_all_transits(
         obs, transit_tags, [0.0], params_all, config_dict['iout_all'],
         counting=False, **kwargs_gen_tr, **kwargs_build_ts,
     )
-    transit = list_tr['1']
+    visit = visits['1']
 
     golden = np.load(golden_path, allow_pickle=True)
-    return transit, golden
+    return visit, golden

@@ -269,15 +269,15 @@ def remove_values_from_array(array, values_to_delete):
     return new_array
 
 
-def ord_frac_tresh(tr, frac, exp=1):
-    return list(np.where(tr.N_frac < frac**exp)[0])    
+def ord_frac_tresh(visit, frac, exp=1):
+    return list(np.where(visit.N_frac < frac**exp)[0])    
 
 
-def select_orders(tr, tresh, select_bands='yjhk', del_ord=[], add_ord=[], exp=1, verbose=True):
+def select_orders(visit, tresh, select_bands='yjhk', del_ord=[], add_ord=[], exp=1, verbose=True):
     
     if select_bands != 'co':
-        orders = list(remove_values_from_array(bands(tr.wv, select_bands), \
-                                         del_ord + ord_frac_tresh(tr, tresh, exp=exp))) + add_ord
+        orders = list(remove_values_from_array(bands(visit.wv, select_bands), \
+                                         del_ord + ord_frac_tresh(visit, tresh, exp=exp))) + add_ord
     else:
         orders = list(remove_values_from_array([30,31,32,33,46,47,48], del_ord)) + add_ord
     if verbose:

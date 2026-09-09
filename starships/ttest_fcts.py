@@ -14,12 +14,12 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 
 
-def get_corr_in_out_trail(index, corrRV, ccf, tr, \
+def get_corr_in_out_trail(index, corrRV, ccf, visit, \
                           wind=0, speed_limit=4, limit_out=10, 
                           both_side=True, vrp=None, verbose=False):
     
     if vrp is None:
-        vrp = tr.vrp
+        vrp = visit.vrp
     
     in_ccf = []
     out_ccf = []
@@ -47,8 +47,8 @@ def get_corr_in_out_trail(index, corrRV, ccf, tr, \
                            (corrRV < vrp[i]+wind-limit_out))
         else:
             idx_out = np.where((corrRV > vrp[i]+wind+limit_out))
-#             idx_out = np.where((corrRV <= tr.vrp[index[i]].value+wind+limit_out+speed_limit) & \
-#                           (corrRV >= tr.vrp[index[i]].value+wind+limit_out-speed_limit))
+#             idx_out = np.where((corrRV <= visit.vrp[index[i]].value+wind+limit_out+speed_limit) & \
+#                           (corrRV >= visit.vrp[index[i]].value+wind+limit_out-speed_limit))
 #         print(idx_out)
         try :
             out_ccf += list(ccf[i,idx_out].squeeze())
@@ -107,7 +107,7 @@ def t_test_hist(sample1, sample2, label1, label2, title, ax=None, nb_x_gauss=101
         fig.savefig('/home/boucher/spirou/Figures/fig_TTEST_intransit_{}.pdf'.format(fig_name))
     
 
-def single_t_test(tr, corrRV, correlation, orders, ccf=None, speed_limit=4, wind=0, limit_out=10, \
+def single_t_test(visit, corrRV, correlation, orders, ccf=None, speed_limit=4, wind=0, limit_out=10, \
            plot=True, both_side=True, logl=False, kind=1, equal_var=True, Kp=None, masked=True,
                  vrp=None, p0_estim=None, fig_name='', verbose=True, icorr=None):
     
@@ -115,10 +115,10 @@ def single_t_test(tr, corrRV, correlation, orders, ccf=None, speed_limit=4, wind
         ccf = np.ma.sum(correlation[:,orders],axis=1)
         
     if icorr is None:
-        icorr = tr.iIn
-        inotcorr = tr.iOut
+        icorr = visit.iIn
+        inotcorr = visit.iOut
     else:
-        inotcorr = np.arange(tr.n_spec)[~icorr]
+        inotcorr = np.arange(visit.n_spec)[~icorr]
         
     if logl is True:
         ccf = ccf-np.nanmean(ccf,axis=-1)[:,None]
@@ -128,36 +128,36 @@ def single_t_test(tr, corrRV, correlation, orders, ccf=None, speed_limit=4, wind
         
     if vrp is None:
         if Kp is None:
-            vrp = tr.vrp.value
+            vrp = visit.vrp.value
         else:
-            vrp = rv_theo_nu(Kp, tr.nu*u.rad, tr.planet.w, plnt=True).value
+            vrp = rv_theo_nu(Kp, visit.nu*u.rad, visit.planet.w, plnt=True).value
     
     if plot is True:
         plt.figure(figsize=(10,5))
-        plt.pcolormesh(corrRV, np.arange(tr.n_spec),ccf)
+        plt.pcolormesh(corrRV, np.arange(visit.n_spec),ccf)
         # plt.plot(t1.vrp[t1.iIn], np.arange(t1.iIn.size),'k')
-        plt.plot(tr.berv, np.arange(tr.n_spec),'b')
-        plt.plot(vrp+wind-speed_limit, np.arange(tr.n_spec),'k')
-        plt.plot(vrp+wind+speed_limit, np.arange(tr.n_spec),'k')
+        plt.plot(visit.berv, np.arange(visit.n_spec),'b')
+        plt.plot(vrp+wind-speed_limit, np.arange(visit.n_spec),'k')
+        plt.plot(vrp+wind+speed_limit, np.arange(visit.n_spec),'k')
         
         if both_side is True:
-            plt.plot(vrp+wind+limit_out, np.arange(tr.n_spec),'r')
-            plt.plot(vrp+wind-limit_out, np.arange(tr.n_spec),'r')
+            plt.plot(vrp+wind+limit_out, np.arange(visit.n_spec),'r')
+            plt.plot(vrp+wind-limit_out, np.arange(visit.n_spec),'r')
         else:
-            plt.plot(vrp+wind+limit_out, np.arange(tr.n_spec),'r')
-#             plt.plot(tr.vrp.value+wind+limit_out+speed_limit, np.arange(tr.n_spec),'r')
-#             plt.plot(tr.vrp.value+wind+limit_out-speed_limit, np.arange(tr.n_spec),'r')
+            plt.plot(vrp+wind+limit_out, np.arange(visit.n_spec),'r')
+#             plt.plot(visit.vrp.value+wind+limit_out+speed_limit, np.arange(visit.n_spec),'r')
+#             plt.plot(visit.vrp.value+wind+limit_out-speed_limit, np.arange(visit.n_spec),'r')
             
-        plt.axhline(tr.iIn[0],linestyle='--',color='white')
-        plt.axhline(tr.iIn[-1],linestyle='--',color='white')
+        plt.axhline(visit.iIn[0],linestyle='--',color='white')
+        plt.axhline(visit.iIn[-1],linestyle='--',color='white')
         plt.colorbar()
         
 
-    in_ccf, out_ccf = get_corr_in_out_trail(tr.iIn, corrRV, ccf, tr, wind=wind, 
+    in_ccf, out_ccf = get_corr_in_out_trail(visit.iIn, corrRV, ccf, visit, wind=wind, 
                                             speed_limit=speed_limit, limit_out=limit_out, 
                                             both_side=both_side, vrp=vrp, verbose=verbose)
 
-    in_ccf_af, out_ccf_af = get_corr_in_out_trail(tr.iOut, corrRV, ccf, tr, wind=wind, 
+    in_ccf_af, out_ccf_af = get_corr_in_out_trail(visit.iOut, corrRV, ccf, visit, wind=wind, 
                                                   speed_limit=speed_limit, limit_out=limit_out, 
                                             both_side=both_side, vrp=vrp, verbose=verbose)
     if kind == 1:
@@ -215,7 +215,7 @@ def get_t_test_values(index, corrRV, ccf, vrp, \
             idx_out = np.where((corrRV > vrp[index[i]]+RV+limit_out) | \
                            (corrRV < vrp[index[i]]+RV-limit_out))
         else:
-#             idx_out = np.where((corrRV > tr.vrp[tr.iIn[i]].value+limit_out))
+#             idx_out = np.where((corrRV > visit.vrp[visit.iIn[i]].value+limit_out))
             idx_out = np.where((corrRV <= vrp[index[i]]+RV+limit_out+speed_limit) & \
                           (corrRV >= vrp[index[i]]+RV+limit_out-speed_limit))
             
@@ -226,11 +226,11 @@ def get_t_test_values(index, corrRV, ccf, vrp, \
     return sigma, p_value
 
 
-def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None, wind=0, RV_array=None,
+def ttest_map(visit, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None, wind=0, RV_array=None,
               kp0=0, kp1=2, RV_limit=20, logl=False, plot=False, masked=False, RV=0, prf=False, Kp_array=None,
               speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False, counting = True):
     if icorr is None:  
-        icorr= tr.iIn
+        icorr= visit.iIn
         
     if ccf is None:
         if logl is True:
@@ -244,37 +244,37 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
         ccf[(ccf == 0).all(axis=-1)] = np.nan
         
     if prf is True:
-#         vrp_orb0 = rv_theo_nu(tr.Kp.value, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t_start*u.d, tr.planet.mid_tr, tr.planet.period, plnt=True).value
-        vr_orb0 = -vrp_orb0*(tr.planet.M_pl/tr.planet.M_star).decompose().value
+#         vrp_orb0 = rv_theo_nu(visit.Kp.value, visit.nu * u.rad, visit.planet.w, plnt=True).value
+        vrp_orb0 = rv_theo_t(visit.Kp.value, visit.t_start*u.d, visit.planet.mid_tr, visit.planet.period, plnt=True).value
+        vr_orb0 = -vrp_orb0*(visit.planet.M_pl/visit.planet.M_star).decompose().value
     
     if Kp_array is None:
-        Kp_array = np.arange(kp0, int(tr.Kp.value * kp1), kp_step)
+        Kp_array = np.arange(kp0, int(visit.Kp.value * kp1), kp_step)
     if RV_array is None:
         RV_array = np.arange(-RV_limit, RV_limit+0.5, rv_step)
 
     t_value = np.ones((Kp_array.size, RV_array.size))
     p_value = np.ones((Kp_array.size, RV_array.size))
     
-    id_kp=hm.nearest(Kp_array, tr.Kp.value)
+    id_kp=hm.nearest(Kp_array, visit.Kp.value)
     for i, Kpi in enumerate(Kp_array):
         if counting:
             hm.print_static(i)
 #         if i == id_kp:
 #             print(Kp_array[i])
-#         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb = rv_theo_t(Kpi, tr.t_start*u.d, tr.planet.mid_tr, tr.planet.period, plnt=True).value
-        vr_orb = -vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose().value
+#         vrp_orb = rv_theo_nu(Kpi, visit.nu * u.rad, visit.planet.w, plnt=True).value
+        vrp_orb = rv_theo_t(Kpi, visit.t_start*u.d, visit.planet.mid_tr, visit.planet.period, plnt=True).value
+        vr_orb = -vrp_orb*(visit.planet.M_pl/visit.planet.M_star).decompose().value
         if prf is True:
             vrp_orb -= vrp_orb0
             vr_orb -= vr_orb0
         
         for j,rv in enumerate(RV_array):
-#             t_value[i,j], p_value[i,j] = get_t_test_values(tr.iIn, rv_grid, ccf, vrp_orb, RV=rv, 
+#             t_value[i,j], p_value[i,j] = get_t_test_values(visit.iIn, rv_grid, ccf, vrp_orb, RV=rv, 
 #                                     speed_limit=speed_limit, limit_out=limit_out, both_side=both_side,
 #                                                           equal_var=equal_var)
-#             print(tr.iIn, rv_grid, vrp_orb-vr_orb + RV)
-            in_ccf, out_ccf = get_corr_in_out_trail(icorr, rv_grid, ccf, tr, wind=rv, 
+#             print(visit.iIn, rv_grid, vrp_orb-vr_orb + RV)
+            in_ccf, out_ccf = get_corr_in_out_trail(icorr, rv_grid, ccf, visit, wind=rv, 
                                             speed_limit=speed_limit, limit_out=limit_out, 
                                             both_side=both_side, vrp=vrp_orb + RV, verbose=verbose)
             A, B = in_ccf/np.nanstd(out_ccf), out_ccf/np.nanstd(out_ccf)
@@ -287,7 +287,7 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
             plt.xlabel(r'$v_{\rm rad}$ (km s$^{-1}$)', fontsize=16)
             plt.ylabel(r'$t$-test value', fontsize=16)
             print('Value at vrp + RV + wind')
-            print(single_t_test(tr, rv_grid, ccf, orders, ccf=ccf, speed_limit=speed_limit, wind=wind, limit_out=limit_out, \
+            print(single_t_test(visit, rv_grid, ccf, orders, ccf=ccf, speed_limit=speed_limit, wind=wind, limit_out=limit_out, \
             plot=False, vrp=vrp_orb+RV ))
              
                 
@@ -299,12 +299,12 @@ def ttest_map(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=No
 #             plt.xlabel(r'$v_{\rm rad}$ (km s$^{-1}$)', fontsize=16)
 #             plt.ylabel(r'$t$-test value', fontsize=16)
 #         else:
-            plot_ttest_map_hist(tr, Kp_array, RV_array, t_value, p_value)
+            plot_ttest_map_hist(visit, Kp_array, RV_array, t_value, p_value)
         
     return  Kp_array, RV_array, t_value, p_value, [speed_limit, limit_out, both_side, equal_var]
 
 
-def ttest_map_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None,
+def ttest_map_2(visit, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None,
               kp0=0, kp1=2, RV_limit=20, logl=False, plot=False, masked=False, RV=0, prf=False, Kp_array=None,
               speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False, counting = True):
 
@@ -320,43 +320,43 @@ def ttest_map_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=
         ccf[(ccf == 0).all(axis=-1)] = np.nan
         
     if prf is True:
-#         vrp_orb0 = rv_theo_nu(tr.Kp.value, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
-        vr_orb0 = -vrp_orb0*(tr.planet.M_pl/tr.planet.M_star).decompose().value
+#         vrp_orb0 = rv_theo_nu(visit.Kp.value, visit.nu * u.rad, visit.planet.w, plnt=True).value
+        vrp_orb0 = rv_theo_t(visit.Kp.value, visit.t, visit.planet.mid_tr, visit.planet.period, plnt=True).value
+        vr_orb0 = -vrp_orb0*(visit.planet.M_pl/visit.planet.M_star).decompose().value
     
     if Kp_array is None:
-        Kp_array = np.arange(kp0, int(tr.Kp.value * kp1), kp_step)
+        Kp_array = np.arange(kp0, int(visit.Kp.value * kp1), kp_step)
     RV_array = np.arange(-RV_limit, RV_limit, rv_step)
 
     t_value = np.ones((Kp_array.size, RV_array.size))
     p_value = np.ones((Kp_array.size, RV_array.size))
     
-    id_kp=hm.nearest(Kp_array, tr.Kp.value)
+    id_kp=hm.nearest(Kp_array, visit.Kp.value)
     for i, Kpi in enumerate(Kp_array):
         if counting: 
             hm.print_static(i)
         if i == id_kp:
             print(Kp_array[i])
-#         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
-        vr_orb = -vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose().value
+#         vrp_orb = rv_theo_nu(Kpi, visit.nu * u.rad, visit.planet.w, plnt=True).value
+        vrp_orb = rv_theo_t(Kpi, visit.t, visit.planet.mid_tr, visit.planet.period, plnt=True).value
+        vr_orb = -vrp_orb*(visit.planet.M_pl/visit.planet.M_star).decompose().value
         if prf is True:
             vrp_orb -= vrp_orb0
             vr_orb -= vr_orb0
         
         for j,rv in enumerate(RV_array):
-#             t_value[i,j], p_value[i,j] = get_t_test_values(tr.iIn, rv_grid, ccf, vrp_orb, RV=rv, 
+#             t_value[i,j], p_value[i,j] = get_t_test_values(visit.iIn, rv_grid, ccf, vrp_orb, RV=rv, 
 #                                     speed_limit=speed_limit, limit_out=limit_out, both_side=both_side,
 #                                                           equal_var=equal_var)
-#             print(tr.iIn, rv_grid, vrp_orb-vr_orb + RV)
-#             in_ccf, out_ccf = get_corr_in_out_trail(tr.iIn, rv_grid, ccf, tr, wind=rv, 
+#             print(visit.iIn, rv_grid, vrp_orb-vr_orb + RV)
+#             in_ccf, out_ccf = get_corr_in_out_trail(visit.iIn, rv_grid, ccf, visit, wind=rv, 
 #                                             speed_limit=speed_limit, limit_out=limit_out, 
 #                                             both_side=both_side, vrp=vrp_orb + RV)
 #             A, B = in_ccf/np.nanstd(out_ccf), out_ccf/np.nanstd(out_ccf)
 #             new_A = np.array(A)[np.isfinite(A)]
 #             new_B = np.array(B)[np.isfinite(B)]
 #             t_value[i,j], p_value[i,j] = sp.stats.ttest_ind(A, B, nan_policy='omit', equal_var=equal_var)
-            (t_value[i,j], p_value[i,j]),_ = single_t_test(tr, rv_grid, ccf, orders, ccf=ccf, wind=rv,
+            (t_value[i,j], p_value[i,j]),_ = single_t_test(visit, rv_grid, ccf, orders, ccf=ccf, wind=rv,
                                                            speed_limit=speed_limit, limit_out=limit_out, \
                                                             plot=False, vrp=vrp_orb, Kp=Kpi, verbose=verbose )
              
@@ -366,12 +366,12 @@ def ttest_map_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=
         if Kp_array.size == 1:
             plt.plot(RV_array, t_value.squeeze())
         else:
-            plot_ttest_map_hist(tr, Kp_array, RV_array, t_value, p_value)
+            plot_ttest_map_hist(visit, Kp_array, RV_array, t_value, p_value)
         
     return  Kp_array, RV_array, t_value, p_value, [speed_limit, limit_out, both_side, equal_var]
 
 
-def ttest_fullmap_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None,
+def ttest_fullmap_2(visit, rv_grid, correlation, ccf=None, orders=np.arange(49), icorr=None,
               kp0=0, kp1=2, RV_limit=20, logl=False, plot=False, masked=False, RV=0, prf=False, Kp_array=None,
               speed_limit=4, limit_out=10, both_side=True, kp_step=1, rv_step=0.5, equal_var=True, verbose=False, counting = True):
 
@@ -387,32 +387,32 @@ def ttest_fullmap_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), ic
         ccf[(ccf == 0).all(axis=-1)] = np.nan
         
     if prf is True:
-#         vrp_orb0 = rv_theo_nu(tr.Kp.value, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb0 = rv_theo_t(tr.Kp.value, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
-        vr_orb0 = -vrp_orb0*(tr.planet.M_pl/tr.planet.M_star).decompose().value
+#         vrp_orb0 = rv_theo_nu(visit.Kp.value, visit.nu * u.rad, visit.planet.w, plnt=True).value
+        vrp_orb0 = rv_theo_t(visit.Kp.value, visit.t, visit.planet.mid_tr, visit.planet.period, plnt=True).value
+        vr_orb0 = -vrp_orb0*(visit.planet.M_pl/visit.planet.M_star).decompose().value
 
     if Kp_array is None:
-        Kp_array = np.arange(kp0, int(tr.Kp.value * kp1), kp_step)
+        Kp_array = np.arange(kp0, int(visit.Kp.value * kp1), kp_step)
     RV_array = np.arange(-RV_limit, RV_limit, rv_step)
 
     t_value = np.ones((Kp_array.size, RV_array.size))
     p_value = np.ones((Kp_array.size, RV_array.size))
     
-    id_kp=hm.nearest(Kp_array, tr.Kp.value)
+    id_kp=hm.nearest(Kp_array, visit.Kp.value)
     for i, Kpi in enumerate(Kp_array):
         if counting:
             hm.print_static(i)
         if i == id_kp:
             print(Kp_array[i])
-#         vrp_orb = rv_theo_nu(Kpi, tr.nu * u.rad, tr.planet.w, plnt=True).value
-        vrp_orb = rv_theo_t(Kpi, tr.t, tr.planet.mid_tr, tr.planet.period, plnt=True).value
-        vr_orb = -vrp_orb*(tr.planet.M_pl/tr.planet.M_star).decompose().value
+#         vrp_orb = rv_theo_nu(Kpi, visit.nu * u.rad, visit.planet.w, plnt=True).value
+        vrp_orb = rv_theo_t(Kpi, visit.t, visit.planet.mid_tr, visit.planet.period, plnt=True).value
+        vr_orb = -vrp_orb*(visit.planet.M_pl/visit.planet.M_star).decompose().value
         if prf is True:
             vrp_orb -= vrp_orb0
             vr_orb -= vr_orb0
         
         for j,rv in enumerate(RV_array):
-            (t_value[i,j], p_value[i,j]),_ = single_t_test(tr, rv_grid, ccf, orders, ccf=ccf, wind=rv,
+            (t_value[i,j], p_value[i,j]),_ = single_t_test(visit, rv_grid, ccf, orders, ccf=ccf, wind=rv,
                                                            speed_limit=speed_limit, limit_out=limit_out, \
                                                             plot=False, vrp=vrp_orb, Kp=Kpi, verbose=verbose )
              
@@ -421,7 +421,7 @@ def ttest_fullmap_2(tr, rv_grid, correlation, ccf=None, orders=np.arange(49), ic
         if Kp_array.size == 1:
             plt.plot(RV_array, t_value)
         else:
-            plot_ttest_map_hist(tr, Kp_array, RV_array, t_value, p_value)
+            plot_ttest_map_hist(visit, Kp_array, RV_array, t_value, p_value)
         
     return  Kp_array, RV_array, t_value, p_value, [speed_limit, limit_out, both_side, equal_var]
 
@@ -480,7 +480,7 @@ def calc_n_sigma_lvl(values, sigmas, val=None, plot=False, inverse=False):
 
     
 
-def calc_final_logl(tr, logl, logl_sig, tresh, index, del_ord=[], add_ord=[],
+def calc_final_logl(visit, logl, logl_sig, tresh, index, del_ord=[], add_ord=[],
                     N_list=None, nolog_list=None, icorr=None, orders=None):  
     
     
@@ -488,20 +488,20 @@ def calc_final_logl(tr, logl, logl_sig, tresh, index, del_ord=[], add_ord=[],
     correlation_sig = logl_sig.copy()
     
     if orders is None:
-        orders = list(remove_values_from_array(bands(tr.wv,'yjhk'), del_ord + ord_frac_tresh(tr, tresh)))+add_ord
+        orders = list(remove_values_from_array(bands(visit.wv,'yjhk'), del_ord + ord_frac_tresh(visit, tresh)))+add_ord
     
     if N_list is None:
-        N_list = [tr.N, tr.N]
+        N_list = [visit.N, visit.N]
     if nolog_list is None:
         nolog_list = [False, True]
         
     if icorr is None:
-        icorr = tr.icorr
+        icorr = visit.icorr
     print(index)
     logl_grid = corr.sum_logl(correlation, icorr, orders, N_list[0], 
-                                   alpha=tr.alpha_frac, axis=0, del_idx=index, nolog=nolog_list[0])
+                                   alpha=visit.alpha_frac, axis=0, del_idx=index, nolog=nolog_list[0])
     logl_grid_sig = corr.sum_logl(correlation_sig, icorr, orders, N_list[1], 
-                                       alpha=tr.alpha_frac,axis=0, del_idx=index, nolog=nolog_list[1])
+                                       alpha=visit.alpha_frac,axis=0, del_idx=index, nolog=nolog_list[1])
     return logl_grid, logl_grid_sig
 
 
@@ -515,9 +515,9 @@ def mo_fit(xy0, shift, scale):
     return y
     
 
-def plot_mo_fit_params(n_orders, tr, params, counting = True, **kwargs):
+def plot_mo_fit_params(n_orders, visit, params, counting = True, **kwargs):
     fig = plt.figure()
-    n_spec=tr.n_spec
+    n_spec=visit.n_spec
     # fig.suptitle("Controlling subplot sizes with width_ratios and height_ratios")
 
     gs = GridSpec(2, 2, width_ratios=[3, 1], height_ratios=[3, 1])
@@ -526,14 +526,14 @@ def plot_mo_fit_params(n_orders, tr, params, counting = True, **kwargs):
     ax3 = fig.add_subplot(gs[2], sharex = ax1)
     # ax4 = fig.add_subplot(gs[3])
 
-    im = ax1.pcolormesh(np.arange(n_orders), tr.phase, params, **kwargs)
+    im = ax1.pcolormesh(np.arange(n_orders), visit.phase, params, **kwargs)
     cbar = fig.colorbar(im, ax=ax2, pad=0.1)
     cbar.set_label('Shift')
     
-    ax2.plot(np.nanmean(params, axis=-1), tr.phase,'o-', alpha=0.8, label='Mean')
+    ax2.plot(np.nanmean(params, axis=-1), visit.phase,'o-', alpha=0.8, label='Mean')
     ax3.plot(np.arange(n_orders), np.nanmean(params, axis=0),'o-', alpha=0.8)
 
-    ax2.plot(np.nanmedian(params, axis=-1), tr.phase,'o-', alpha=0.8, label='Median')
+    ax2.plot(np.nanmedian(params, axis=-1), visit.phase,'o-', alpha=0.8, label='Median')
     ax3.plot(np.arange(n_orders), np.nanmedian(params, axis=0),'o-', alpha=0.8)
 
     ax1.set_ylabel('Orbital phase')
@@ -542,27 +542,27 @@ def plot_mo_fit_params(n_orders, tr, params, counting = True, **kwargs):
     ax2.set_xlabel('Shift')
     ax2.legend()
 
-def master_out_fit(tr, n_orders=49, plot_shift=True, plot_scale=False, 
-                   master_out=None, fl_norm_mo=None, sigma=4):
+def reference_spec_fit(visit, n_orders=49, plot_shift=True, plot_scale=False, 
+                   reference_spec=None, fl_norm_mo=None, sigma=4):
     
-    if master_out is None:
-        master_out = tr.mast_out
+    if reference_spec is None:
+        reference_spec = visit.reference_spec
     if fl_norm_mo is None:
-        fl_norm_mo = tr.fl_norm_mo
+        fl_norm_mo = visit.fl_norm_mo
     
     fit_params = []
     fit_err = []
-    for n in range(tr.n_spec):
+    for n in range(visit.n_spec):
         fit_params_ord = []
         fit_err_ord = []
         for iord in range(n_orders):
             if counting:
                 hm.print_static(n, iord, '  ')
-            x = tr.wv[iord]
-            if master_out.ndim == 2:
-                y0 = master_out[iord]
-            elif master_out.ndim == 3:
-                y0 = master_out[n,iord]
+            x = visit.wv[iord]
+            if reference_spec.ndim == 2:
+                y0 = reference_spec[iord]
+            elif reference_spec.ndim == 3:
+                y0 = reference_spec[n,iord]
             y = fl_norm_mo[n,iord]
 
 
@@ -586,16 +586,16 @@ def master_out_fit(tr, n_orders=49, plot_shift=True, plot_scale=False,
     
     print(fit_params.shape)
     if plot_shift is True:
-        plot_mo_fit_params(n_orders, tr, sigma_clip=(fit_params[:,:,0],sigma))
+        plot_mo_fit_params(n_orders, visit, sigma_clip=(fit_params[:,:,0],sigma))
     if plot_scale is True:
-        plot_mo_fit_params(n_orders, tr, sigma_clip=(fit_params[:,:,1],sigma))
+        plot_mo_fit_params(n_orders, visit, sigma_clip=(fit_params[:,:,1],sigma))
     
     return fit_params, fit_err
 
-def build_template_mo(tr, wave_temp, template, dv=None, norm=True, counting = True):
+def build_template_mo(visit, wave_temp, template, dv=None, norm=True, counting = True):
     
     if dv is None:
-        dv = tr.mid_berv+tr.mid_vr.value
+        dv = visit.mid_berv+visit.mid_vr.value
         
     if template.ndim == 1:
         fct = interp1d_masked(wave_temp, template, kind='cubic', fill_value='extrapolate')
@@ -604,21 +604,21 @@ def build_template_mo(tr, wave_temp, template, dv=None, norm=True, counting = Tr
                 shift = hm.calc_shift(dv)
             else:
                 shift = 1.
-            master_out = np.ones((tr.nord, tr.npix))*np.nan
-            for iOrd in range(tr.nord):
-                master_out[iOrd] = fct(tr.wv[iOrd]/shift)
+            reference_spec = np.ones((visit.nord, visit.npix))*np.nan
+            for iOrd in range(visit.nord):
+                reference_spec[iOrd] = fct(visit.wv[iOrd]/shift)
                 if norm is True:
-                    master_out[iOrd] /= np.nanmedian(master_out[iOrd],axis=-1)
+                    reference_spec[iOrd] /= np.nanmedian(reference_spec[iOrd],axis=-1)
         else:
             shifts = hm.calc_shift(dv)
-            master_out = np.ones((tr.n_spec, tr.nord, tr.npix))*np.nan
-            for iOrd in range(tr.nord):
-                master_out[:,iOrd] = fct(tr.wv[None,iOrd]/shifts[:,None])
+            reference_spec = np.ones((visit.n_spec, visit.nord, visit.npix))*np.nan
+            for iOrd in range(visit.nord):
+                reference_spec[:,iOrd] = fct(visit.wv[None,iOrd]/shifts[:,None])
             if norm is True:
-                master_out /= np.nanmedian(master_out,axis=-1)[:,:,None]
+                reference_spec /= np.nanmedian(reference_spec,axis=-1)[:,:,None]
                 
     elif template.ndim == 2:
-        master_out = np.ones((tr.n_spec, tr.nord, tr.npix))*np.nan
+        reference_spec = np.ones((visit.n_spec, visit.nord, visit.npix))*np.nan
         for n in range(template.shape[0]):
             if counting:
                 hm.print_static(n)
@@ -628,20 +628,20 @@ def build_template_mo(tr, wave_temp, template, dv=None, norm=True, counting = Tr
                     shift = hm.calc_shift(dv)
                 else:
                     shift = 1.
-                for iOrd in range(tr.nord):
-                    master_out[n,iOrd] = fct(tr.wv[iOrd]/shift)
+                for iOrd in range(visit.nord):
+                    reference_spec[n,iOrd] = fct(visit.wv[iOrd]/shift)
                     if norm is True:
-                        master_out[n,iOrd] /= np.nanmedian(master_out[n,iOrd],axis=-1)
+                        reference_spec[n,iOrd] /= np.nanmedian(reference_spec[n,iOrd],axis=-1)
             else:
                 shifts = hm.calc_shift(dv)
-                for iOrd in range(tr.nord):
-                    master_out[n,iOrd] = fct(tr.wv[iOrd]/shifts[n])
-#                     print(np.isnan(master_out[n,iOrd]).sum())
+                for iOrd in range(visit.nord):
+                    reference_spec[n,iOrd] = fct(visit.wv[iOrd]/shifts[n])
+#                     print(np.isnan(reference_spec[n,iOrd]).sum())
                 if norm is True:
-                    master_out[n,iOrd] /= np.nanmedian(master_out[n,iOrd])
+                    reference_spec[n,iOrd] /= np.nanmedian(reference_spec[n,iOrd])
                     
-    master_out = np.ma.masked_invalid(master_out)
+    reference_spec = np.ma.masked_invalid(reference_spec)
     
-    return master_out
+    return reference_spec
 
 

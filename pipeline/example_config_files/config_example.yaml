@@ -59,7 +59,7 @@ mask_tellu: [0.2, 0.5]
 mask_wings: [0.9, 0.95, 0.97]
 n_pc: [0, 1, 2, 3, 4]
 
-# Which exposures build the reference spectrum used to divide out the star ("master-out").
+# Which exposures build the reference spectrum used to divide out the star.
 # 'all' (default): every exposure. The planetary signal is negligible next to the star's and
 #   further diluted by the planet's own motion across exposures, so using all exposures actually
 #   improves the reference spectrum's signal-to-noise ratio.

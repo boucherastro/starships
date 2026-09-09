@@ -649,7 +649,7 @@ class Observations():
             self.n_comps = n_comps
  
         noise = self.noise
-        self.fl_norm, self.fl_norm_mo, self.mast_out, \
+        self.fl_norm, self.fl_norm_mo, self.reference_spec, \
         self.spec_trans, self.full_ts, self.ts_norm, \
         self.final, self.rebuilt, \
         self.pca, self.fl_Sref, self.fl_masked, \
@@ -668,7 +668,7 @@ class Observations():
 #         self.n_comps = n_comps
 #         self.reconstructed = (self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None] * \
 #                               np.ma.median(self.fl_masked,axis=-1)[:,:,None] * \
-#                               self.mast_out[None, :, :] * self.ratio * self.rebuilt).squeeze()
+#                               self.reference_spec[None, :, :] * self.ratio * self.rebuilt).squeeze()
         if (not hasattr(self, 'ratio')) or (change_ratio is True):
             self.ratio = ratio
         if not hasattr(self, 'last_mask'):
@@ -677,7 +677,7 @@ class Observations():
         self.ratio_recon = ratio_recon
         if fast is False:
             self.reconstructed = (np.ma.median(flux,axis=-1)[:,:,None] * \
-                              self.mast_out[None, :, :] * self.rebuilt).squeeze()
+                              self.reference_spec[None, :, :] * self.rebuilt).squeeze()
         else:
             self.reconstructed = self.rebuilt
             self.ratio_recon = False
@@ -1128,7 +1128,7 @@ def get_blaze_file(path, file_list='list_tellu_corrected', blaze_default=None,
 
  ##############################################################################   
 
-def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
+def merge_tr(tr_merge, visits, merge_tr_idx, params=None, light=False):
     
 
     icorr_list = []
@@ -1138,46 +1138,46 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
     add_n_spec = 0
     for idx, tr_i in enumerate(merge_tr_idx):
         if idx == 0:
-            icorr_list.append(list_tr[str(tr_i)].icorr)
-            iIn_list.append(list_tr[str(tr_i)].iIn)
-            iOut_list.append(list_tr[str(tr_i)].iOut)
+            icorr_list.append(visits[str(tr_i)].icorr)
+            iIn_list.append(visits[str(tr_i)].iIn)
+            iOut_list.append(visits[str(tr_i)].iOut)
         else:
-            add_n_spec += list_tr[str(tr_i-1)].n_spec
-            icorr_list.append(list_tr[str(tr_i)].icorr + add_n_spec)
-            iIn_list.append(list_tr[str(tr_i)].iIn + add_n_spec)
-            iOut_list.append(list_tr[str(tr_i)].iOut + add_n_spec)
+            add_n_spec += visits[str(tr_i-1)].n_spec
+            icorr_list.append(visits[str(tr_i)].icorr + add_n_spec)
+            iIn_list.append(visits[str(tr_i)].iIn + add_n_spec)
+            iOut_list.append(visits[str(tr_i)].iOut + add_n_spec)
     tr_merge.icorr = np.concatenate(icorr_list)
     tr_merge.iIn = np.concatenate(iIn_list)
     tr_merge.iOut = np.concatenate(iOut_list)
-    tr_merge.n_spec = np.sum([list_tr[str(tr_i)].n_spec for tr_i in merge_tr_idx])
+    tr_merge.n_spec = np.sum([visits[str(tr_i)].n_spec for tr_i in merge_tr_idx])
     
-    tr_merge.alpha_frac = np.concatenate([list_tr[str(tr_i)].alpha_frac for tr_i in merge_tr_idx])
-    tr_merge.t_start = np.concatenate([list_tr[str(tr_i)].t_start for tr_i in merge_tr_idx])
-    tr_merge.dt = np.concatenate([list_tr[str(tr_i)].dt for tr_i in merge_tr_idx])
+    tr_merge.alpha_frac = np.concatenate([visits[str(tr_i)].alpha_frac for tr_i in merge_tr_idx])
+    tr_merge.t_start = np.concatenate([visits[str(tr_i)].t_start for tr_i in merge_tr_idx])
+    tr_merge.dt = np.concatenate([visits[str(tr_i)].dt for tr_i in merge_tr_idx])
     tr_merge.t = tr_merge.t_start*u.d
-    tr_merge.phase = np.concatenate([list_tr[str(tr_i)].phase for tr_i in merge_tr_idx]) #.value
-    tr_merge.noise = np.ma.concatenate([list_tr[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
+    tr_merge.phase = np.concatenate([visits[str(tr_i)].phase for tr_i in merge_tr_idx]) #.value
+    tr_merge.noise = np.ma.concatenate([visits[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
 
     if light is False:
-        tr_merge.fl_norm = np.ma.concatenate([list_tr[str(tr_i)].fl_norm for tr_i in merge_tr_idx], axis=0)
-        tr_merge.fl_Sref = np.ma.concatenate([list_tr[str(tr_i)].fl_Sref for tr_i in merge_tr_idx], axis=0)
-        tr_merge.fl_masked = np.ma.concatenate([list_tr[str(tr_i)].fl_masked for tr_i in merge_tr_idx], axis=0)
-        tr_merge.fl_norm_mo = np.ma.concatenate([list_tr[str(tr_i)].fl_norm_mo for tr_i in merge_tr_idx], axis=0)
-        tr_merge.full_ts = np.ma.concatenate([list_tr[str(tr_i)].full_ts for tr_i in merge_tr_idx], axis=0)
-        tr_merge.rebuilt = np.ma.concatenate([list_tr[str(tr_i)].rebuilt for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_norm = np.ma.concatenate([visits[str(tr_i)].fl_norm for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_Sref = np.ma.concatenate([visits[str(tr_i)].fl_Sref for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_masked = np.ma.concatenate([visits[str(tr_i)].fl_masked for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_norm_mo = np.ma.concatenate([visits[str(tr_i)].fl_norm_mo for tr_i in merge_tr_idx], axis=0)
+        tr_merge.full_ts = np.ma.concatenate([visits[str(tr_i)].full_ts for tr_i in merge_tr_idx], axis=0)
+        tr_merge.rebuilt = np.ma.concatenate([visits[str(tr_i)].rebuilt for tr_i in merge_tr_idx], axis=0)
 
-    if list_tr[str(merge_tr_idx[0])].mast_out.ndim == 2:
-        tr_merge.mast_out = np.ma.mean([np.ma.masked_invalid(list_tr[str(tr_i)].mast_out) \
+    if visits[str(merge_tr_idx[0])].reference_spec.ndim == 2:
+        tr_merge.reference_spec = np.ma.mean([np.ma.masked_invalid(visits[str(tr_i)].reference_spec) \
                                                           for tr_i in merge_tr_idx], axis=0)
-    elif list_tr[str(merge_tr_idx[0])].mast_out.ndim == 3:
-        tr_merge.mast_out = np.ma.concatenate([list_tr[str(tr_i)].mast_out for tr_i in merge_tr_idx], axis=0)
+    elif visits[str(merge_tr_idx[0])].reference_spec.ndim == 3:
+        tr_merge.reference_spec = np.ma.concatenate([visits[str(tr_i)].reference_spec for tr_i in merge_tr_idx], axis=0)
 
-    tr_merge.spec_trans = np.ma.concatenate([list_tr[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
-    tr_merge.final = np.ma.concatenate([list_tr[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
-    tr_merge.N = np.ma.concatenate([list_tr[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
+    tr_merge.spec_trans = np.ma.concatenate([visits[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
+    tr_merge.final = np.ma.concatenate([visits[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
+    tr_merge.N = np.ma.concatenate([visits[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
 
     try:
-        tr_merge.uncorr = np.ma.concatenate([list_tr[str(tr_i)].uncorr for tr_i in merge_tr_idx], axis=0)
+        tr_merge.uncorr = np.ma.concatenate([visits[str(tr_i)].uncorr for tr_i in merge_tr_idx], axis=0)
         tr_merge.N0 = (~np.isnan(tr_merge.uncorr)).sum(axis=-1)
         tr_merge.N_frac = np.nanmean(tr_merge.N / tr_merge.N0, axis=0).data  # 4088
         tr_merge.N_frac[np.isnan(tr_merge.N_frac)] = 0
@@ -1185,45 +1185,45 @@ def merge_tr(tr_merge, list_tr, merge_tr_idx, params=None, light=False):
         print('Did not find Uncorr key.')
         print('Not computing N0 and N_frac.')
 
-        # tr_merge.N_frac = np.min(np.array([list_tr[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
+        # tr_merge.N_frac = np.min(np.array([visits[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
 
-    tr_merge.reconstructed = np.ma.concatenate([list_tr[str(tr_i)].reconstructed for tr_i in merge_tr_idx], axis=0)
-    tr_merge.ratio = np.ma.concatenate([list_tr[str(tr_i)].ratio for tr_i in merge_tr_idx], axis=0)
+    tr_merge.reconstructed = np.ma.concatenate([visits[str(tr_i)].reconstructed for tr_i in merge_tr_idx], axis=0)
+    tr_merge.ratio = np.ma.concatenate([visits[str(tr_i)].ratio for tr_i in merge_tr_idx], axis=0)
     if params is None:
-        tr_merge.params = list_tr[str(merge_tr_idx[0])].params
+        tr_merge.params = visits[str(merge_tr_idx[0])].params
     
 #     return tr_merge
 
-def merge_velocity(tr_merge, list_tr, merge_tr_idx):
+def merge_velocity(tr_merge, visits, merge_tr_idx):
     
-    tr_merge.mid_vrp = np.concatenate([list_tr[str(tr_i)].mid_vrp* \
-                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.RV_sys = np.concatenate([list_tr[str(tr_i)].RV_sys* \
-                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.mid_berv = np.concatenate([list_tr[str(tr_i)].mid_berv* \
-                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.mid_vr = np.concatenate([list_tr[str(tr_i)].mid_vr* \
-                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.berv = np.concatenate([list_tr[str(tr_i)].berv for tr_i in merge_tr_idx])
-    tr_merge.vrp = np.concatenate([list_tr[str(tr_i)].vrp for tr_i in merge_tr_idx])
-    tr_merge.vr = np.concatenate([list_tr[str(tr_i)].vr for tr_i in merge_tr_idx])
-    tr_merge.RV_const = np.concatenate([list_tr[str(tr_i)].RV_const* \
-                                       np.ones((list_tr[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.Kp = list_tr[str(merge_tr_idx[0])].Kp
+    tr_merge.mid_vrp = np.concatenate([visits[str(tr_i)].mid_vrp* \
+                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.RV_sys = np.concatenate([visits[str(tr_i)].RV_sys* \
+                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.mid_berv = np.concatenate([visits[str(tr_i)].mid_berv* \
+                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.mid_vr = np.concatenate([visits[str(tr_i)].mid_vr* \
+                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.berv = np.concatenate([visits[str(tr_i)].berv for tr_i in merge_tr_idx])
+    tr_merge.vrp = np.concatenate([visits[str(tr_i)].vrp for tr_i in merge_tr_idx])
+    tr_merge.vr = np.concatenate([visits[str(tr_i)].vr for tr_i in merge_tr_idx])
+    tr_merge.RV_const = np.concatenate([visits[str(tr_i)].RV_const* \
+                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
+    tr_merge.Kp = visits[str(merge_tr_idx[0])].Kp
 
 
 def split_transits(obs_obj, transit_tag, mid_idx, 
                    params0=[0.85, 0.97, 51, 41, 3, 1, 2.0, 1.0, 3.0, 1.0],
-                   params=None, K=None, plot=False, tr=None, fix_master_out=None, 
+                   params=None, K=None, plot=False, visit=None, fix_reference_spec=None, 
                    kwargs1 = {}, kwargs2 = {}, **kwargs):
     
-#     if tr is None:
-#         tr = obs_obj.select_transit(transit_tag)
-#         tr.calc_sequence(plot=plot, K=K)
-#         tr.build_trans_spec(params=params0, **kwargs)
-#         tr.build_trans_spec(params=params, flux_masked=tr.fl_norm, flux_Sref=tr.fl_norm, 
-#                                   flux_norm=tr.fl_norm, flux_norm_mo=tr.fl_norm_mo, master_out=tr.mast_out, 
-#                                   spec_trans=tr.spec_trans, mask_var=False, **kwargs)
+#     if visit is None:
+#         visit = obs_obj.select_transit(transit_tag)
+#         visit.calc_sequence(plot=plot, K=K)
+#         visit.build_trans_spec(params=params0, **kwargs)
+#         visit.build_trans_spec(params=params, flux_masked=visit.fl_norm, flux_Sref=visit.fl_norm, 
+#                                   flux_norm=visit.fl_norm, flux_norm_mo=visit.fl_norm_mo, reference_spec=visit.reference_spec, 
+#                                   spec_trans=visit.spec_trans, mask_var=False, **kwargs)
         
     # --- bloc1 ---
     trb1 = obs_obj.select_transit(transit_tag, bloc = np.arange(0, mid_idx))
@@ -1232,9 +1232,9 @@ def split_transits(obs_obj, transit_tag, mid_idx,
     trb2 = obs_obj.select_transit(transit_tag, bloc = np.arange(mid_idx, transit_tag.size))
     trb2.calc_sequence(plot=plot, K=K)
     
-    if fix_master_out is not None:
-        trb1.build_trans_spec(params=params0, master_out=fix_master_out, **kwargs, **kwargs1)
-        trb2.build_trans_spec(params=params0, master_out=fix_master_out, **kwargs, **kwargs2) 
+    if fix_reference_spec is not None:
+        trb1.build_trans_spec(params=params0, reference_spec=fix_reference_spec, **kwargs, **kwargs1)
+        trb2.build_trans_spec(params=params0, reference_spec=fix_reference_spec, **kwargs, **kwargs2) 
     else:
         if ((trb1.iOut.size > 0) and (trb2.iOut.size > 0)) or (kwargs.get('iOut_temp') == 'all'):
             trb1.build_trans_spec(params=params0, **kwargs1, **kwargs)
@@ -1245,13 +1245,13 @@ def split_transits(obs_obj, transit_tag, mid_idx,
                 if (kwargs1.get('iOut_temp') == 'all'):
                     trb1.build_trans_spec(params=params0, **kwargs, **kwargs1)
                 else:
-                    trb1.build_trans_spec(params=params0, master_out=trb2.mast_out, **kwargs, **kwargs1)
+                    trb1.build_trans_spec(params=params0, reference_spec=trb2.reference_spec, **kwargs, **kwargs1)
             elif (trb2.iOut.size == 0) and (trb1.iOut.size > 0):
                 trb1.build_trans_spec(params=params0, **kwargs, **kwargs1)
                 if (kwargs2.get('iOut_temp') == 'all'):
                     trb2.build_trans_spec(params=params0, **kwargs, **kwargs2)
                 else:
-                    trb2.build_trans_spec(params=params0, master_out=trb1.mast_out, **kwargs, **kwargs2)
+                    trb2.build_trans_spec(params=params0, reference_spec=trb1.reference_spec, **kwargs, **kwargs2)
 
     tr_new = obs_obj.select_transit(transit_tag)
     tr_new.calc_sequence(plot=plot, K=K)
@@ -1260,38 +1260,38 @@ def split_transits(obs_obj, transit_tag, mid_idx,
     if params is not None:
 #         if (trb1.iOut.size > 0) and (trb2.iOut.size > 0):
         trb1.build_trans_spec(params=params, flux_masked=trb1.fl_norm, flux_Sref=trb1.fl_norm, 
-                              flux_norm=trb1.fl_norm, flux_norm_mo=trb1.fl_norm_mo, master_out=trb1.mast_out, 
+                              flux_norm=trb1.fl_norm, flux_norm_mo=trb1.fl_norm_mo, reference_spec=trb1.reference_spec, 
                               spec_trans=trb1.spec_trans, mask_var=False, **kwargs, **kwargs1)
         trb2.build_trans_spec(params=params, flux_masked=trb2.fl_norm, flux_Sref=trb2.fl_norm, 
-                              flux_norm=trb2.fl_norm, flux_norm_mo=trb2.fl_norm_mo, master_out=trb2.mast_out, 
+                              flux_norm=trb2.fl_norm, flux_norm_mo=trb2.fl_norm_mo, reference_spec=trb2.reference_spec, 
                               spec_trans=trb2.spec_trans, mask_var=False, **kwargs, **kwargs2)
 #         elif (trb1.iOut.size == 0) and (trb2.iOut.size > 0):
 #             trb2.build_trans_spec(params=params, flux_masked=trb2.fl_norm, flux_Sref=trb2.fl_norm, 
-#                                   flux_norm=trb2.fl_norm, flux_norm_mo=trb2.fl_norm_mo, master_out=trb2.mast_out, 
+#                                   flux_norm=trb2.fl_norm, flux_norm_mo=trb2.fl_norm_mo, reference_spec=trb2.reference_spec, 
 #                                   spec_trans=trb2.spec_trans, mask_var=False, **kwargs, **kwargs2)
 #             trb1.build_trans_spec(params=params, flux_masked=trb1.fl_norm, flux_Sref=trb1.fl_norm, 
-#                                   flux_norm=trb1.fl_norm, flux_norm_mo=trb1.fl_norm_mo, master_out=trb2.mast_out, 
+#                                   flux_norm=trb1.fl_norm, flux_norm_mo=trb1.fl_norm_mo, reference_spec=trb2.reference_spec, 
 #                                   spec_trans=trb1.spec_trans, mask_var=False,**kwargs, **kwargs1)
 #         elif (trb2.iOut.size == 0) and (trb1.iOut.size > 0):
 #             trb1.build_trans_spec(params=params, flux_masked=trb1.fl_norm, flux_Sref=trb1.fl_norm, 
-#                                   flux_norm=trb1.fl_norm, flux_norm_mo=trb1.fl_norm_mo, master_out=trb1.mast_out, 
+#                                   flux_norm=trb1.fl_norm, flux_norm_mo=trb1.fl_norm_mo, reference_spec=trb1.reference_spec, 
 #                                   spec_trans=trb1.spec_trans, mask_var=False, **kwargs, **kwargs1)
 #             trb2.build_trans_spec(params=params, flux_masked=trb2.fl_norm, flux_Sref=trb2.fl_norm, 
-#                                   flux_norm=trb2.fl_norm, flux_norm_mo=trb2.fl_norm_mo, master_out=trb1.mast_out, 
+#                                   flux_norm=trb2.fl_norm, flux_norm_mo=trb2.fl_norm_mo, reference_spec=trb1.reference_spec, 
 #                                   spec_trans=trb2.spec_trans, mask_var=False,**kwargs, **kwargs2)
 
     merge_tr(trb1,trb2, tr_new, params=params)
     
-    return tr, trb1, trb2, tr_new
+    return visit, trb1, trb2, tr_new
 
 
 
-def save_reduced_sequence(filename, tr, path='', filename_end='', bad_indexs=None):
+def save_reduced_sequence(filename, visit, path='', filename_end='', bad_indexs=None):
     """Save one reduced visit to a single ``.npz`` file (B3, Chantier B).
 
-    Only saves what is independent of `n_pc` -- the fitted PCA (`tr.pca`, fit once on
+    Only saves what is independent of `n_pc` -- the fitted PCA (`visit.pca`, fit once on
     `spec_trans` at reduction time) and every product upstream of the PCA truncation step
-    (`spec_trans`, `fl_Sref`, `fl_masked`, `fl_norm`, `fl_norm_mo`, `mast_out`/reference
+    (`spec_trans`, `fl_Sref`, `fl_masked`, `fl_norm`, `fl_norm_mo`, `reference_spec`/reference
     spectrum, `recon_time`) -- plus `noise`, itself now fixed at a `noise_npc` independent of
     the science `n_pc` (see `gen_obs_sequence`). Everything that depends on `n_pc`
     (`final`/`clean_ts`/`ts_norm`/`rebuilt`/`reconstructed`/`N`) is deliberately *not* saved:
@@ -1304,7 +1304,7 @@ def save_reduced_sequence(filename, tr, path='', filename_end='', bad_indexs=Non
     file per visit now.
 
     Also saves any per-visit planet parameter override actually used at reduction time
-    (`tr.planet.reduction_overrides`, set by `pipeline.reduction.load_planet` -- e.g. `mid_tr`
+    (`visit.planet.reduction_overrides`, set by `pipeline.reduction.load_planet` -- e.g. `mid_tr`
     for a TTV/resonant system where the transit epoch genuinely differs per visit), so
     `load_reduced_sequence` can restore the same per-visit ephemeris later instead of losing
     it as soon as the file is loaded again.
@@ -1313,7 +1313,7 @@ def save_reduced_sequence(filename, tr, path='', filename_end='', bad_indexs=Non
     ----------
     filename : str or Path
         Base name for the output file (`{filename}_data_trs_{filename_end}.npz`).
-    tr : Observations
+    visit : Observations
         The reduced visit, after `Observations.build_trans_spec` has run.
     path : str or Path, optional
         Output directory.
@@ -1334,7 +1334,7 @@ def save_reduced_sequence(filename, tr, path='', filename_end='', bad_indexs=Non
     # a TTV/resonant system, see `pipeline.reduction.load_planet`), if any -- saved so
     # `load_reduced_sequence` can restore the *same* per-visit ephemeris later, instead of
     # this visit-specific choice being silently lost as soon as the file is loaded again.
-    overrides = getattr(tr.planet, 'reduction_overrides', {}) or {}
+    overrides = getattr(visit.planet, 'reduction_overrides', {}) or {}
     override_keys = np.array(list(overrides.keys()), dtype=str)
     # Not every override is a Quantity (e.g. `pl_param_units`/`convert_to_quantity` gives a
     # bare float for `unit: null` in the config, like `excent`) -- an empty unit string is the
@@ -1351,75 +1351,75 @@ def save_reduced_sequence(filename, tr, path='', filename_end='', bad_indexs=Non
          planet_override_keys = override_keys,
          planet_override_values = override_values,
          planet_override_units = override_units,
-         components_ = tr.pca.components_,
-         explained_variance_ = tr.pca.explained_variance_,
-         explained_variance_ratio_ = tr.pca.explained_variance_ratio_,
-         singular_values_ = tr.pca.singular_values_,
-         mean_ = tr.pca.mean_,
-         n_components_ = tr.pca.n_components_,
-         n_samples_ = tr.pca.n_samples_,
-         noise_variance_ = tr.pca.noise_variance_,
-         n_features_in_ = tr.pca.n_features_in_,
-         RV_const = tr.RV_const,
+         components_ = visit.pca.components_,
+         explained_variance_ = visit.pca.explained_variance_,
+         explained_variance_ratio_ = visit.pca.explained_variance_ratio_,
+         singular_values_ = visit.pca.singular_values_,
+         mean_ = visit.pca.mean_,
+         n_components_ = visit.pca.n_components_,
+         n_samples_ = visit.pca.n_samples_,
+         noise_variance_ = visit.pca.noise_variance_,
+         n_features_in_ = visit.pca.n_features_in_,
+         RV_const = visit.RV_const,
          # Individual components of RV_const, kept separately for traceability
          # (RV_const = mid_berv + mid_vr + RV_sys, see Transit.norv_sequence()).
-         RV_sys = tr.RV_sys,
-         mid_berv = tr.mid_berv,
-         mid_vr = tr.mid_vr,
-         params = tr.params,
+         RV_sys = visit.RV_sys,
+         mid_berv = visit.mid_berv,
+         mid_vr = visit.mid_vr,
+         params = visit.params,
          # Fixed n_pc used to estimate `noise` (B3, `noise_npc` in `gen_obs_sequence`) --
          # saved explicitly so a reduced file is self-documenting about what its `noise`
          # corresponds to, independently of whatever `n_pc` is requested at read time.
-         noise_npc = tr.noise_npc,
-         wave = tr.wave,
+         noise_npc = visit.noise_npc,
+         wave = visit.wave,
          # `vrp`/`vr` are NOT saved here: they are purely a deterministic function of the
          # planet's ephemeris + exposure timestamps (`gen_rv_sequence`, `K=None`), recomputed
          # identically by `load_reduced_sequence` from `planet`/`t_start` -- saving them would
          # just be dead weight in the file (confirmed: the old loader never read them back
          # either, `Observations.norv_sequence` overwrites whatever was set beforehand).
-         sep = tr.sep,
-         noise = tr.noise,
-         t_start = tr.t_start,
-         dt = tr.dt.value,
-         flux = tr.flux,
-         uncorr = tr.uncorr,
-         blaze = tr.blaze,
-         tellu = tr.tellu,
-         mask_flux = (tr.flux).mask,
-         mask_uncorr = (tr.uncorr).mask,
-         mask_blaze = (tr.blaze).mask,
-         mask_tellu = (tr.tellu).mask,
-         mask_noise = (tr.noise).mask,
-         ratio = tr.ratio,
-         mast_out = tr.mast_out,
-         mask_ratio = (tr.ratio).mask,
-         mask_mast_out = (tr.mast_out).mask,
-         spec_trans = tr.spec_trans,
-         mask_spec_trans = tr.spec_trans.mask,
-         alpha_frac = tr.alpha_frac,
-         filenames = tr.filenames,
-         icorr = tr.icorr,
+         sep = visit.sep,
+         noise = visit.noise,
+         t_start = visit.t_start,
+         dt = visit.dt.value,
+         flux = visit.flux,
+         uncorr = visit.uncorr,
+         blaze = visit.blaze,
+         tellu = visit.tellu,
+         mask_flux = (visit.flux).mask,
+         mask_uncorr = (visit.uncorr).mask,
+         mask_blaze = (visit.blaze).mask,
+         mask_tellu = (visit.tellu).mask,
+         mask_noise = (visit.noise).mask,
+         ratio = visit.ratio,
+         reference_spec = visit.reference_spec,
+         mask_ratio = (visit.ratio).mask,
+         mask_reference_spec = (visit.reference_spec).mask,
+         spec_trans = visit.spec_trans,
+         mask_spec_trans = visit.spec_trans.mask,
+         alpha_frac = visit.alpha_frac,
+         filenames = visit.filenames,
+         icorr = visit.icorr,
          bad_indexs = bad_indexs,
-         clip_ts = tr.clip_ts,
-         scaling = tr.scaling,
-         phase = tr.phase,
-         SNR = tr.SNR,
-         nu = tr.nu,
-         berv0 = tr.berv0,
-         AM = tr.AM,
-         kind_trans = tr.kind_trans,
-         coeffs = tr.coeffs,
-         ld_model = tr.ld_model,
-         fl_norm = tr.fl_norm,
-         fl_norm_mo = tr.fl_norm_mo,
-         fl_Sref = tr.fl_Sref,
-         fl_masked = tr.fl_masked,
-         recon_time = tr.recon_time,
-         mask_fl_norm = tr.fl_norm.mask,
-         mask_fl_norm_mo = tr.fl_norm_mo.mask,
-         mask_fl_Sref = tr.fl_Sref.mask,
-         mask_fl_masked = tr.fl_masked.mask,
-         mask_recon_time = tr.recon_time.mask,
+         clip_ts = visit.clip_ts,
+         scaling = visit.scaling,
+         phase = visit.phase,
+         SNR = visit.SNR,
+         nu = visit.nu,
+         berv0 = visit.berv0,
+         AM = visit.AM,
+         kind_trans = visit.kind_trans,
+         coeffs = visit.coeffs,
+         ld_model = visit.ld_model,
+         fl_norm = visit.fl_norm,
+         fl_norm_mo = visit.fl_norm_mo,
+         fl_Sref = visit.fl_Sref,
+         fl_masked = visit.fl_masked,
+         recon_time = visit.recon_time,
+         mask_fl_norm = visit.fl_norm.mask,
+         mask_fl_norm_mo = visit.fl_norm_mo.mask,
+         mask_fl_Sref = visit.fl_Sref.mask,
+         mask_fl_masked = visit.fl_masked.mask,
+         mask_recon_time = visit.recon_time.mask,
          )
 
 
@@ -1454,10 +1454,10 @@ def load_reduced_sequence(filename, n_pc, name='', path='', filename_end='', plo
     """Load one visit saved by `save_reduced_sequence` and apply `n_pc` at read time (B3).
 
     Every n_pc-*independent* product is read straight from disk (`spec_trans`, `fl_Sref`,
-    `fl_masked`, `fl_norm`, `mast_out`/reference spectrum, the fitted `pca`, `noise` fixed at
+    `fl_masked`, `fl_norm`, `reference_spec`/reference spectrum, the fitted `pca`, `noise` fixed at
     the file's own `noise_npc`). Everything that depends on `n_pc` (`final`, `clean_ts`,
     `ts_norm`, `rebuilt`, `N`, `reconstructed`) is then recomputed for the requested `n_pc` by
-    truncating the already-fitted PCA (`Observations.build_trans_spec` reusing `pca=tr.pca`,
+    truncating the already-fitted PCA (`Observations.build_trans_spec` reusing `pca=visit.pca`,
     same reuse pattern as `gen_obs_sequence`'s `noise_npc` branch) -- no refit, and
     numerically identical to the old behaviour of loading a separate file saved per `n_pc`
     (see `apply_pca_truncation` / `tests/unit/test_pca_truncation.py`).
@@ -1535,91 +1535,91 @@ def load_reduced_sequence(filename, n_pc, name='', path='', filename_end='', plo
             # across every visit) -- apply this visit's override to a private copy instead.
             base_planet = deepcopy(base_planet)
             base_planet.apply_overrides(**planet_overrides)
-        tr = Observations(wave=data_tr['wave'], name=name, planet=base_planet, **kwargs)
+        visit = Observations(wave=data_tr['wave'], name=name, planet=base_planet, **kwargs)
     else:
         merged_pl_kwargs = dict(pl_kwargs_ctor or {})
         merged_pl_kwargs.update(planet_overrides)
-        tr = Observations(wave=data_tr['wave'], name=name,
+        visit = Observations(wave=data_tr['wave'], name=name,
                            pl_kwargs=merged_pl_kwargs or None, **kwargs)
 
-    tr.wv = np.mean(tr.wave, axis=0)
-    tr.pca = pca
-    tr.RV_const = data_tr['RV_const']
-    tr.mid_berv = data_tr['mid_berv']
-    tr.mid_vr = data_tr['mid_vr']
-    tr.params = list(data_tr['params'])
+    visit.wv = np.mean(visit.wave, axis=0)
+    visit.pca = pca
+    visit.RV_const = data_tr['RV_const']
+    visit.mid_berv = data_tr['mid_berv']
+    visit.mid_vr = data_tr['mid_vr']
+    visit.params = list(data_tr['params'])
     for i_param in range(2, 6):
-        tr.params[i_param] = int(tr.params[i_param])
-    tr.params[5] = n_pc  # the read-time n_pc requested here, may differ from noise_npc below
-    tr.noise_npc = int(data_tr['noise_npc'])
+        visit.params[i_param] = int(visit.params[i_param])
+    visit.params[5] = n_pc  # the read-time n_pc requested here, may differ from noise_npc below
+    visit.noise_npc = int(data_tr['noise_npc'])
     # `vrp`/`vr` are not saved (see `save_reduced_sequence`) -- `gen_rv_sequence` below
     # recomputes them deterministically from `planet`/`t_start`.
-    tr.sep = data_tr['sep'] * u.m
-    tr.noise = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
+    visit.sep = data_tr['sep'] * u.m
+    visit.noise = np.ma.array(data_tr['noise'], mask=data_tr['mask_noise'])
 
-    tr.t_start = data_tr['t_start']
-    tr.t = data_tr['t_start'] * u.d
-    tr.dt = data_tr['dt'] * u.s
-    tr.bad = data_tr['bad_indexs']
-    tr.flux = np.ma.array(data_tr['flux'], mask=data_tr['mask_flux'])
-    tr.ratio = np.ma.array(data_tr['ratio'], mask=data_tr['mask_ratio'])
-    tr.ratio_recon = True
-    tr.uncorr = np.ma.array(data_tr['uncorr'], mask=data_tr['mask_uncorr'])
-    tr.N0 = (~np.isnan(tr.uncorr)).sum(axis=-1)
-    tr.N0f = (~np.isnan(tr.flux)).sum(axis=-1)
-    tr.blaze = np.ma.array(data_tr['blaze'], mask=data_tr['mask_blaze'])
-    tr.mast_out = np.ma.array(data_tr['mast_out'], mask=data_tr['mask_mast_out'])
-    tr.spec_trans = np.ma.array(data_tr['spec_trans'], mask=data_tr['mask_spec_trans'])
-    tr.tellu = np.ma.array(data_tr['tellu'], mask=data_tr['mask_tellu'])
-    tr.filenames = data_tr['filenames']
+    visit.t_start = data_tr['t_start']
+    visit.t = data_tr['t_start'] * u.d
+    visit.dt = data_tr['dt'] * u.s
+    visit.bad = data_tr['bad_indexs']
+    visit.flux = np.ma.array(data_tr['flux'], mask=data_tr['mask_flux'])
+    visit.ratio = np.ma.array(data_tr['ratio'], mask=data_tr['mask_ratio'])
+    visit.ratio_recon = True
+    visit.uncorr = np.ma.array(data_tr['uncorr'], mask=data_tr['mask_uncorr'])
+    visit.N0 = (~np.isnan(visit.uncorr)).sum(axis=-1)
+    visit.N0f = (~np.isnan(visit.flux)).sum(axis=-1)
+    visit.blaze = np.ma.array(data_tr['blaze'], mask=data_tr['mask_blaze'])
+    visit.reference_spec = np.ma.array(data_tr['reference_spec'], mask=data_tr['mask_reference_spec'])
+    visit.spec_trans = np.ma.array(data_tr['spec_trans'], mask=data_tr['mask_spec_trans'])
+    visit.tellu = np.ma.array(data_tr['tellu'], mask=data_tr['mask_tellu'])
+    visit.filenames = data_tr['filenames']
 
-    tr.clip_ts = data_tr['clip_ts']
-    tr.scaling = data_tr['scaling']
+    visit.clip_ts = data_tr['clip_ts']
+    visit.scaling = data_tr['scaling']
 
-    tr.n_spec, tr.nord, tr.npix = tr.spec_trans.shape
-    tr.phase = data_tr['phase']
+    visit.n_spec, visit.nord, visit.npix = visit.spec_trans.shape
+    visit.phase = data_tr['phase']
 
-    tr.icorr = data_tr['icorr']
+    visit.icorr = data_tr['icorr']
 
-    tr.AM = data_tr['AM']
-    tr.berv0 = data_tr['berv0']
-    tr.berv = data_tr['berv0']
-    tr.SNR = data_tr['SNR']
-    tr.nu = data_tr['nu']
-    tr.alpha_frac = data_tr['alpha_frac']
+    visit.AM = data_tr['AM']
+    visit.berv0 = data_tr['berv0']
+    visit.berv = data_tr['berv0']
+    visit.SNR = data_tr['SNR']
+    visit.nu = data_tr['nu']
+    visit.alpha_frac = data_tr['alpha_frac']
 
-    tr.fl_norm = np.ma.array(data_tr['fl_norm'], mask=data_tr['mask_fl_norm'])
-    tr.fl_norm_mo = np.ma.array(data_tr['fl_norm_mo'], mask=data_tr['mask_fl_norm_mo'])
-    tr.fl_Sref = np.ma.array(data_tr['fl_Sref'], mask=data_tr['mask_fl_Sref'])
-    tr.fl_masked = np.ma.array(data_tr['fl_masked'], mask=data_tr['mask_fl_masked'])
-    tr.recon_time = np.ma.array(data_tr['recon_time'], mask=data_tr['mask_recon_time'])
+    visit.fl_norm = np.ma.array(data_tr['fl_norm'], mask=data_tr['mask_fl_norm'])
+    visit.fl_norm_mo = np.ma.array(data_tr['fl_norm_mo'], mask=data_tr['mask_fl_norm_mo'])
+    visit.fl_Sref = np.ma.array(data_tr['fl_Sref'], mask=data_tr['mask_fl_Sref'])
+    visit.fl_masked = np.ma.array(data_tr['fl_masked'], mask=data_tr['mask_fl_masked'])
+    visit.recon_time = np.ma.array(data_tr['recon_time'], mask=data_tr['mask_recon_time'])
 
     # ---- Transit model
-    gen_transit_model(tr, tr.planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
+    gen_transit_model(visit, visit.planet, data_tr['kind_trans'], data_tr['coeffs'], data_tr['ld_model'], plot=plot)
 
     # --- Radial velocities
-    gen_rv_sequence(tr, tr.planet, plot=False)
+    gen_rv_sequence(visit, visit.planet, plot=False)
 
-    tr.norv_sequence(RV=data_tr['RV_sys'])
+    visit.norv_sequence(RV=data_tr['RV_sys'])
 
-    # ---- Apply the requested n_pc: cheap PCA truncation only (reuses `tr.pca`, no refit),
-    # fills in final/clean_ts/ts_norm/rebuilt/N/reconstructed for this n_pc. `tr.noise` (set
+    # ---- Apply the requested n_pc: cheap PCA truncation only (reuses `visit.pca`, no refit),
+    # fills in final/clean_ts/ts_norm/rebuilt/N/reconstructed for this n_pc. `visit.noise` (set
     # above, fixed at `noise_npc`) is left untouched (`change_noise` defaults to False).
-    # `clip_ts` must be passed explicitly here (not just stored as `tr.clip_ts`) -- it gates
+    # `clip_ts` must be passed explicitly here (not just stored as `visit.clip_ts`) -- it gates
     # a sigma-clip of `spec_trans` applied right before the PCA truncation
     # (`apply_pca_truncation`), so omitting it would silently skip that clip at read time.
-    tr.build_trans_spec(params=tr.params, flux_masked=tr.fl_masked, flux_Sref=tr.fl_Sref,
-                         flux_norm=tr.fl_norm, flux_norm_mo=tr.fl_norm_mo, master_out=tr.mast_out,
-                         spec_trans=tr.spec_trans, pca=tr.pca, mask_var=False, ratio_recon=True,
-                         cont=False, clip_ts=float(tr.clip_ts))
+    visit.build_trans_spec(params=visit.params, flux_masked=visit.fl_masked, flux_Sref=visit.fl_Sref,
+                         flux_norm=visit.fl_norm, flux_norm_mo=visit.fl_norm_mo, reference_spec=visit.reference_spec,
+                         spec_trans=visit.spec_trans, pca=visit.pca, mask_var=False, ratio_recon=True,
+                         cont=False, clip_ts=float(visit.clip_ts))
 
-    return tr
-
-
+    return visit
 
 
-def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None):
-    """Save one ``.npz`` file per transit in `list_tr` (B3: `save_reduced_sequence`).
+
+
+def save_sequences(filename, visits, do_tr, path='', bad_indexs=None):
+    """Save one ``.npz`` file per transit in `visits` (B3: `save_reduced_sequence`).
 
     Companion function to `load_sequences`, which reads back the files written here.
     Multi-transit orchestration only -- what actually goes into each per-transit file is
@@ -1635,10 +1635,10 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None):
     ----------
     filename : str or Path
         Base name used to build the output file names (`{filename}_data_trs_{i}.npz`).
-    list_tr : dict
+    visits : dict
         Transit objects to save, keyed by transit index (as a string).
     do_tr : list or array
-        Transit indices to include, in the same order as `list_tr`. Indices >= 10
+        Transit indices to include, in the same order as `visits`. Indices >= 10
         are excluded (reserved for another use elsewhere in the pipeline).
     path : str or Path, optional
         Output directory.
@@ -1647,8 +1647,8 @@ def save_sequences(filename, list_tr, do_tr, path='', bad_indexs=None):
     """
     filename = Path(filename)
 
-    for i_tr, tr_key in enumerate(list(list_tr.keys())[:np.nonzero(np.array(do_tr) < 10)[0].size]):
-        save_reduced_sequence(filename, list_tr[tr_key], path=path, filename_end=str(i_tr),
+    for i_tr, tr_key in enumerate(list(visits.keys())[:np.nonzero(np.array(do_tr) < 10)[0].size]):
+        save_reduced_sequence(filename, visits[tr_key], path=path, filename_end=str(i_tr),
                                bad_indexs=bad_indexs)
 
         
@@ -1691,53 +1691,53 @@ def load_sequences(filename, do_tr, n_pc, path='', **kwargs):
     for i_tr, tr_key in enumerate(do_tr[:np.nonzero(np.array(do_tr) < 10)[0].size]):
         out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
         log.info(f'Reading: {Path(path) / out_filename}')
-        tr = load_reduced_sequence(out_filename, n_pc, path=path, **kwargs)
+        visit = load_reduced_sequence(out_filename, n_pc, path=path, **kwargs)
 
         data_trs[str(i_tr)] = {
-            'pca': tr.pca,
-            'RV_const': tr.RV_const,
-            'RV_sys': tr.RV_sys,
-            'mid_berv': tr.mid_berv,
-            'mid_vr': tr.mid_vr,
-            'params': tr.params,
-            'wave': tr.wave,
-            # `tr.vrp`/`tr.vr` are bare floats (km/s) after `Observations.norv_sequence` --
+            'pca': visit.pca,
+            'RV_const': visit.RV_const,
+            'RV_sys': visit.RV_sys,
+            'mid_berv': visit.mid_berv,
+            'mid_vr': visit.mid_vr,
+            'params': visit.params,
+            'wave': visit.wave,
+            # `visit.vrp`/`visit.vr` are bare floats (km/s) after `Observations.norv_sequence` --
             # re-attach units here to match what consumers expect (e.g. `data_tr['vr'].to(...)`
             # in retrieval.py/logl_grid.py), same contract as the pre-B3 dict.
-            'vrp': tr.vrp * u.km / u.s,
+            'vrp': visit.vrp * u.km / u.s,
             # Per-exposure stellar reflex-motion excursion (same recentering convention as
             # vrp) -- needed to Doppler-shift Fstar independently from Fp (Chantier A Phase 2).
-            'vr': tr.vr * u.km / u.s,
-            'sep': tr.sep,
-            'noise': tr.noise,
-            'N': tr.N,
-            't_start': tr.t_start,
-            'flux': tr.final / tr.noise,
-            's2f': np.ma.sum((tr.final / tr.noise) ** 2, axis=-1),
-            'ratio': tr.ratio,
-            'reconstructed': tr.reconstructed,
-            'mast_out': tr.mast_out,
-            'alpha_frac': tr.alpha_frac,
-            'final': tr.final,
-            'spec_trans': tr.spec_trans,
-            'icorr': tr.icorr,
-            'clip_ts': tr.clip_ts,
-            'scaling': tr.scaling,
-            'fl_norm': tr.fl_norm,
-            'fl_norm_mo': tr.fl_norm_mo,
-            'full_ts': tr.full_ts,
-            'ts_norm': tr.ts_norm,
-            'rebuilt': tr.rebuilt,
-            'fl_Sref': tr.fl_Sref,
-            'fl_masked': tr.fl_masked,
-            'recon_time': tr.recon_time,
+            'vr': visit.vr * u.km / u.s,
+            'sep': visit.sep,
+            'noise': visit.noise,
+            'N': visit.N,
+            't_start': visit.t_start,
+            'flux': visit.final / visit.noise,
+            's2f': np.ma.sum((visit.final / visit.noise) ** 2, axis=-1),
+            'ratio': visit.ratio,
+            'reconstructed': visit.reconstructed,
+            'reference_spec': visit.reference_spec,
+            'alpha_frac': visit.alpha_frac,
+            'final': visit.final,
+            'spec_trans': visit.spec_trans,
+            'icorr': visit.icorr,
+            'clip_ts': visit.clip_ts,
+            'scaling': visit.scaling,
+            'fl_norm': visit.fl_norm,
+            'fl_norm_mo': visit.fl_norm_mo,
+            'full_ts': visit.full_ts,
+            'ts_norm': visit.ts_norm,
+            'rebuilt': visit.rebuilt,
+            'fl_Sref': visit.fl_Sref,
+            'fl_masked': visit.fl_masked,
+            'recon_time': visit.recon_time,
         }
 
         data_info = {
-            'trall_alpha_frac': tr.alpha_frac,
-            'trall_icorr': tr.icorr,
-            'trall_N': tr.N,
-            'bad_indexs': tr.bad,
+            'trall_alpha_frac': visit.alpha_frac,
+            'trall_icorr': visit.icorr,
+            'trall_N': visit.N,
+            'bad_indexs': visit.bad,
         }
 
     return data_info, data_trs
@@ -1757,11 +1757,11 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
     what most non-swept reductions used for both science and noise in practice already.
 
     Two `build_trans_spec` calls are made when `noise_npc` is not None: the first, at
-    `noise_npc` components, fixes `tr.noise` (and caches the n_pc-independent intermediates
-    `fl_masked`/`fl_Sref`/`fl_norm`/`fl_norm_mo`/`mast_out`/`spec_trans`/`pca` on `tr`); the
+    `noise_npc` components, fixes `visit.noise` (and caches the n_pc-independent intermediates
+    `fl_masked`/`fl_Sref`/`fl_norm`/`fl_norm_mo`/`reference_spec`/`spec_trans`/`pca` on `visit`); the
     second, at the real science `n_pc` (`params_all[5]`), reuses all of those (including the
     already-fitted `pca`, so it only redoes the cheap PCA truncation) and does not touch
-    `tr.noise` again (`change_noise` defaults to False in `Observations.build_trans_spec`).
+    `visit.noise` again (`change_noise` defaults to False in `Observations.build_trans_spec`).
 
     Parameters
     ----------
@@ -1778,49 +1778,49 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
         The visit (or merged/selected transit), with the reduction results attached.
     """
     if transit_tag is not None:
-        tr = obs.select_transit(transit_tag)
+        visit = obs.select_transit(transit_tag)
     else:
-        tr = obs
-    tr.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
-    tr.norv_sequence(RV=RV_sys)
+        visit = obs
+    visit.calc_sequence(plot=False,  coeffs=coeffs, ld_model=ld_model, kind_trans=kind_trans)
+    visit.norv_sequence(RV=RV_sys)
 
     if polynome is not None:
     #                 print("P(O-2) = ", polynome[tag-1])
         if polynome:
-            poly_time = tr.t_start  # .value  # tr.AM
+            poly_time = visit.t_start  # .value  # visit.AM
         else:
             poly_time = None
     else:
         poly_time = None
         
     if noise_npc is None:
-        tr.build_trans_spec(params= params_all, \
+        visit.build_trans_spec(params= params_all, \
                     iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont,
                         cbp=cbp, poly_time=poly_time, counting = counting, **kwargs_build_ts)
         # Pre-B3 behaviour: `noise` was estimated at the same n_pc as the science spectrum.
-        tr.noise_npc = params_all[5]
+        visit.noise_npc = params_all[5]
     else:
 
         params_copy = params_all.copy()
         params_copy[5] = noise_npc
-        tr.build_trans_spec(params= params_copy, \
+        visit.build_trans_spec(params= params_copy, \
                         iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont,
                         cbp=cbp, poly_time=poly_time, **kwargs_build_ts)
         # Reuse everything computed above (including the fitted `pca`, B3) -- only the cheap
         # PCA truncation to the real science `n_pc` (and final normalization/masking) reruns.
-        tr.build_trans_spec(params= params_all, \
+        visit.build_trans_spec(params= params_all, \
                          iOut_temp=iOut_temp, ratio_recon=ratio_recon, cont=cont,
                         cbp=False, poly_time=poly_time,
-                       flux_masked=tr.fl_masked, flux_Sref=tr.fl_Sref, flux_norm=tr.fl_norm,
-                        flux_norm_mo=tr.fl_norm_mo, master_out=tr.mast_out, spec_trans=tr.spec_trans,
-                            pca=tr.pca, mask_var=False, **kwargs_build_ts)
+                       flux_masked=visit.fl_masked, flux_Sref=visit.fl_Sref, flux_norm=visit.fl_norm,
+                        flux_norm_mo=visit.fl_norm_mo, reference_spec=visit.reference_spec, spec_trans=visit.spec_trans,
+                            pca=visit.pca, mask_var=False, **kwargs_build_ts)
         # `noise` was fixed by the first call above, at `noise_npc` components -- record it so
         # a saved file is self-documenting (`save_reduced_sequence`), independently of `params_all[5]`.
-        tr.noise_npc = noise_npc
+        visit.noise_npc = noise_npc
 
-    return tr
+    return visit
 
-def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
+def gen_merge_obs_sequence(obs, visits, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
 
     if transit_tags is not None:
         tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
@@ -1833,8 +1833,8 @@ def gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags, coeffs, ld_
     #     tr_merge.dt =
 
 
-    merge_tr(tr_merge, list_tr, merge_tr_idx, light=light)
-    merge_velocity(tr_merge, list_tr, merge_tr_idx)
+    merge_tr(tr_merge, visits, merge_tr_idx, light=light)
+    merge_velocity(tr_merge, visits, merge_tr_idx)
     
     return tr_merge
 
@@ -1849,7 +1849,7 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
     ratio_recon=True
     cont=False
 
-    list_tr = OrderedDict({})
+    visits = OrderedDict({})
     
     for tag in do_tr:
         name_tag = str(tag)
@@ -1857,7 +1857,7 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
             if flux_all is not None:
                 kwargs_build_ts['flux'] = flux_all[tag-1]
 
-            list_tr[name_tag] = gen_obs_sequence(obs, transit_tags[tag-1], params_all[tag-1], 
+            visits[name_tag] = gen_obs_sequence(obs, transit_tags[tag-1], params_all[tag-1], 
                                                  iOut_temp[tag-1],
                                                  coeffs, ld_model, kind_trans, RV_sys[tag-1], 
                                                  polynome=polynome[tag-1], noise_npc=noise_npc, 
@@ -1867,17 +1867,17 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
 
             merge_tr_idx = [int(tag_i) for tag_i in name_tag]
 
-            list_tr[name_tag] = gen_merge_obs_sequence(obs, list_tr, merge_tr_idx, transit_tags,
+            visits[name_tag] = gen_merge_obs_sequence(obs, visits, merge_tr_idx, transit_tags,
                                                coeffs, ld_model, kind_trans)
 
-    return list_tr
+    return visits
 
 
 
 ### --- Telluric custom masking
 
 
-def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
+def mask_custom_pclean_ord(visit, flux, pclean, ccf_pclean, corrRV0,
                            thresh=None, plot=False, pad_to=None,
                            snr_floor=None,
                            masking_spectra=None, correl_spectra=None,
@@ -1914,13 +1914,13 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
     if correl_spectra is None:
         correl_spectra = pclean
 
-    for iOrd in range(tr.nord):
+    for iOrd in range(visit.nord):
         #     print(iOrd)
-        limit_mask = tr.params[0]
+        limit_mask = visit.params[0]
         #     flux_ord = flux[:,iOrd,None,:]
 
         _, rv_snr, _, snr_i, _ = calc_snr_1d(np.abs(ccf_pclean[:, iOrd]),
-                                             corrRV0, np.zeros_like(tr.vrp), RV_sys=0.0)
+                                             corrRV0, np.zeros_like(visit.vrp), RV_sys=0.0)
 
         #         param, pcov = curve_fit(gauss, ydata=snr_i, xdata=rv_snr, p0=[5,3,0])
         #         print('sig = {}, amp = {}, x0 = {}'.format(*param))
@@ -1933,7 +1933,7 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
 
         if plot:
             fig, axs = plt.subplots(2, 2, figsize=(6, 7), sharex=True)
-            axs[0, 0].pcolormesh(corrRV0, tr.phase, np.abs(ccf_pclean[:, iOrd]))
+            axs[0, 0].pcolormesh(corrRV0, visit.phase, np.abs(ccf_pclean[:, iOrd]))
             axs[0, 0].set_title(str(iOrd))
             axs[1, 0].plot(rv_snr, snr_i)
             axs[1, 0].axvline(0.0)
@@ -1958,14 +1958,14 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
                 new_mask = new_mask | flux[:, iOrd].mask
                 flux_ord = np.ma.array(flux[:, iOrd], mask=new_mask)[:, None]
 
-                ccf_pclean_ord = quick_correl_3dmod(tr.wave[:, iOrd, None],
+                ccf_pclean_ord = quick_correl_3dmod(visit.wave[:, iOrd, None],
                                                          flux_ord,
                                                          corrRV0,
-                                                         tr.wave[:, iOrd, None],
+                                                         visit.wave[:, iOrd, None],
                                                          correl_spectra[:, iOrd, None])
 
                 _, rv_snr, _, snr_i, _ = calc_snr_1d(np.abs(ccf_pclean_ord).squeeze(),
-                                                     corrRV0, np.zeros_like(tr.vrp), RV_sys=0.0)
+                                                     corrRV0, np.zeros_like(visit.vrp), RV_sys=0.0)
                 ccf_pclean_new[:, iOrd] = ccf_pclean_ord.squeeze()
 
                 fct_snr = interp1d(rv_snr, snr_i)
@@ -2009,19 +2009,19 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
                 last_snr_i = snr_i_0
 
         if kind == 'tellu':
-            new_mask = [get_mask_tell(tell, limit_mask + 0.025, pad_to) for tell in tr.pclean[:, iOrd, :]]
+            new_mask = [get_mask_tell(tell, limit_mask + 0.025, pad_to) for tell in visit.pclean[:, iOrd, :]]
             new_mask = new_mask | flux[:, iOrd].mask
         #         flux_ord = np.ma.array(flux[:,iOrd], mask=new_mask)[:,None]
         print(iOrd, snr_i_0, np.ma.max(snr_i), limit_mask)
 
         if plot:
-            axs[0, 1].pcolormesh(corrRV0, tr.phase, np.abs(ccf_pclean_new[:, iOrd]))
+            axs[0, 1].pcolormesh(corrRV0, visit.phase, np.abs(ccf_pclean_new[:, iOrd]))
             axs[1, 1].plot(rv_snr, snr_i)
             axs[1, 1].axvline(0.0)
             axs[1, 1].axhline(snr_i_0)
 
         #         pltr.figure()
-        #         pltr.pcolormesh(corrRV0, tr.phase, np.abs(ccf_pclean_ord).squeeze())
+        #         pltr.pcolormesh(corrRV0, visit.phase, np.abs(ccf_pclean_ord).squeeze())
 
         new_mask_pclean[:, iOrd, :] = new_mask | flux[:, iOrd].mask
 
@@ -2030,107 +2030,107 @@ def mask_custom_pclean_ord(tr, flux, pclean, ccf_pclean, corrRV0,
     return new_mask_pclean, new_flux, ccf_pclean_new
 
 
-# for tr in [t1,t2,t3]:
-def mask_tellu_sky(tr, corrRV0, pad_to=0.99, plot_clean=False, fig_output_file=None, counting = True):
-    if not (hasattr(tr, 'pclean') | hasattr(tr, 'sky')):
+# for visit in [t1,t2,t3]:
+def mask_tellu_sky(visit, corrRV0, pad_to=0.99, plot_clean=False, fig_output_file=None, counting = True):
+    if not (hasattr(visit, 'pclean') | hasattr(visit, 'sky')):
         sky = []
         tellu = []
         #     with open(path + file_list) as f:
 
-        for file in tr.filenames:
+        for file in visit.filenames:
             blocks = file.split('_')
             filename = '_'.join(blocks[0:2]) + '_tellu_pclean_' + blocks[-1]
             filename = Path(filename)
 
             print(filename)
 
-            sky_model = fits.getdata(tr.path / filename, ext=4)
-            tell_model = fits.getdata(tr.path / filename, ext=3)
+            sky_model = fits.getdata(visit.path / filename, ext=4)
+            tell_model = fits.getdata(visit.path / filename, ext=3)
 
             sky.append(np.ma.masked_invalid(sky_model))
             tellu.append(np.ma.masked_invalid(tell_model))
 
-        tr.sky = np.ma.masked_invalid(sky)
-        tr.pclean = np.ma.masked_invalid(tellu)
+        visit.sky = np.ma.masked_invalid(sky)
+        visit.pclean = np.ma.masked_invalid(tellu)
 
-    sky_t = np.ma.masked_invalid(tr.sky)
+    sky_t = np.ma.masked_invalid(visit.sky)
     skynorm = sky_t / np.ma.max(sky_t)
     skydown = 1 - skynorm
     plt.figure()
     plt.plot(skydown[0, 34])
 
-    spec_trans_tr = (tr.uncorr / tr.pclean) / tr.blaze / tr.reconstructed
+    spec_trans_tr = (visit.uncorr / visit.pclean) / visit.blaze / visit.reconstructed
 
     sky_tr = spec_trans_tr - np.ma.median(spec_trans_tr, axis=-1)[:, :, None]
     sky_tr = sky_tr / np.ma.max(sky_tr)
     sky_tr = 1 - sky_tr
-    tile_sky_tr = np.tile(np.ma.mean(sky_tr, axis=0), (tr.n_spec, 1, 1))
+    tile_sky_tr = np.tile(np.ma.mean(sky_tr, axis=0), (visit.n_spec, 1, 1))
 
-    params = tr.params
-    flux_mask = ts.build_trans_spectrum4(tr.wave, spec_trans_tr,
-                                         tr.berv, tr.planet.RV_sys, tr.vr, tr.iOut,
-                                         tellu=tr.tellu, noise=tr.noise,
+    params = visit.params
+    flux_mask = ts.build_trans_spectrum4(visit.wave, spec_trans_tr,
+                                         visit.berv, visit.planet.RV_sys, visit.vr, visit.iOut,
+                                         tellu=visit.tellu, noise=visit.noise,
                                          lim_mask=params[0], lim_buffer=params[1],
                                          mo_box=params[2], mo_gauss_box=params[4],
                                          n_pca=params[5],
                                          tresh=params[6], tresh_lim=params[7],
                                          last_tresh=params[8], last_tresh_lim=params[9],
-                                         n_comps=tr.n_spec-2,
+                                         n_comps=visit.n_spec-2,
                                          clip_ts=None, clip_ratio=None,
                                          iOut_temp='all', cont=False,
                                          cbp=True, poly_time=None,
                                          flux_masked=spec_trans_tr,
                                          flux_Sref=spec_trans_tr, flux_norm=spec_trans_tr,
-                                         flux_norm_mo=spec_trans_tr, master_out=spec_trans_tr,
+                                         flux_norm_mo=spec_trans_tr, reference_spec=spec_trans_tr,
                                          spec_trans=spec_trans_tr,
                                          mask_var=False)[6]
 
-    #     flux_mask = tr.final.copy()
+    #     flux_mask = visit.final.copy()
     new_mask = [get_mask_noise(f, 4, 3, gwidth=0.01, poly_ord=5) for f in flux_mask.swapaxes(0, 1)]
     new_mask = new_mask | flux_mask.mask
     flux_mask = np.ma.array(flux_mask, mask=new_mask)
 
     # --- Tellu masking ---
 
-    ccf_tellu_tr = quick_correl_3dmod(tr.wave, flux_mask, corrRV0, tr.wave, tr.pclean)
+    ccf_tellu_tr = quick_correl_3dmod(visit.wave, flux_mask, corrRV0, visit.wave, visit.pclean)
 
-    tellu_mask, cmasked_flux_tr, ccf_tellu_clean = mask_custom_pclean_ord(tr, flux_mask, tr.pclean,
+    tellu_mask, cmasked_flux_tr, ccf_tellu_clean = mask_custom_pclean_ord(visit, flux_mask, visit.pclean,
                                                                           ccf_tellu_tr, corrRV0, plot=False, counting = counting)
 
     if plot_clean:
-        ccf_tellu_clean = quick_correl_3dmod(tr.wave, cmasked_flux_tr,
-                                                  corrRV0, tr.wave, tr.pclean)
-        _ = plot_all_orders_correl(corrRV0, np.abs(ccf_tellu_clean), tr,
+        ccf_tellu_clean = quick_correl_3dmod(visit.wave, cmasked_flux_tr,
+                                                  corrRV0, visit.wave, visit.pclean)
+        _ = plot_all_orders_correl(corrRV0, np.abs(ccf_tellu_clean), visit,
                                       icorr=None, logl=False, sharey=True,
-                                      vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
+                                      vrp=np.zeros_like(visit.vrp), RV_sys=-7.0, vmin=None, vmax=None,
                                       vline=None, hline=2, kind='snr', return_snr=True, output_file=fig_output_file)
 
         # --- Sky masking ---
 
-    ccf_sky_tr = quick_correl_3dmod(tr.wave, cmasked_flux_tr, corrRV0,
-                                         tr.wave, skydown)
+    ccf_sky_tr = quick_correl_3dmod(visit.wave, cmasked_flux_tr, corrRV0,
+                                         visit.wave, skydown)
 
-    sky_mask, cmasked_flux_sky, ccf_sky_clean = mask_custom_pclean_ord(tr, cmasked_flux_tr, sky_tr,
+    sky_mask, cmasked_flux_sky, ccf_sky_clean = mask_custom_pclean_ord(visit, cmasked_flux_tr, sky_tr,
                                                                        ccf_sky_tr, corrRV0, kind='sky',
                                                                        thresh=2.0, plot=False, pad_to=pad_to,
                                                                        masking_spectra=skydown, correl_spectra=skydown)
 
     if plot_clean:
-        ccf_sky_clean = quick_correl_3dmod(tr.wave, cmasked_flux_sky,
-                                                corrRV0, tr.wave, skydown)
-        _ = plot_all_orders_correl(corrRV0, np.abs(ccf_sky_clean), tr,
+        ccf_sky_clean = quick_correl_3dmod(visit.wave, cmasked_flux_sky,
+                                                corrRV0, visit.wave, skydown)
+        _ = plot_all_orders_correl(corrRV0, np.abs(ccf_sky_clean), visit,
                                       icorr=None, logl=False, sharey=True,
-                                      vrp=np.zeros_like(tr.vrp), RV_sys=-7.0, vmin=None, vmax=None,
+                                      vrp=np.zeros_like(visit.vrp), RV_sys=-7.0, vmin=None, vmax=None,
                                       vline=None, hline=2, kind='snr', return_snr=True, output_file=fig_output_file)
 
-    if not hasattr(tr,'original_mask'):
-        tr.original_mask = tr.spec_trans.mask.copy()
+    if not hasattr(visit,'original_mask'):
+        visit.original_mask = visit.spec_trans.mask.copy()
 
-    tr.OG_final_mask = tr.final.mask.copy()
-    tr.OG_spec_trans_mask = tr.spec_trans.mask.copy()
-    tr.final = cmasked_flux_sky
-    tr.custom_mask = cmasked_flux_sky.mask
-    tr.spec_trans.mask = cmasked_flux_sky.mask
+    visit.OG_final_mask = visit.final.mask.copy()
+    visit.OG_spec_trans_mask = visit.spec_trans.mask.copy()
+    visit.final = cmasked_flux_sky
+    visit.custom_mask = cmasked_flux_sky.mask
+    visit.spec_trans.mask = cmasked_flux_sky.mask
 
     del sky_mask, ccf_sky_clean, ccf_sky_tr, ccf_tellu_tr, tellu_mask, cmasked_flux_tr, ccf_tellu_clean, cmasked_flux_sky
     del flux_mask, new_mask, sky_t, skynorm, spec_trans_tr, sky_tr, tile_sky_tr

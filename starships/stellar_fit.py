@@ -461,8 +461,8 @@ def load_reduced_data(data_file, bad_pix_frac=0.2, min_valid_pixels=800):
     reduction = np.load(Path(data_file).expanduser())
 
     # The master out-of-transit spectrum and its pixel mask
-    ref_spectrum = reduction['mast_out'].copy()
-    ref_mask = reduction['mask_mast_out'].astype(bool).copy()
+    ref_spectrum = reduction['reference_spec'].copy()
+    ref_mask = reduction['mask_reference_spec'].astype(bool).copy()
 
     # Wavelength grid — take the first exposure (all are identical)
     ref_wave = reduction['wave'][0].copy()

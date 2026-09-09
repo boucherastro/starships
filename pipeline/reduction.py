@@ -269,21 +269,25 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet, bad
     }
 
     # Extract the planetary signal.
-    # config_dict['iout_all']: which exposures build the reference spectrum ("master-out").
+    # config_dict['iout_all']: which exposures build the reference spectrum.
     # 'all' (default) = every exposure (planetary signal negligible + diluted by its own motion,
     # so this improves the reference spectrum's S/N). null/None = the real out-of-transit/eclipse
     # exposures computed from the orbit.
     # config_dict['noise_npc']: fixed number of PCA components used to estimate `noise` (B3),
     # independent of whatever `n_pc` is used for the science spectrum. Defaults to 2 (see
     # `generate_all_transits`) if not set in the config.
-    list_tr = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, config_dict['iout_all'], counting = False,
+    # `do_tr=[1]` above means `generate_all_transits` always hands back a single-key dict --
+    # this always deals with one visit at a time, so unwrap it here rather than leaking the
+    # dict (only needed for the multi-visit merge machinery, e.g. `pipeline/correlations.py`'s
+    # combined-visit CCF, which this reduction-only entry point does not use) to callers.
+    visits = pl_obs.generate_all_transits(obs, transit_tags, RVsys, params_all, config_dict['iout_all'], counting = False,
                                         noise_npc=config_dict.get('noise_npc', 2),
                                         **kwargs_gen_tr, **kwargs_build_ts)
 
-    return list_tr
+    return visits['1']
 
 
-def save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs=[]):
+def save_pl_sig(visit, nametag, scratch_dir, bad_indexs=[]):
     """Save the reduced sequence to a single file (B3, Chantier B).
 
     Before B3, this wrote two files (a heavy "diagnostic" one with every intermediate
@@ -293,20 +297,16 @@ def save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs=[]):
     is specific to one `n_pc` to leave out of a "light" file -- so there is only one file.
     """
     out_filename = f'retrieval_input' + nametag
-    pl_obs.save_reduced_sequence(out_filename, list_tr['1'], path=scratch_dir, bad_indexs=bad_indexs)
+    pl_obs.save_reduced_sequence(out_filename, visit, path=scratch_dir, bad_indexs=bad_indexs)
 
 
-def reduction_plots(config_dict, obs, list_tr, n_pc, path_fig, nametag): 
-    visit_list = [list_tr]  # You could put multiple visits in the same figure
-
+def reduction_plots(config_dict, obs, visit, n_pc, path_fig, nametag):
     if n_pc == config_dict['n_pc'][0]:
-        pf.plot_night_summary_NIRPS(visit_list, obs, path_fig=str(path_fig.parent.parent) + '/', fig_name='')
-
-    sequence_obj = list_tr
+        pf.plot_night_summary_NIRPS(visit, obs, path_fig=str(path_fig.parent.parent) + '/', fig_name='')
 
     # plot for specified orders
     for idx_ord in config_dict['idx_ord']:
-        pf.plot_steps(sequence_obj, idx_ord, path_fig=str(path_fig) + '/', fig_name = nametag + f'_ord{idx_ord}')
+        pf.plot_steps(visit, idx_ord, path_fig=str(path_fig) + '/', fig_name = nametag + f'_ord{idx_ord}')
 
 
 def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu, mask_wings, visit_name, plot = True, saved = False):
@@ -331,18 +331,17 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu
     if os.path.exists(scratch_dir / f'retrieval_input{nametag}_data_trs_.npz'):
         saved = True
         print(f"Reduction already exists for {nametag}. Loading with n_pc={n_pc}...")
-        transit = pl_obs.load_reduced_sequence(f'retrieval_input{nametag}_data_trs_.npz', n_pc, path=scratch_dir,
+        visit = pl_obs.load_reduced_sequence(f'retrieval_input{nametag}_data_trs_.npz', n_pc, path=scratch_dir,
                           filename_end='', planet=planet, plot = False)
 
     else: # building the transit spectrum
-        list_tr = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet, bad_indexs=bad_indexs)
-        transit = list_tr['1']
+        visit = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet, bad_indexs=bad_indexs)
 
     if saved == False:
-        save_pl_sig(list_tr, nametag, scratch_dir, bad_indexs)
+        save_pl_sig(visit, nametag, scratch_dir, bad_indexs)
 
     # outputting plots for reduction steps
     if plot:
-        reduction_plots(config_dict, obs, transit, n_pc, out_dir, nametag)
+        reduction_plots(config_dict, obs, visit, n_pc, out_dir, nametag)
 
-    return transit
+    return visit
