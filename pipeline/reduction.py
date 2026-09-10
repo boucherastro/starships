@@ -287,7 +287,7 @@ def build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet, bad
     return visits['1']
 
 
-def save_pl_sig(visit, nametag, scratch_dir, bad_indexs=[]):
+def save_planet_signal(visit, nametag, scratch_dir, bad_indexs=[]):
     """Save the reduced sequence to a single file (B3, Chantier B).
 
     Before B3, this wrote two files (a heavy "diagnostic" one with every intermediate
@@ -338,7 +338,7 @@ def reduce_data(config_dict, planet, obs, scratch_dir, out_dir, n_pc, mask_tellu
         visit = build_trans_spec(config_dict, n_pc, mask_tellu, mask_wings, obs, planet, bad_indexs=bad_indexs)
 
     if saved == False:
-        save_pl_sig(visit, nametag, scratch_dir, bad_indexs)
+        save_planet_signal(visit, nametag, scratch_dir, bad_indexs)
 
     # outputting plots for reduction steps
     if plot:

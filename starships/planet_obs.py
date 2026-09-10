@@ -1128,7 +1128,7 @@ def get_blaze_file(path, file_list='list_tellu_corrected', blaze_default=None,
 
  ##############################################################################   
 
-def merge_tr(tr_merge, visits, merge_tr_idx, params=None, light=False):
+def merge_tr(tr_merge, visits, merge_visit_idx, params=None, light=False):
     
 
     icorr_list = []
@@ -1136,48 +1136,48 @@ def merge_tr(tr_merge, visits, merge_tr_idx, params=None, light=False):
     iOut_list = []
     
     add_n_spec = 0
-    for idx, tr_i in enumerate(merge_tr_idx):
+    for idx, visit_i in enumerate(merge_visit_idx):
         if idx == 0:
-            icorr_list.append(visits[str(tr_i)].icorr)
-            iIn_list.append(visits[str(tr_i)].iIn)
-            iOut_list.append(visits[str(tr_i)].iOut)
+            icorr_list.append(visits[str(visit_i)].icorr)
+            iIn_list.append(visits[str(visit_i)].iIn)
+            iOut_list.append(visits[str(visit_i)].iOut)
         else:
-            add_n_spec += visits[str(tr_i-1)].n_spec
-            icorr_list.append(visits[str(tr_i)].icorr + add_n_spec)
-            iIn_list.append(visits[str(tr_i)].iIn + add_n_spec)
-            iOut_list.append(visits[str(tr_i)].iOut + add_n_spec)
+            add_n_spec += visits[str(visit_i-1)].n_spec
+            icorr_list.append(visits[str(visit_i)].icorr + add_n_spec)
+            iIn_list.append(visits[str(visit_i)].iIn + add_n_spec)
+            iOut_list.append(visits[str(visit_i)].iOut + add_n_spec)
     tr_merge.icorr = np.concatenate(icorr_list)
     tr_merge.iIn = np.concatenate(iIn_list)
     tr_merge.iOut = np.concatenate(iOut_list)
-    tr_merge.n_spec = np.sum([visits[str(tr_i)].n_spec for tr_i in merge_tr_idx])
+    tr_merge.n_spec = np.sum([visits[str(visit_i)].n_spec for visit_i in merge_visit_idx])
     
-    tr_merge.alpha_frac = np.concatenate([visits[str(tr_i)].alpha_frac for tr_i in merge_tr_idx])
-    tr_merge.t_start = np.concatenate([visits[str(tr_i)].t_start for tr_i in merge_tr_idx])
-    tr_merge.dt = np.concatenate([visits[str(tr_i)].dt for tr_i in merge_tr_idx])
+    tr_merge.alpha_frac = np.concatenate([visits[str(visit_i)].alpha_frac for visit_i in merge_visit_idx])
+    tr_merge.t_start = np.concatenate([visits[str(visit_i)].t_start for visit_i in merge_visit_idx])
+    tr_merge.dt = np.concatenate([visits[str(visit_i)].dt for visit_i in merge_visit_idx])
     tr_merge.t = tr_merge.t_start*u.d
-    tr_merge.phase = np.concatenate([visits[str(tr_i)].phase for tr_i in merge_tr_idx]) #.value
-    tr_merge.noise = np.ma.concatenate([visits[str(tr_i)].noise for tr_i in merge_tr_idx], axis=0)
+    tr_merge.phase = np.concatenate([visits[str(visit_i)].phase for visit_i in merge_visit_idx]) #.value
+    tr_merge.noise = np.ma.concatenate([visits[str(visit_i)].noise for visit_i in merge_visit_idx], axis=0)
 
     if light is False:
-        tr_merge.fl_norm = np.ma.concatenate([visits[str(tr_i)].fl_norm for tr_i in merge_tr_idx], axis=0)
-        tr_merge.fl_Sref = np.ma.concatenate([visits[str(tr_i)].fl_Sref for tr_i in merge_tr_idx], axis=0)
-        tr_merge.fl_masked = np.ma.concatenate([visits[str(tr_i)].fl_masked for tr_i in merge_tr_idx], axis=0)
-        tr_merge.fl_norm_mo = np.ma.concatenate([visits[str(tr_i)].fl_norm_mo for tr_i in merge_tr_idx], axis=0)
-        tr_merge.full_ts = np.ma.concatenate([visits[str(tr_i)].full_ts for tr_i in merge_tr_idx], axis=0)
-        tr_merge.rebuilt = np.ma.concatenate([visits[str(tr_i)].rebuilt for tr_i in merge_tr_idx], axis=0)
+        tr_merge.fl_norm = np.ma.concatenate([visits[str(visit_i)].fl_norm for visit_i in merge_visit_idx], axis=0)
+        tr_merge.fl_Sref = np.ma.concatenate([visits[str(visit_i)].fl_Sref for visit_i in merge_visit_idx], axis=0)
+        tr_merge.fl_masked = np.ma.concatenate([visits[str(visit_i)].fl_masked for visit_i in merge_visit_idx], axis=0)
+        tr_merge.fl_norm_mo = np.ma.concatenate([visits[str(visit_i)].fl_norm_mo for visit_i in merge_visit_idx], axis=0)
+        tr_merge.full_ts = np.ma.concatenate([visits[str(visit_i)].full_ts for visit_i in merge_visit_idx], axis=0)
+        tr_merge.rebuilt = np.ma.concatenate([visits[str(visit_i)].rebuilt for visit_i in merge_visit_idx], axis=0)
 
-    if visits[str(merge_tr_idx[0])].reference_spec.ndim == 2:
-        tr_merge.reference_spec = np.ma.mean([np.ma.masked_invalid(visits[str(tr_i)].reference_spec) \
-                                                          for tr_i in merge_tr_idx], axis=0)
-    elif visits[str(merge_tr_idx[0])].reference_spec.ndim == 3:
-        tr_merge.reference_spec = np.ma.concatenate([visits[str(tr_i)].reference_spec for tr_i in merge_tr_idx], axis=0)
+    if visits[str(merge_visit_idx[0])].reference_spec.ndim == 2:
+        tr_merge.reference_spec = np.ma.mean([np.ma.masked_invalid(visits[str(visit_i)].reference_spec) \
+                                                          for visit_i in merge_visit_idx], axis=0)
+    elif visits[str(merge_visit_idx[0])].reference_spec.ndim == 3:
+        tr_merge.reference_spec = np.ma.concatenate([visits[str(visit_i)].reference_spec for visit_i in merge_visit_idx], axis=0)
 
-    tr_merge.spec_trans = np.ma.concatenate([visits[str(tr_i)].spec_trans for tr_i in merge_tr_idx], axis=0)
-    tr_merge.final = np.ma.concatenate([visits[str(tr_i)].final for tr_i in merge_tr_idx], axis=0)
-    tr_merge.N = np.ma.concatenate([visits[str(tr_i)].N for tr_i in merge_tr_idx], axis=0)
+    tr_merge.spec_trans = np.ma.concatenate([visits[str(visit_i)].spec_trans for visit_i in merge_visit_idx], axis=0)
+    tr_merge.final = np.ma.concatenate([visits[str(visit_i)].final for visit_i in merge_visit_idx], axis=0)
+    tr_merge.N = np.ma.concatenate([visits[str(visit_i)].N for visit_i in merge_visit_idx], axis=0)
 
     try:
-        tr_merge.uncorr = np.ma.concatenate([visits[str(tr_i)].uncorr for tr_i in merge_tr_idx], axis=0)
+        tr_merge.uncorr = np.ma.concatenate([visits[str(visit_i)].uncorr for visit_i in merge_visit_idx], axis=0)
         tr_merge.N0 = (~np.isnan(tr_merge.uncorr)).sum(axis=-1)
         tr_merge.N_frac = np.nanmean(tr_merge.N / tr_merge.N0, axis=0).data  # 4088
         tr_merge.N_frac[np.isnan(tr_merge.N_frac)] = 0
@@ -1185,31 +1185,31 @@ def merge_tr(tr_merge, visits, merge_tr_idx, params=None, light=False):
         print('Did not find Uncorr key.')
         print('Not computing N0 and N_frac.')
 
-        # tr_merge.N_frac = np.min(np.array([visits[str(tr_i)].N_frac for tr_i in merge_tr_idx]),axis=0)
+        # tr_merge.N_frac = np.min(np.array([visits[str(visit_i)].N_frac for visit_i in merge_visit_idx]),axis=0)
 
-    tr_merge.reconstructed = np.ma.concatenate([visits[str(tr_i)].reconstructed for tr_i in merge_tr_idx], axis=0)
-    tr_merge.ratio = np.ma.concatenate([visits[str(tr_i)].ratio for tr_i in merge_tr_idx], axis=0)
+    tr_merge.reconstructed = np.ma.concatenate([visits[str(visit_i)].reconstructed for visit_i in merge_visit_idx], axis=0)
+    tr_merge.ratio = np.ma.concatenate([visits[str(visit_i)].ratio for visit_i in merge_visit_idx], axis=0)
     if params is None:
-        tr_merge.params = visits[str(merge_tr_idx[0])].params
+        tr_merge.params = visits[str(merge_visit_idx[0])].params
     
 #     return tr_merge
 
-def merge_velocity(tr_merge, visits, merge_tr_idx):
+def merge_velocity(tr_merge, visits, merge_visit_idx):
     
-    tr_merge.mid_vrp = np.concatenate([visits[str(tr_i)].mid_vrp* \
-                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.RV_sys = np.concatenate([visits[str(tr_i)].RV_sys* \
-                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.mid_berv = np.concatenate([visits[str(tr_i)].mid_berv* \
-                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.mid_vr = np.concatenate([visits[str(tr_i)].mid_vr* \
-                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.berv = np.concatenate([visits[str(tr_i)].berv for tr_i in merge_tr_idx])
-    tr_merge.vrp = np.concatenate([visits[str(tr_i)].vrp for tr_i in merge_tr_idx])
-    tr_merge.vr = np.concatenate([visits[str(tr_i)].vr for tr_i in merge_tr_idx])
-    tr_merge.RV_const = np.concatenate([visits[str(tr_i)].RV_const* \
-                                       np.ones((visits[str(tr_i)].n_spec)) for tr_i in merge_tr_idx])
-    tr_merge.Kp = visits[str(merge_tr_idx[0])].Kp
+    tr_merge.mid_vrp = np.concatenate([visits[str(visit_i)].mid_vrp* \
+                                       np.ones((visits[str(visit_i)].n_spec)) for visit_i in merge_visit_idx])
+    tr_merge.RV_sys = np.concatenate([visits[str(visit_i)].RV_sys* \
+                                       np.ones((visits[str(visit_i)].n_spec)) for visit_i in merge_visit_idx])
+    tr_merge.mid_berv = np.concatenate([visits[str(visit_i)].mid_berv* \
+                                       np.ones((visits[str(visit_i)].n_spec)) for visit_i in merge_visit_idx])
+    tr_merge.mid_vr = np.concatenate([visits[str(visit_i)].mid_vr* \
+                                       np.ones((visits[str(visit_i)].n_spec)) for visit_i in merge_visit_idx])
+    tr_merge.berv = np.concatenate([visits[str(visit_i)].berv for visit_i in merge_visit_idx])
+    tr_merge.vrp = np.concatenate([visits[str(visit_i)].vrp for visit_i in merge_visit_idx])
+    tr_merge.vr = np.concatenate([visits[str(visit_i)].vr for visit_i in merge_visit_idx])
+    tr_merge.RV_const = np.concatenate([visits[str(visit_i)].RV_const* \
+                                       np.ones((visits[str(visit_i)].n_spec)) for visit_i in merge_visit_idx])
+    tr_merge.Kp = visits[str(merge_visit_idx[0])].Kp
 
 
 def split_transits(obs_obj, transit_tag, mid_idx, 
@@ -1318,8 +1318,10 @@ def save_reduced_sequence(filename, visit, path='', filename_end='', bad_indexs=
     path : str or Path, optional
         Output directory.
     filename_end : str, optional
-        Suffix inserted before `.npz`, e.g. a transit index when saving several visits
-        (see `save_sequences`).
+        Suffix inserted before `.npz`. `pipeline.reduction.save_planet_signal` leaves this
+        at its default (`''`) since the visit is already uniquely identified by `nametag`;
+        kept as a parameter for callers that want to save several visits under one shared
+        `filename`.
     bad_indexs : list, optional
         Exposure indices flagged as excluded for this visit. Defaults to an empty list.
     """
@@ -1618,129 +1620,125 @@ def load_reduced_sequence(filename, n_pc, name='', path='', filename_end='', plo
 
 
 
-def save_sequences(filename, visits, do_tr, path='', bad_indexs=None):
-    """Save one ``.npz`` file per transit in `visits` (B3: `save_reduced_sequence`).
+def _visit_to_data_dict(visit):
+    """Bundle one loaded visit into the plain dict `retrieval.py`/`logl_grid.py` consume.
 
-    Companion function to `load_sequences`, which reads back the files written here.
-    Multi-transit orchestration only -- what actually goes into each per-transit file is
-    entirely delegated to `save_reduced_sequence` (see its docstring for what's saved: no
-    n_pc-dependent product is saved anymore, so there is only one file per transit, not a
-    "diagnostic" vs "light retrieval" pair as there used to be -- the separate shared
-    `_data_info.npz` this function used to also write is gone too, for the same reason
-    (it duplicated the last transit's `alpha_frac`/`icorr`/`N`, and `N` is n_pc-dependent
-    now; `load_sequences` derives the equivalent `data_info` from the last loaded transit
-    directly instead).
+    Extracted out of `load_sequences` (Chantier C1) so the field list stays readable on
+    its own instead of buried inside a longer function.
 
     Parameters
     ----------
-    filename : str or Path
-        Base name used to build the output file names (`{filename}_data_trs_{i}.npz`).
-    visits : dict
-        Transit objects to save, keyed by transit index (as a string).
-    do_tr : list or array
-        Transit indices to include, in the same order as `visits`. Indices >= 10
-        are excluded (reserved for another use elsewhere in the pipeline).
-    path : str or Path, optional
-        Output directory.
-    bad_indexs : list, optional
-        Exposure indices to flag as bad. Defaults to an empty list.
+    visit : Observations
+        Visit loaded by `load_reduced_sequence`.
+
+    Returns
+    -------
+    dict
+        One array/scalar per field consumed downstream by `retrieval.py`/`logl_grid.py`.
     """
-    filename = Path(filename)
+    return {
+        'pca': visit.pca,
+        'RV_const': visit.RV_const,
+        'RV_sys': visit.RV_sys,
+        'mid_berv': visit.mid_berv,
+        'mid_vr': visit.mid_vr,
+        'params': visit.params,
+        'wave': visit.wave,
+        # `visit.vrp`/`visit.vr` are bare floats (km/s) after `Observations.norv_sequence` --
+        # re-attach units here to match what consumers expect (e.g. `data_visit['vr'].to(...)`
+        # in retrieval.py/logl_grid.py).
+        'vrp': visit.vrp * u.km / u.s,
+        # Per-exposure stellar reflex-motion excursion (same recentering convention as
+        # vrp) -- needed to Doppler-shift Fstar independently from Fp (Chantier A Phase 2).
+        'vr': visit.vr * u.km / u.s,
+        'sep': visit.sep,
+        'noise': visit.noise,
+        'N': visit.N,
+        't_start': visit.t_start,
+        'flux': visit.final / visit.noise,
+        's2f': np.ma.sum((visit.final / visit.noise) ** 2, axis=-1),
+        'ratio': visit.ratio,
+        'reconstructed': visit.reconstructed,
+        'reference_spec': visit.reference_spec,
+        'alpha_frac': visit.alpha_frac,
+        'final': visit.final,
+        'spec_trans': visit.spec_trans,
+        'icorr': visit.icorr,
+        'clip_ts': visit.clip_ts,
+        'scaling': visit.scaling,
+        'fl_norm': visit.fl_norm,
+        'fl_norm_mo': visit.fl_norm_mo,
+        'full_ts': visit.full_ts,
+        'ts_norm': visit.ts_norm,
+        'rebuilt': visit.rebuilt,
+        'fl_Sref': visit.fl_Sref,
+        'fl_masked': visit.fl_masked,
+        'recon_time': visit.recon_time,
+    }
 
-    for i_tr, tr_key in enumerate(list(visits.keys())[:np.nonzero(np.array(do_tr) < 10)[0].size]):
-        save_reduced_sequence(filename, visits[tr_key], path=path, filename_end=str(i_tr),
-                               bad_indexs=bad_indexs)
 
-        
-def load_sequences(filename, do_tr, n_pc, path='', **kwargs):
-    """Load the `.npz` files written by `save_sequences` back into plain dicts, applying
-    `n_pc` at read time (B3, see `load_reduced_sequence`).
+def load_sequences(filename, n_pc, path='', **kwargs):
+    """Load one visit's reduced data as a plain dict, B3/B5 format or older.
+
+    Thin wrapper around `load_reduced_sequence`, kept as the shared entry point
+    `retrieval.py`/`logl_grid.py` both call so their data-loading stays identical
+    (Chantier C). Before Chantier C1, this looped over a `do_tr` list of transit indices
+    and stitched together per-transit files named `{filename}_data_trs_{i}.npz` into a
+    dict of dicts keyed by transit index -- vestigial machinery from before
+    `retrieval.py`/`logl_grid.py` grew their own per-visit loop
+    (`high_res_file_stem_list`): every real call site already loaded exactly one visit at
+    a time (`do_tr=[1]` fixed, only `data_trs_i['0']` ever read).
+
+    That said, the numeric `_0` suffix this loop always produced (`i_tr`, the `enumerate`
+    index, not the `do_tr` value itself) is not just leftover machinery: Antoine's real
+    production data reduced before B3 (e.g.
+    `~/scratch/DataAnalysis/SPIRou/Reductions/WASP-33b_v07232/`, May 2025) is genuinely
+    saved as `{filename}_data_trs_0.npz` and still gets read this way today -- caught by
+    `test_regression_lnprob.py::wasp33b_emission` failing with a real `FileNotFoundError`
+    against that dataset once the B3/B5-format n_pc/naming issues above it were fixed.
+    So this tries the current B3/B5 convention first (`pipeline.reduction.reduce_data`/
+    `save_planet_signal`, one file per visit, uniquely named via `nametag`, no numeric
+    suffix) and falls back to the old `_0` suffix only if that file isn't found.
 
     Parameters
     ----------
     filename : str or Path
-        Base name used to build the input file names, must match what was passed
-        to `save_sequences`.
-    do_tr : list or array
-        Transit indices to load. Indices >= 10 are excluded (see `save_sequences`).
+        Base name of the file to load, as saved by `save_reduced_sequence`
+        (`pipeline.reduction.save_planet_signal`) or, for older reductions, the
+        pre-B3 pipeline.
     n_pc : int
-        Number of PCA components to remove, applied at read time for every transit.
+        Number of PCA components to remove, applied at read time.
     path : str or Path, optional
         Input directory.
     **kwargs
-        Passed through to `load_reduced_sequence` for every transit -- in particular
-        `planet=` to reuse an already-built `Planet` (e.g. with config `pl_kwargs`
-        overrides, as `retrieval.py` does) instead of a fresh ExoFile lookup by name for
-        every single transit loaded.
+        Passed through to `load_reduced_sequence` -- in particular `planet=` to reuse an
+        already-built `Planet` (e.g. with config `pl_kwargs` overrides, as `retrieval.py`
+        does) instead of a fresh ExoFile lookup by name for every visit loaded.
 
     Returns
     -------
     data_info : dict
-        alpha_frac/icorr/N/bad_indexs of the *last* loaded transit -- this used to come from
-        a separate shared `_data_info.npz` file (which just duplicated the last transit's own
-        values); B3 derives it directly instead (see `save_sequences`).
-    data_trs : dict
-        One entry per transit index (as a string), each a dict of arrays/PCA object, built
-        from the corresponding `Observations` returned by `load_reduced_sequence`.
+        alpha_frac/icorr/N/bad_indexs for this visit.
+    data_visit : dict
+        Arrays/PCA object for this visit (see `_visit_to_data_dict`).
     """
-    filename = Path(filename)
+    log.info(f'Reading: {Path(path) / str(filename)}')
+    try:
+        visit = load_reduced_sequence(filename, n_pc, path=path, **kwargs)
+    except FileNotFoundError:
+        log.info(f'Not found in the current (B3/B5) format, trying the pre-B3 '
+                  f'"_0" suffix convention: {Path(path) / str(filename)}_data_trs_0.npz')
+        visit = load_reduced_sequence(filename, n_pc, path=path, filename_end='0', **kwargs)
 
-    data_trs = {}
-    data_info = {}
+    data_visit = _visit_to_data_dict(visit)
+    data_info = {
+        'all_alpha_frac': visit.alpha_frac,
+        'all_icorr': visit.icorr,
+        'all_N': visit.N,
+        'bad_indexs': visit.bad,
+    }
 
-    for i_tr, tr_key in enumerate(do_tr[:np.nonzero(np.array(do_tr) < 10)[0].size]):
-        out_filename = Path(f'{filename.name}_data_trs_{i_tr}.npz')
-        log.info(f'Reading: {Path(path) / out_filename}')
-        visit = load_reduced_sequence(out_filename, n_pc, path=path, **kwargs)
-
-        data_trs[str(i_tr)] = {
-            'pca': visit.pca,
-            'RV_const': visit.RV_const,
-            'RV_sys': visit.RV_sys,
-            'mid_berv': visit.mid_berv,
-            'mid_vr': visit.mid_vr,
-            'params': visit.params,
-            'wave': visit.wave,
-            # `visit.vrp`/`visit.vr` are bare floats (km/s) after `Observations.norv_sequence` --
-            # re-attach units here to match what consumers expect (e.g. `data_tr['vr'].to(...)`
-            # in retrieval.py/logl_grid.py), same contract as the pre-B3 dict.
-            'vrp': visit.vrp * u.km / u.s,
-            # Per-exposure stellar reflex-motion excursion (same recentering convention as
-            # vrp) -- needed to Doppler-shift Fstar independently from Fp (Chantier A Phase 2).
-            'vr': visit.vr * u.km / u.s,
-            'sep': visit.sep,
-            'noise': visit.noise,
-            'N': visit.N,
-            't_start': visit.t_start,
-            'flux': visit.final / visit.noise,
-            's2f': np.ma.sum((visit.final / visit.noise) ** 2, axis=-1),
-            'ratio': visit.ratio,
-            'reconstructed': visit.reconstructed,
-            'reference_spec': visit.reference_spec,
-            'alpha_frac': visit.alpha_frac,
-            'final': visit.final,
-            'spec_trans': visit.spec_trans,
-            'icorr': visit.icorr,
-            'clip_ts': visit.clip_ts,
-            'scaling': visit.scaling,
-            'fl_norm': visit.fl_norm,
-            'fl_norm_mo': visit.fl_norm_mo,
-            'full_ts': visit.full_ts,
-            'ts_norm': visit.ts_norm,
-            'rebuilt': visit.rebuilt,
-            'fl_Sref': visit.fl_Sref,
-            'fl_masked': visit.fl_masked,
-            'recon_time': visit.recon_time,
-        }
-
-        data_info = {
-            'trall_alpha_frac': visit.alpha_frac,
-            'trall_icorr': visit.icorr,
-            'trall_N': visit.N,
-            'bad_indexs': visit.bad,
-        }
-
-    return data_info, data_trs
+    return data_info, data_visit
 
 
 
@@ -1820,10 +1818,10 @@ def gen_obs_sequence(obs, transit_tag, params_all, iOut_temp,
 
     return visit
 
-def gen_merge_obs_sequence(obs, visits, merge_tr_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
+def gen_merge_obs_sequence(obs, visits, merge_visit_idx, transit_tags, coeffs, ld_model, kind_trans, light=False):
 
     if transit_tags is not None:
-        tr_merge = obs.select_transit(np.concatenate([transit_tags[tr_i-1] for tr_i in merge_tr_idx]))
+        tr_merge = obs.select_transit(np.concatenate([transit_tags[visit_i-1] for visit_i in merge_visit_idx]))
     else:
         tr_merge = deepcopy(obs)
 
@@ -1833,8 +1831,8 @@ def gen_merge_obs_sequence(obs, visits, merge_tr_idx, transit_tags, coeffs, ld_m
     #     tr_merge.dt =
 
 
-    merge_tr(tr_merge, visits, merge_tr_idx, light=light)
-    merge_velocity(tr_merge, visits, merge_tr_idx)
+    merge_tr(tr_merge, visits, merge_visit_idx, light=light)
+    merge_velocity(tr_merge, visits, merge_visit_idx)
     
     return tr_merge
 
@@ -1865,9 +1863,9 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
         
         else :  
 
-            merge_tr_idx = [int(tag_i) for tag_i in name_tag]
+            merge_visit_idx = [int(tag_i) for tag_i in name_tag]
 
-            visits[name_tag] = gen_merge_obs_sequence(obs, visits, merge_tr_idx, transit_tags,
+            visits[name_tag] = gen_merge_obs_sequence(obs, visits, merge_visit_idx, transit_tags,
                                                coeffs, ld_model, kind_trans)
 
     return visits

@@ -6,13 +6,12 @@ import matplotlib.pyplot as plt
 from starships import homemade as hm
 # import .analysis as a
 # from spirou_exo.extract import quick_norm
-from .spectrum import quick_inject_clean
 # from spirou_exo.transpec import remove_dem_pca_all
 from .orbite import rv_theo_nu, rv_theo_t
 
 from .mask_tools import interp1d_masked
-from .transpec import build_trans_spectrum_mod2, build_trans_spectrum_mod_fast, \
-                                remove_dem_pca_all, build_trans_spectrum4
+from . import model_sequence
+from .transpec import remove_dem_pca_all, build_trans_spectrum4
 
 
 
@@ -412,72 +411,7 @@ def calc_log_likelihood_grid_retrieval(RV, data_tr, planet, wave_mod, model, flu
     return logl_BL
     
     
-def gen_model_sequence_noinj(velocities, data_wave=None, data_sep=None, data_pca=None, data_npc=None, #data_noise,
-                             planet=None, model_wave=None, model_spec=None, #resol=64000,norm=True,debug=False,
-                            alpha=None, data_tr=None, data_recon=None,  **kwargs):
-    """
-    alpha: np.ndarray of shape (n_spec,)
-        Fraction of planetary signal. Depends on `kind_trans`:
-        - If 'transmission': fraction of the stellar disk hidden by the planet
-        - If 'emission': fraction of the planetary disk not hidden by the star
-    """
-
-    if data_wave is None:
-        data_wave = data_tr['wave']
-
-    if data_sep is None:
-        data_sep = data_tr['sep']
-
-    if data_pca is None:
-        data_pca = data_tr['pca']
-    if data_npc is None:
-        data_npc = int(data_tr['params'][5])
-    if data_recon is None:
-        # -- Uncomment the other 2 lines if you want the full reconstructed data to inject the model in
-        data_recon = np.ones_like(data_wave)
-        # data_recon = data_tr['reconstructed']
-        # data_recon = data_recon/np.ma.median(data_recon,axis=-1)[:,:,None]/data_tr['ratio']/data_tr['reference_spec']
-
-    for arg in (planet, model_wave, model_spec):
-        if arg is None:
-            raise ValueError('`planet`, `model_wave` and `model_spec` need to be specified.')
-
-    # --- inject model in an empty sequence of ones
-    flux_inj, _ = quick_inject_clean(data_wave, data_recon,
-                                                  model_wave, model_spec, 
-                                                 velocities, data_sep, planet.R_star, planet.A_star, 
-                                                                  RV=0.0, dv_star=0., 
-                                                 R0 = planet.R_pl, alpha=alpha, **kwargs)
-   
-    # -- Remove the same number of pcas that were used to inject
-    model_seq = build_trans_spectrum_mod_fast(flux_inj, data_pca, n_pca=data_npc)
-
-    return model_seq
-
-
-def gen_model_sequence_retrieval(velocities, data_tr, planet, model_wave, model_spec, #resol=64000, debug=False,
-                                 alpha=None, norm=True, **kwargs):
-    
-    flux_inj, _ = quick_inject_clean(data_tr['wave'], data_tr['reconstructed'], 
-                                                  model_wave, model_spec, 
-                                                 np.sum(velocities), data_tr['sep'], planet.R_star, planet.A_star, 
-                                                                  RV=0.0, dv_star=0., 
-                                                 R0 = planet.R_pl, alpha=alpha, **kwargs)
-   
-    # -- Remove the same number of pcas that were used to inject
-
-    model_seq = build_trans_spectrum_mod2(data_tr['wave'], flux_inj, data_tr['reference_spec'], 
-                                          data_tr['pca'], data_tr['noise'],
-                                               plot=False, norm=norm, 
-                                              ratio=data_tr['ratio'], #debug=debug, #blaze=blaze, 
-#                           mo_box=data_tr['params'][2], mo_gauss_box=data_tr['params'][4], 
-                                          n_pca=int(data_tr['params'][5]), n_comps=10)
-
-    return model_seq
-
-
-
-def unload_data(data_obj, kind_obj, 
+def unload_data(data_obj, kind_obj,
                 final=None, spec_trans=None, noise=None, ratio=None,
                 pca=None, alpha=None, inj_alpha='ones',):
     
@@ -724,9 +658,8 @@ def gen_model_sequence(theta, visit, model_wave, model_spec, n_pcs=None,
                     flux=reconstructed, alpha=alpha,  **kwargs) 
 
 
-    model_seq = build_trans_spectrum_mod2(visit.wave, visit.flux_inj, reference_spec, pca, visit.noise,
+    model_seq = model_sequence.apply_pca_to_model(visit.flux_inj, pca, reference_spec=reference_spec,
                                          plot=False, norm=norm, ratio=ratio,
-#                           mo_box=visit.params[2], mo_gauss_box=visit.params[4], 
                                           n_pca=n_pcs, n_comps=10)
    
     return np.ma.masked_array(model_seq)

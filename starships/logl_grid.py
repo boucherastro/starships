@@ -60,7 +60,6 @@ import numpy as np
 from astropy import units as u
 
 import starships.planet_obs as pl_obs
-from starships import correlation as corr
 from starships import model_sequence as model_seq
 from starships.orbite import rv_theo_t
 from starships.planet_obs import Observations
@@ -85,7 +84,7 @@ global apply_alpha, use_real_stellar_rv
 global obs, planet, Kp_scale
 
 # --- From load_logl_grid_data ---
-global data_trs, data_info_list, idx_orders, axis_sum
+global data_visits, data_info_list, idx_orders, axis_sum
 
 # --- From load_model ---
 global wv_high, model_high
@@ -94,7 +93,7 @@ global wv_high, model_high
 global Fp_high, Fstar_high
 
 # --- Workers (set per-visit before Pool.map) ---
-global _current_data_tr, _current_alpha_frac
+global _current_data_visit, _current_alpha_frac
 
 
 # ---------------------------------------------------------------------------
@@ -163,22 +162,22 @@ def setup_logl_grid(input_parameters, **kwargs):
 
 def load_logl_grid_data():
     """Load high-res data into globals. Run after setup_logl_grid."""
-    global data_trs, data_info_list, idx_orders, axis_sum
+    global data_visits, data_info_list, idx_orders, axis_sum
 
-    data_trs = []
+    data_visits = []
     data_info_list = []
 
     for high_res_file_stem, n_pc_i in zip(high_res_file_stem_list, n_pc):
         log.info(f'Loading: {high_res_path / high_res_file_stem}')
         # B3: n_pc applied at read time (one value per file); reuse `planet` (config
         # pl_params overrides applied) instead of a fresh ExoFile lookup per visit.
-        data_info_i, data_trs_i = pl_obs.load_sequences(
-            high_res_file_stem, [1], n_pc_i, path=high_res_path, planet=planet
+        data_info_i, data_visit_i = pl_obs.load_sequences(
+            high_res_file_stem, n_pc_i, path=high_res_path, planet=planet
         )
-        data_trs.append(data_trs_i['0'])
+        data_visits.append(data_visit_i)
         data_info_list.append(data_info_i)
 
-    n_ord = data_trs[0]['flux'].shape[1]
+    n_ord = data_visits[0]['flux'].shape[1]
     idx_orders = orders if orders is not None else np.arange(n_ord)
     axis_sum = -1  # sum over spectral pixel axis
 
@@ -231,10 +230,10 @@ def load_model(model_path):
 # Chi2 terms (per-exposure, per-order)
 # ---------------------------------------------------------------------------
 
-def _calc_chi2_terms(model, data_tr):
+def _calc_chi2_terms(model, data_visit):
     """Compute model-dependent chi2 terms (f×g, g²) for one visit."""
-    flux = data_tr['flux'][:, idx_orders]
-    noise = data_tr['noise'][:, idx_orders]
+    flux = data_visit['flux'][:, idx_orders]
+    noise = data_visit['noise'][:, idx_orders]
     model_norm = model[:, idx_orders] / noise
     f_x_g = np.ma.sum(model_norm * flux, axis=axis_sum)
     s2g = np.ma.sum(model_norm ** 2, axis=axis_sum)
@@ -242,7 +241,7 @@ def _calc_chi2_terms(model, data_tr):
 
 
 # Set per-visit in compute_logl_grid before Pool.map; inherited by workers via fork.
-_current_data_tr = None
+_current_data_visit = None
 _current_alpha_frac = None
 _current_apply_alpha = True
 
@@ -252,19 +251,20 @@ def _get_chi2_detailed(theta):
 
     Uses the Fp/Fstar-separated engine (`model_sequence.py`, Chantier A Phase 2,
     fixes bug #2) when the loaded model has `Fp_high`/`Fstar_high` (see `load_model`);
-    falls back to the old combined-ratio path (`correlation.py::gen_model_sequence_noinj`)
-    for older model files that only have the combined ratio.
+    falls back to the old combined-ratio path (`model_sequence.py::gen_model_sequence_noinj`,
+    moved out of `correlation.py` in Chantier C1) for older model files that only have the
+    combined ratio.
     """
     v_sys, kp = theta
-    data_tr = _current_data_tr
+    data_visit = _current_data_visit
 
     # Planet's velocity relative to the star (not to the observer -- see
     # model_sequence.py / retrieval.py::lnprob for the same composition).
     vrp_orb = rv_theo_t(
-        kp, data_tr['t_start'] * u.d, planet.mid_tr, planet.period, plnt=True
+        kp, data_visit['t_start'] * u.d, planet.mid_tr, planet.period, plnt=True
     ).value
 
-    n_pc = int(data_tr['params'][5])
+    n_pc = int(data_visit['params'][5])
     alpha_arg = _current_alpha_frac if _current_apply_alpha else np.ones_like(_current_alpha_frac)
 
     if Fp_high is not None:
@@ -274,24 +274,24 @@ def _get_chi2_detailed(theta):
         # Same defaults/composition as retrieval.py::lnprob: star assumed fixed
         # beyond its RV_const baseline unless use_real_stellar_rv is set and the
         # loaded data actually has a per-exposure `vr` (older .npz files don't).
-        if use_real_stellar_rv and data_tr.get('vr') is not None:
-            vr_orb = data_tr['vr'].to(u.km / u.s).value
+        if use_real_stellar_rv and data_visit.get('vr') is not None:
+            vr_orb = data_visit['vr'].to(u.km / u.s).value
         else:
             vr_orb = 0.0
 
         model_seq_arr = model_seq.build_model_sequence(
-            wv_high[20:-20], Fp_high[20:-20], data_tr['wave'], vrp_orb,
+            wv_high[20:-20], Fp_high[20:-20], data_visit['wave'], vrp_orb,
             Fstar=Fstar_high[20:-20], vr_orb=vr_orb, alpha=alpha_arg,
-            kind_trans=kind_trans, RV=v_sys + data_tr['RV_const'])
+            kind_trans=kind_trans, RV=v_sys + data_visit['RV_const'])
     else:
         # Older model file (combined ratio only, see load_model) -- old path,
         # unchanged, same bug as before for this particular model file.
-        velocities = v_sys + vrp_orb - vrp_orb * Kp_scale + data_tr['RV_const']
-        model_seq_arr = corr.gen_model_sequence_noinj(
+        velocities = v_sys + vrp_orb - vrp_orb * Kp_scale + data_visit['RV_const']
+        model_seq_arr = model_seq.gen_model_sequence_noinj(
             velocities,
-            data_wave=data_tr['wave'],
-            data_sep=data_tr['sep'],
-            data_pca=data_tr['pca'],
+            data_wave=data_visit['wave'],
+            data_sep=data_visit['sep'],
+            data_pca=data_visit['pca'],
             data_npc=n_pc,
             planet=planet,
             model_wave=wv_high[20:-20],
@@ -299,7 +299,7 @@ def _get_chi2_detailed(theta):
             kind_trans=kind_trans,
             alpha=alpha_arg,
         )
-    return _calc_chi2_terms(model_seq_arr, data_tr)
+    return _calc_chi2_terms(model_seq_arr, data_visit)
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +387,7 @@ def compute_logl_grid(rv_array=None, kp_array=None, n_process=None):
     list of dict
         One dict per visit with keys: cross_terms, squared_terms, kp, vsys.
     """
-    global _current_data_tr, _current_alpha_frac, _current_apply_alpha
+    global _current_data_visit, _current_alpha_frac, _current_apply_alpha
 
     if rv_array is None:
         rv_array = _make_grid(rv_grid)
@@ -424,11 +424,11 @@ def compute_logl_grid(rv_array=None, kp_array=None, n_process=None):
     theta_grid = np.array([np.ravel(vsys_mesh), np.ravel(kp_mesh)]).T
 
     results = []
-    for i, (data_tr, di) in enumerate(zip(data_trs, data_info_list), start=1):
-        _current_data_tr = data_tr
-        _current_alpha_frac = di['trall_alpha_frac']
+    for i, (data_visit, di) in enumerate(zip(data_visits, data_info_list), start=1):
+        _current_data_visit = data_visit
+        _current_alpha_frac = di['all_alpha_frac']
 
-        log.info(f'Computing grid for visit {i}/{len(data_trs)} with {n_process} processes ...')
+        log.info(f'Computing grid for visit {i}/{len(data_visits)} with {n_process} processes ...')
         with Pool(n_process) as pool:
             outputs = pool.map(_get_chi2_detailed, theta_grid)
 
@@ -519,21 +519,21 @@ def _compute_contact_phases(planet_obj, kind_trans_str):
     return np.array([phase_T1, phase_T2, phase_T3, phase_T4])
 
 
-def _save_visit_result(visit_result, data_tr, di, output_path,
+def _save_visit_result(visit_result, data_visit, di, output_path,
                         file_stem, grid_suffix, contact_phases, visit_idx):
     """Write one visit's grid result to an NPZ file.
 
     Extracted so that both ``save_logl_grid`` and
     ``compute_and_save_logl_grid`` can share the same serialisation logic.
     """
-    noise = data_tr['noise'][:, idx_orders]
-    flux  = data_tr['flux'][:, idx_orders]
+    noise = data_visit['noise'][:, idx_orders]
+    flux  = data_visit['flux'][:, idx_orders]
     uncert_sum_v = np.sum(np.ma.log(noise), axis=axis_sum)
     s2f_v        = np.sum(flux ** 2,        axis=axis_sum)
 
-    # Phase is not stored in data_tr by load_sequences — compute it from
+    # Phase is not stored in data_visit by load_sequences — compute it from
     # t_start and the planet orbital parameters (set by setup_logl_grid).
-    t_start = data_tr['t_start']
+    t_start = data_visit['t_start']
     phase = ((t_start * u.d - planet.mid_tr) / planet.period).decompose().value
     phase -= np.round(phase.mean())
     if kind_trans == 'emission':
@@ -543,9 +543,9 @@ def _save_visit_result(visit_result, data_tr, di, output_path,
 
     saved = dict(
         **visit_result,
-        alpha_frac=di['trall_alpha_frac'],
-        icorr=di['trall_icorr'],
-        N=di['trall_N'],
+        alpha_frac=di['all_alpha_frac'],
+        icorr=di['all_icorr'],
+        N=di['all_N'],
         bad_indexs=np.empty(0),
         s2f=s2f_v,
         uncert_sum=uncert_sum_v,
@@ -592,10 +592,10 @@ def save_logl_grid(results, output_path, file_stem):
         + ', '.join(f'{p:.4f}' for p in contact_phases)
     )
 
-    for i, (data_tr, di, visit_res) in enumerate(
-        zip(data_trs, data_info_list, results), start=1
+    for i, (data_visit, di, visit_res) in enumerate(
+        zip(data_visits, data_info_list, results), start=1
     ):
-        _save_visit_result(visit_res, data_tr, di, output_path,
+        _save_visit_result(visit_res, data_visit, di, output_path,
                            file_stem, grid_suffix, contact_phases, i)
 
 
@@ -615,7 +615,7 @@ def compute_and_save_logl_grid(output_path, file_stem,
     rv_array, kp_array : 1-D arrays, optional — override YAML grid definitions
     n_process : int, optional — number of worker processes (default: SLURM_CPUS_PER_TASK × n_processes_per_cpu)
     """
-    global _current_data_tr, _current_alpha_frac, _current_apply_alpha
+    global _current_data_visit, _current_alpha_frac, _current_apply_alpha
 
     if rv_array is None:
         rv_array = _make_grid(rv_grid)
@@ -660,12 +660,12 @@ def compute_and_save_logl_grid(output_path, file_stem,
         + ', '.join(f'{p:.4f}' for p in contact_phases)
     )
 
-    for i, (data_tr, di) in enumerate(zip(data_trs, data_info_list), start=1):
-        _current_data_tr = data_tr
-        _current_alpha_frac = di['trall_alpha_frac']
+    for i, (data_visit, di) in enumerate(zip(data_visits, data_info_list), start=1):
+        _current_data_visit = data_visit
+        _current_alpha_frac = di['all_alpha_frac']
 
         log.info(
-            f'Computing grid for visit {i}/{len(data_trs)} '
+            f'Computing grid for visit {i}/{len(data_visits)} '
             f'with {n_process} processes ...'
         )
         with Pool(n_process) as pool:
@@ -685,7 +685,7 @@ def compute_and_save_logl_grid(output_path, file_stem,
             kp=kp_mesh,
             vsys=vsys_mesh,
         )
-        _save_visit_result(visit_result, data_tr, di, output_path,
+        _save_visit_result(visit_result, data_visit, di, output_path,
                            file_stem, grid_suffix, contact_phases, i)
         del cross_terms_v, squared_terms_v, visit_result
         log.info(f'Visit {i} written and freed from memory.')
@@ -2303,13 +2303,13 @@ def main():
 
         rv_arr = _make_grid(rv_grid)
         kp_arr = _make_grid(kp_grid)
-        n_exp_per_visit = max(dt['flux'].shape[0] for dt in data_trs)
+        n_exp_per_visit = max(dt['flux'].shape[0] for dt in data_visits)
         estimate_logl_grid_memory(
             n_vsys=len(rv_arr),
             n_kp=len(kp_arr),
             n_exp_per_visit=n_exp_per_visit,
             n_ord=len(idx_orders),
-            n_visits=len(data_trs),
+            n_visits=len(data_visits),
         )
 
         compute_and_save_logl_grid(out_path, stem)

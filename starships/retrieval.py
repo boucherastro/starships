@@ -541,10 +541,9 @@ def setup_retrieval(input_parameters, **kwargs):
         representative_phases_low = np.asarray(representative_phases_low, dtype=float)
 
     # --- Additional variables ---
-    global inj_alpha, nolog, do_tr
+    global inj_alpha, nolog
     inj_alpha = 'ones'
     nolog = True
-    do_tr = [1]
 
     # --- Chantier A Phase 2: Fp/Fstar-separated model engine options ---
     # Same YAML keys/names as logl_grid.py::setup_logl_grid (`apply_alpha`,
@@ -637,7 +636,7 @@ def setup_retrieval(input_parameters, **kwargs):
     # profile only", see `prepare_model_high_or_low`).
     global get_ker, get_ker_file
     if get_ker_file is None:
-        get_ker = lambda theta_regions, tr_i=0, phase=None, planet=None, instrum=None, \
+        get_ker = lambda theta_regions, phase=None, planet=None, instrum=None, \
                           model_resolution=None: [None for _ in theta_regions]
     else:
         get_ker = ru.load_custom_get_ker(get_ker_file)
@@ -715,10 +714,10 @@ def load_high_res_data():
     """This function needs to be run after ´­setup_retrieval´.
     The function reads the input data and prepare it."""
 
-    global data_info, data_trs
+    global data_info, data_visits
 
-    data_info = {'trall_alpha_frac': [], 'trall_icorr': [], 'trall_N': [], 'bad_indexs': []}
-    data_trs = []
+    data_info = {'all_alpha_frac': [], 'all_icorr': [], 'all_N': [], 'bad_indexs': []}
+    data_visits = []
 
     for high_res_file_stem, n_pc_i in zip(high_res_file_stem_list, n_pc):
         log.debug(f'Hires files stem: {high_res_path / high_res_file_stem}')
@@ -727,27 +726,26 @@ def load_high_res_data():
         # load_reduced_sequence), one value per file (n_pc, broadcast in unpack_input_parameters).
         # Reuse the already-built `planet` (config `pl_kwargs` overrides applied) instead of
         # a fresh ExoFile lookup by name for every visit (see load_sequences's docstring).
-        data_info_i, data_trs_i = pl_obs.load_sequences(high_res_file_stem, do_tr, n_pc_i,
-                                                          path=high_res_path, planet=planet)
+        data_info_i, data_visit_i = pl_obs.load_sequences(high_res_file_stem, n_pc_i,
+                                                            path=high_res_path, planet=planet)
         # Add index of the exposures where we expect to see the planet signal (to be used in kernel function)
-        # trall_alpha_frac is the fraction of the total planet signal received during the exposure.
-        data_trs_i['0']['i_pl_signal'] = data_info_i['trall_alpha_frac'] > 0.5
-        for data_tr in data_trs_i.values():
-            data_trs.append(data_tr)
+        # all_alpha_frac is the fraction of the total planet signal received during the exposure.
+        data_visit_i['i_pl_signal'] = data_info_i['all_alpha_frac'] > 0.5
+        data_visits.append(data_visit_i)
         # Patch for now data_info. Need to modify how the logl is computed to make it more clean.
         # Would not work with different instruments
-        for key in ['trall_alpha_frac', 'trall_N', 'bad_indexs']:
+        for key in ['all_alpha_frac', 'all_N', 'bad_indexs']:
             data_info[key].append(data_info_i[key])
         try:
-            data_info['trall_icorr'].append(data_info_i['trall_icorr'] + data_info['trall_icorr'][-1][-1] + 1)
+            data_info['all_icorr'].append(data_info_i['all_icorr'] + data_info['all_icorr'][-1][-1] + 1)
         except IndexError:
-            data_info['trall_icorr'].append(data_info_i['trall_icorr'])
+            data_info['all_icorr'].append(data_info_i['all_icorr'])
     for key in data_info.keys():
         data_info[key] = np.concatenate(data_info[key], axis=0)
-    
+
     data_info['bad_indexs'] = None  # Leave it to None. Not implemented yet.
 
-    return data_info, data_trs
+    return data_info, data_visits
 
 
 def load_low_res_data(pad_n_res_elem=5):
@@ -1341,7 +1339,7 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
 
         elif mode == 'low':
             # --- Applying the Doppler shift due to the star's systemic velocity ---
-            # Unlike high-res (where `data_tr['RV_const']` already bakes in RV_sys,
+            # Unlike high-res (where `data_visit['RV_const']` already bakes in RV_sys,
             # BERV and the mean orbital velocity at mid-transit, see `norv_sequence`
             # in planet_obs.py), the low-res model is generated at rest and never
             # shifted otherwise. Low-res data is usually averaged over a whole
@@ -1506,7 +1504,7 @@ def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star, mode='h
     return wave, Fp_by_region, Fstar
 
 
-def _build_multi_region_kernel(theta_regions, tr_i, mode='high', instrum=None):
+def _build_multi_region_kernel(theta_regions, visit_i, mode='high', instrum=None):
     """Build the per-exposure `region_kernel` closure for multi-region combination (Phase 3).
 
     Generic across whatever region geometry `get_ker` implements (a citrus/
@@ -1523,16 +1521,17 @@ def _build_multi_region_kernel(theta_regions, tr_i, mode='high', instrum=None):
     ----------
     theta_regions : list of dict
         One dict per region, as produced by `unpack_theta`.
-    tr_i : int
-        Visit index, forwarded to `get_ker` (see its documented contract). Also
-        selects `instrum_param_list[tr_i]` when `instrum` is not given.
+    visit_i : int
+        Visit index. Selects `instrum_param_list[visit_i]` when `instrum` is not given
+        (not otherwise forwarded to `get_ker` -- nothing in its documented contract uses
+        the raw index, only the `phase`/`instrum` derived from it).
     mode : {'high', 'low'}, default 'high'
         Which `prt_res` entry to pass as `get_ker`'s `model_resolution` (Chantier A
         Phase 3f: needed to reuse this function for the LOW RES multi-region path,
         `prepare_model_multi_reg_low`).
     instrum : dict, optional
         Forwarded to `get_ker` as its `instrum` argument. Defaults to
-        `instrum_param_list[tr_i]` (unchanged behaviour for existing HIGH RES
+        `instrum_param_list[visit_i]` (unchanged behaviour for existing HIGH RES
         callers) -- LOW RES has no per-visit `instrum_param_list` entry, so its
         caller builds and passes its own instrument-shaped dict instead.
 
@@ -1544,17 +1543,17 @@ def _build_multi_region_kernel(theta_regions, tr_i, mode='high', instrum=None):
     """
     weights = [theta_dict['spec_scale'] for theta_dict in theta_regions]
     if instrum is None:
-        instrum = instrum_param_list[tr_i]
+        instrum = instrum_param_list[visit_i]
 
     def region_kernel(wave, Fp_by_region, phase_i):
-        rot_ker_list = get_ker(theta_regions, tr_i=tr_i, phase=phase_i, planet=planet,
+        rot_ker_list = get_ker(theta_regions, phase=phase_i, planet=planet,
                                instrum=instrum, model_resolution=prt_res[mode])
         return model_seq.combine_regions_with_kernel(wave, Fp_by_region, rot_ker_list, weights)
 
     return region_kernel
 
 
-def prepare_model_multi_reg_high_per_exposure(theta_regions, tr_i, Raf):
+def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf):
     """Fp/Fstar-separated model generation for the true multi-region case (Phase 3).
 
     Counterpart to `_prepare_fp_fstar_high` for `len(theta_regions) > 1`: since the
@@ -1572,7 +1571,7 @@ def prepare_model_multi_reg_high_per_exposure(theta_regions, tr_i, Raf):
     theta_regions : list of dict
         One dict per region (`len(theta_regions) > 1`), as produced by
         `unpack_theta`.
-    tr_i : int
+    visit_i : int
         Visit index, forwarded to `_build_multi_region_kernel`/`get_ker`.
     Raf : float
         Target (instrument) resolving power, used to degrade the shared Fstar.
@@ -1611,12 +1610,12 @@ def prepare_model_multi_reg_high_per_exposure(theta_regions, tr_i, Raf):
         Fstar_out = None
 
     wave_out = wave_native[15:-15]
-    region_kernel_fct = _build_multi_region_kernel(theta_regions, tr_i)
+    region_kernel_fct = _build_multi_region_kernel(theta_regions, visit_i)
 
     return wave_out, Fp_by_region, Fstar_out, region_kernel_fct
 
 
-def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=None, tr_i=0, Raf=None,
+def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=None, visit_i=0, Raf=None,
                             return_fp_fstar=False):
     """Generate and combine the model for every region in `theta_regions`.
 
@@ -1634,11 +1633,11 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
         list used is always the one returned by `get_ker(...)` (see below).
     atmo_obj, Raf : optional
         Forwarded to `prepare_model_high_or_low`.
-    tr_i : int, default 0
-        Transit/visit index. Used to select `data_trs[tr_i]` (to compute the mean
-        orbital phase of the planet signal, passed to `get_ker`) and
-        `instrum_param_list[tr_i]` (this visit's instrument, also passed to
-        `get_ker`).
+    visit_i : int, default 0
+        Transit/visit index. Used to select `data_visits[visit_i]` (to compute the mean
+        orbital phase of the planet signal, passed to `get_ker` as `phase`) and
+        `instrum_param_list[visit_i]` (this visit's instrument, passed to `get_ker` as
+        `instrum`) -- not otherwise forwarded to `get_ker` itself.
     return_fp_fstar : bool, default False
         Chantier A Phase 2: if True, keep Fp/Fstar separate (see
         `prepare_model_high_or_low`) and combine the regions' Fp contributions with
@@ -1658,14 +1657,14 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
     """
     # Mean orbital phase of the planet signal for this visit -- computed here (not
     # inside `get_ker`) because a custom `get_ker_file` is loaded as its own module
-    # and cannot see `data_trs`/`planet`, retrieval.py's own globals, just by naming
+    # and cannot see `data_visits`/`planet`, retrieval.py's own globals, just by naming
     # them (see `ru.load_custom_get_ker`'s docstring).
-    all_phases = (data_trs[tr_i]['t_start'] - planet.mid_tr.value) / planet.period.to('d').value % 1
-    mean_phase = np.mean(all_phases[data_trs[tr_i]['i_pl_signal']])
+    all_phases = (data_visits[visit_i]['t_start'] - planet.mid_tr.value) / planet.period.to('d').value % 1
+    mean_phase = np.mean(all_phases[data_visits[visit_i]['i_pl_signal']])
 
     # Get the list of rotation kernels (one per region)
-    rot_ker_list = get_ker(theta_regions, tr_i=tr_i, phase=mean_phase, planet=planet,
-                           instrum=instrum_param_list[tr_i], model_resolution=prt_res[mode])
+    rot_ker_list = get_ker(theta_regions, phase=mean_phase, planet=planet,
+                           instrum=instrum_param_list[visit_i], model_resolution=prt_res[mode])
 
     if return_fp_fstar:
         # Chantier A Phase 2: same region combination as below, but on
@@ -1835,10 +1834,10 @@ def prepare_model_multi_reg_low(theta_regions):
     # function" block) -- low-res instrument dicts (`spectrophotometric_data`/
     # `photometric_data`) use the key `'res'` instead, and there is no single
     # low-res "instrument" the way there is a high-res visit
-    # (`instrum_param_list[tr_i]`) -- `prt_res['low']`, the model's own native
+    # (`instrum_param_list[visit_i]`) -- `prt_res['low']`, the model's own native
     # sampling resolution, is the only resolution genuinely defined at this stage.
     instrum_low = {'resol': prt_res['low']}
-    region_kernel_fct = _build_multi_region_kernel(theta_regions, tr_i=0, mode='low',
+    region_kernel_fct = _build_multi_region_kernel(theta_regions, visit_i=0, mode='low',
                                                     instrum=instrum_low)
 
     # Edge-trim to match combine_regions_with_kernel's convolution-boundary
@@ -2044,10 +2043,10 @@ def lnprob(theta, ):
 
         logl_i = []
         # --- Computing the logL for all sequences
-        for tr_i, data_tr_i in enumerate(data_trs):
+        for visit_i, data_visit_i in enumerate(data_visits):
 
             vrp_orb = rv_theo_t(theta_dict['kp'],
-                                data_tr_i['t_start'] * u.d, planet.mid_tr,
+                                data_visit_i['t_start'] * u.d, planet.mid_tr,
                                 planet.period, plnt=True).value
 
             # Chantier A Phase 3: true multi-region (more than one entry in
@@ -2061,7 +2060,7 @@ def lnprob(theta, ):
 
             if is_multi_region:
                 wv_high, Fp_by_region, Fstar_high, region_kernel_fct = \
-                    prepare_model_multi_reg_high_per_exposure(theta_regions, tr_i, res_instru)
+                    prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, res_instru)
 
                 if not all(np.isfinite(Fp_i[100:-100]).all() for Fp_i in Fp_by_region):
                     log.warning("NaN in high res model spectrum encountered")
@@ -2070,7 +2069,7 @@ def lnprob(theta, ):
                 # Per-exposure orbital phase, forwarded to region_kernel (unlike
                 # prepare_model_multi_reg's mean_phase, used only by the old
                 # combined-ratio path -- the whole point here is per-exposure).
-                phase_i = (data_tr_i['t_start'] - planet.mid_tr.value) \
+                phase_i = (data_visit_i['t_start'] - planet.mid_tr.value) \
                     / planet.period.to('d').value % 1
 
                 # Reconstruct the combined ratio too (LOW RES block further down),
@@ -2078,7 +2077,7 @@ def lnprob(theta, ):
                 # phase across the visit as a representative combination (same
                 # simplification the old combined-ratio multi-region path always
                 # used, since that block has no per-exposure Doppler shift of its own).
-                mean_phase = np.mean(phase_i[data_tr_i['i_pl_signal']])
+                mean_phase = np.mean(phase_i[data_visit_i['i_pl_signal']])
                 Fp_high = region_kernel_fct(wv_high, Fp_by_region, mean_phase)
                 model_high = Fp_high / Fstar_high if Fstar_high is not None else Fp_high
             else:
@@ -2086,7 +2085,7 @@ def lnprob(theta, ):
                 # Could be done once for all regions and then the rotation kernel
                 # could be applied to the model for each region depending on the phase.
                 wv_high, Fp_high, Fstar_high = prepare_model_multi_reg(
-                    theta_regions, 'high', tr_i=tr_i, Raf=res_instru, return_fp_fstar=True)
+                    theta_regions, 'high', visit_i=visit_i, Raf=res_instru, return_fp_fstar=True)
 
                 if not np.isfinite(Fp_high[100:-100]).all():
                     log.warning("NaN in high res model spectrum encountered")
@@ -2107,16 +2106,16 @@ def lnprob(theta, ):
             # real per-exposure vr (planet_obs.py::save_sequences, Chantier A Phase 2)
             # only if the run asked for it *and* the loaded data actually has it
             # (older .npz files predating this addition fall back to None).
-            if use_real_stellar_rv and data_tr_i.get('vr') is not None:
-                vr_orb = data_tr_i['vr'].to(u.km / u.s).value
+            if use_real_stellar_rv and data_visit_i.get('vr') is not None:
+                vr_orb = data_visit_i['vr'].to(u.km / u.s).value
             else:
                 vr_orb = 0.0
 
             # --- Occultation fraction: real light curve by default (apply_alpha) ---
             # Same YAML key/global as logl_grid.py's apply_alpha/_current_apply_alpha,
             # kept consistent between the two rather than picking a different default.
-            alpha_arg = (data_tr_i['alpha_frac'] if apply_alpha
-                        else np.ones_like(data_tr_i['t_start']))
+            alpha_arg = (data_visit_i['alpha_frac'] if apply_alpha
+                        else np.ones_like(data_visit_i['t_start']))
 
             # Doppler-shift Fp and Fstar independently per exposure and recombine
             # into the model sequence compared to the data (model_sequence.py).
@@ -2138,22 +2137,22 @@ def lnprob(theta, ):
                 # documented elsewhere in the codebase. Revisit together with the
                 # Narval validation of this phase if it turns out to matter.
                 model_seq_i = model_seq.build_model_sequence(
-                    wv_high, Fp_by_region, data_tr_i['wave'], vrp_orb,
+                    wv_high, Fp_by_region, data_visit_i['wave'], vrp_orb,
                     Fstar=Fstar_high, vr_orb=vr_orb, alpha=alpha_arg,
-                    kind_trans=kind_trans, RV=theta_dict['rv'] + data_tr_i['RV_const'],
+                    kind_trans=kind_trans, RV=theta_dict['rv'] + data_visit_i['RV_const'],
                     region_kernel=region_kernel_fct, phase=phase_i)
             else:
                 model_seq_i = model_seq.build_model_sequence(
-                    wv_high[20:-20], Fp_high[20:-20], data_tr_i['wave'], vrp_orb,
+                    wv_high[20:-20], Fp_high[20:-20], data_visit_i['wave'], vrp_orb,
                     Fstar=Fstar_high[20:-20] if Fstar_high is not None else None,
                     vr_orb=vr_orb, alpha=alpha_arg, kind_trans=kind_trans,
-                    RV=theta_dict['rv'] + data_tr_i['RV_const'])
+                    RV=theta_dict['rv'] + data_visit_i['RV_const'])
 
             # Remove the same number of PCs that were used during reduction --
             # same post-processing step as the old gen_model_sequence_noinj path.
-            n_pc = int(data_tr_i['params'][5])
-            model_norm = corr.build_trans_spectrum_mod_fast(
-                model_seq_i, data_tr_i['pca'], n_pca=n_pc) / data_tr_i['noise']
+            n_pc = int(data_visit_i['params'][5])
+            model_norm = model_seq.apply_pca_to_model(
+                model_seq_i, data_visit_i['pca'], n_pca=n_pc) / data_visit_i['noise']
 
             # Chi2 terms computed per order, then combined with the same formula
             # logl_grid.py's get_logl() uses (`_chi2_from_terms`, Chantier A Phase
@@ -2161,14 +2160,14 @@ def lnprob(theta, ):
             # "nolog" (raw chi2, not yet log-transformed) here on purpose: the
             # actual log is only taken once, after summing over all visits, by
             # corr.sum_logl() below (same two-stage summation as the old path).
-            flux = data_tr_i['flux']
+            flux = data_visit_i['flux']
             logl_tr = np.ma.zeros((model_norm.shape[0], model_norm.shape[1]))
             for iOrd in range(model_norm.shape[1]):
                 if flux[:, iOrd].mask.all():
                     continue
                 ct = np.ma.sum(model_norm[:, iOrd] * flux[:, iOrd], axis=-1)
                 st = np.ma.sum(model_norm[:, iOrd] ** 2, axis=-1)
-                logl_tr[:, iOrd] = _chi2_from_terms(ct, st, data_tr_i['s2f'][:, iOrd])
+                logl_tr[:, iOrd] = _chi2_from_terms(ct, st, data_visit_i['s2f'][:, iOrd])
 
             if not np.isfinite(logl_tr).all():
                 return -np.inf
@@ -2177,9 +2176,9 @@ def lnprob(theta, ):
 
         logl_all_visits = np.concatenate(logl_i, axis=0)
         log.debug(f'Shape of individual logl for all exposures (all visits combined): {logl_all_visits.shape}')
-        total += corr.sum_logl(logl_all_visits, data_info['trall_icorr'], orders,
-                               data_info['trall_N'], axis=0, del_idx=data_info['bad_indexs'], nolog=True,
-                               alpha=data_info['trall_alpha_frac'])
+        total += corr.sum_logl(logl_all_visits, data_info['all_icorr'], orders,
+                               data_info['all_N'], axis=0, del_idx=data_info['bad_indexs'], nolog=True,
+                               alpha=data_info['all_alpha_frac'])
 
     ###################
     # --- LOW RES --- #

@@ -5,8 +5,8 @@ import starships.petitradtrans_utils as prt
 from starships.convolution import SIGMA_TO_FWHM
 from starships.mask_tools import interp1d_masked
 from starships.model_sequence import (
-    _build_default_rotation_kernel, build_model_sequence, combine_regions, combine_regions_with_kernel,
-    generate_native_fp_fstar, precompute_theta_model,
+    _build_default_rotation_kernel, apply_pca_to_model, build_model_sequence, combine_regions,
+    combine_regions_with_kernel, generate_native_fp_fstar, precompute_theta_model,
 )
 from starships.spectrum import quick_inject_clean
 from starships import homemade as hm
@@ -15,6 +15,53 @@ from starships import homemade as hm
 def _gaussian_line(wv, wv0, fwhm, amp=0.3):
     sigma = fwhm / SIGMA_TO_FWHM
     return 1.0 - amp * np.exp(-0.5 * ((wv - wv0) / sigma) ** 2)
+
+
+class TestApplyPcaToModel:
+    """`apply_pca_to_model` (Chantier C1) merges what used to be two near-duplicate
+    functions in `transpec.py`, `build_trans_spectrum_mod2`/`build_trans_spectrum_mod_fast`
+    -- the latter was exactly the former with `reference_spec`/`ratio` left out. `n_pca=0`
+    is used throughout to isolate the normalization/division logic from
+    `transpec.remove_dem_pca_all`'s own PCA math (covered elsewhere)."""
+
+    def _make_flux(self):
+        rng = np.random.default_rng(0)
+        return np.ma.array(1.0 + 0.1 * rng.standard_normal((2, 3, 5)))
+
+    def test_default_matches_median_normalize_then_mean_subtract(self):
+        """No `ratio`/`reference_spec` (the old "_fast" case): just median-normalize,
+        then subtract the mean (`norm=True`, `somme=False` defaults)."""
+        flux = self._make_flux()
+        result = apply_pca_to_model(flux, pca=None, n_pca=0)
+
+        expected = flux / np.ma.median(flux, axis=-1)[:, :, None]
+        expected = expected - np.ma.mean(expected, axis=-1)[:, :, None]
+        np.testing.assert_allclose(result, expected)
+
+    def test_ratio_applied_before_reference_spec(self):
+        """The old `build_trans_spectrum_mod2` divided by `ratio` first, then by
+        `reference_spec` -- order matters since division isn't commutative on masked
+        arrays with different broadcast shapes."""
+        flux = self._make_flux()
+        ratio = np.ma.array(1.0 + 0.05 * np.arange(flux.shape[-1]))
+        reference_spec = np.ma.array(0.9 + 0.02 * np.arange(flux.shape[-1]))
+
+        result = apply_pca_to_model(flux, pca=None, n_pca=0, ratio=ratio,
+                                     reference_spec=reference_spec, norm=False)
+
+        expected = flux / np.ma.median(flux, axis=-1)[:, :, None]
+        expected = expected / ratio
+        expected = expected / reference_spec
+        expected = expected / np.ma.mean(expected, axis=-1)[:, :, None]
+        np.testing.assert_allclose(result, expected)
+
+    def test_norm_false_divides_by_mean_instead_of_subtracting(self):
+        flux = self._make_flux()
+        result = apply_pca_to_model(flux, pca=None, n_pca=0, norm=False)
+
+        expected = flux / np.ma.median(flux, axis=-1)[:, :, None]
+        expected = expected / np.ma.mean(expected, axis=-1)[:, :, None]
+        np.testing.assert_allclose(result, expected)
 
 
 class TestCombineRegions:

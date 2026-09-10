@@ -2929,12 +2929,12 @@ def load_custom_get_ker(get_ker_file: str) -> Callable:
 
     Mirrors `load_custom_prior` above: `get_ker_file` (the `get_ker_file` key in the
     retrieval YAML) is expected to be a Python script, loaded as its own module and
-    defining a module-level `get_ker(theta_regions, tr_i=0, phase=None, planet=None,
+    defining a module-level `get_ker(theta_regions, phase=None, planet=None,
     instrum=None, model_resolution=None)` function -- see the documented example in
     `retrievals/retrieval_inputs_example_rotation.yaml`.
 
     Note that, because the file is loaded as a separate module, it cannot see
-    `retrieval.py`'s own globals (`data_trs`, `planet`, `instrum`, ...) just by
+    `retrieval.py`'s own globals (`data_visits`, `planet`, `instrum`, ...) just by
     naming them -- unlike code living directly inside `retrieval.py`. This is why
     `get_ker`'s signature takes `phase`/`planet`/`instrum`/`model_resolution`
     explicitly as arguments: `retrieval.py::prepare_model_multi_reg` computes them
@@ -3582,150 +3582,3 @@ def get_all_param_names(retrieval_obj):
 
 
 # Initialize global variables to store the shared arrays and their names if needed.
-shared_arrays = None
-shared_keys = None
-non_array_dict = None
-
-
-def prepare_shared_array_obj(shared_obj):
-    """Save (big) arrays and their name in a numpy object.
-    The best way to share data between processes is to use a numpy array
-    since it is stored in a single block of memory.
-    Once the array is created, it can be accessed using:
-    shared_arrays[shared_keys.index(key)].
-    
-    Inputs:
-    - shared_obj: dictionary-like object
-        Dictionary-like object containing the arrays to be shared. Simply needs to
-        support the method items() to iterate over the key-value pairs.
-        
-    Outputs:
-    - shared_arrays: numpy array
-        Array containing the shared arrays.
-    - shared_keys: list of strings
-        List containing the names of the shared arrays.
-    - non_array_dict: dictionary-like object
-        Dictionary-like object containing the non-array objects.
-        
-    Notes:
-    The best usage would be to import this package in the main script.
-    Example:
-    import this_package as tp
-    
-    # Load a file containing multiple arrays (could be also a dictionary)
-    npz_file = np.load('data.npz')
-    
-    # Prepare the shared arrays
-    shared_array, _, shared_dict = logl_a.prepare_shared_array_obj(npz_file)
-    
-    # Then it can be accessed anywhere (like in a function)
-    # First get the index of the array in the shared arrays
-    idx, key_idx, keys_dict = tp.get_shared_array_index('key_1', 'key_2')
-    
-    # Put them  in a dictionary
-    array_dict = {key: shared_array[i] for i, key in zip(idx, key_idx)}
-    non_arr_dict = {key: shared_dict[key] for key in keys_dict}
-    # Which can be combined with the non-array dictionary
-    all_dict = {**array_dict, **non_arr_dict}
-    """
-    arrays, keys = [], []
-    non_array_dict = {}
-    for key, obj in shared_obj.items():
-        if isinstance(obj, np.ndarray):
-            arrays.append(obj)
-            keys.append(key)
-        else:
-            non_array_dict[key] = obj
-    arrays = np.array(arrays, dtype=object)
-    
-    # Save the outputs in global variables
-    globals()['shared_arrays'] = arrays
-    globals()['shared_keys'] = keys
-    globals()['non_array_dict'] = non_array_dict
-    
-    return globals()['shared_arrays'], globals()['shared_keys'], globals()['non_array_dict']
-
-
-def get_shared_array_index(*args):
-    """Get the index of a key in the shared arrays and in the non-array dictionary.
-    Returns:
-    - idx_shared: list of indices
-        Indices of the shared arrays.
-    - keys_shared: list of strings
-        Names of the shared arrays.
-    - keys_non_arr: list of strings
-        Names of the non-array objects.
-    """
-    idx_shared, keys_shared, keys_non_arr = [], [], []
-    for key in args:
-        try:
-            idx_shared.append(shared_keys.index(key))
-            keys_shared.append(key)
-        except ValueError:
-            keys_non_arr.append(key)
-
-    return idx_shared, keys_shared, keys_non_arr
-
-
-def get_logl(alpha=1., beta=1., kind='BL', f_x_g=None, s2g=None, s2f=None,
-             uncert_sum=None, N=None, idx_orders=None, idx_exposure=None, sum_axis=None):
-    
-    if f_x_g is None:
-        idx = get_shared_array_index('cross_terms')
-        f_x_g = shared_arrays[idx][0]
-    
-    if s2g is None:
-        idx = get_shared_array_index('squared_terms')
-        s2g = shared_arrays[idx][0]
-        
-    if s2f is None:
-        idx = get_shared_array_index('s2f')
-        s2f = shared_arrays[idx][0]
-        
-    if uncert_sum is None:
-        idx = get_shared_array_index('uncert_sum')
-        uncert_sum = shared_arrays[idx][0]
-        
-    if N is None:
-        idx = get_shared_array_index('N')
-        N = shared_arrays[idx][0]
-    
-    # Mask N = 0 or nans
-    N = np.ma.array(N, mask=((N == 0) | (N == np.nan)))
-    
-    if idx_exposure is None:
-        idx_exposure = slice(None)
-    else:
-        idx_exposure = np.array(idx_exposure)[:, None]
-        
-    if idx_orders is None:
-        idx_orders = np.arange(N.shape[-1])
-
-    # Predifine the slicing
-    idx = (..., idx_exposure, idx_orders)
-    
-    # Apply slicing to some arrays
-    uncert_sum = uncert_sum[idx]
-    N = N[idx]
-    
-    # Compute chi2
-    chi2 = s2f[idx] -2 * alpha * f_x_g[idx] + alpha**2 * s2g[idx]
-    
-    if sum_axis is not None:
-        # Needed for all logl prescriptions
-        chi2 = np.ma.sum(chi2, axis=sum_axis)
-        N = np.ma.sum(N, axis=sum_axis)
-        
-        # Needed for specific logl presciptions
-        if kind == 'G':
-            uncert_sum = np.sum(uncert_sum, axis=sum_axis)
-
-    if kind == 'BL':
-        # Brogi and Line logl
-        logl = -N / 2 * np.ma.log(chi2 / N)
-    elif kind == 'G':
-        # Gibson logl
-        cst = -N / 2 * np.ma.log(2. * np.pi) - N * np.log(beta) - uncert_sum
-        logl = cst - 0.5 * chi2 / beta**2
-    
-    return logl

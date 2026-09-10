@@ -140,12 +140,12 @@ class TestPrepareFpNativeByRegionMode:
 class TestBuildMultiRegionKernelModeAndInstrum:
     """`_build_multi_region_kernel`'s new `mode`/`instrum` parameters (Phase 3f) --
     `mode` selects `prt_res[mode]`; `instrum`, when given, overrides the default
-    `instrum_param_list[tr_i]` lookup (LOW RES has no per-visit instrument list)."""
+    `instrum_param_list[visit_i]` lookup (LOW RES has no per-visit instrument list)."""
 
     def test_mode_selects_prt_res_and_explicit_instrum_is_forwarded(self, monkeypatch):
         calls = []
 
-        def fake_get_ker(theta_regions, tr_i=0, phase=None, planet=None, instrum=None,
+        def fake_get_ker(theta_regions, phase=None, planet=None, instrum=None,
                          model_resolution=None):
             calls.append(dict(instrum=instrum, model_resolution=model_resolution))
             return [np.array([1.0]) for _ in theta_regions]
@@ -158,7 +158,7 @@ class TestBuildMultiRegionKernelModeAndInstrum:
 
         theta_regions = [{'spec_scale': 1.0}]
         region_kernel = retrieval._build_multi_region_kernel(
-            theta_regions, tr_i=0, mode='low', instrum={'resol': 1000})
+            theta_regions, visit_i=0, mode='low', instrum={'resol': 1000})
         region_kernel(wave=np.array([1.0]), Fp_by_region=[np.array([1.0])], phase_i=0.3)
 
         assert calls[0]['instrum'] == {'resol': 1000}
@@ -167,7 +167,7 @@ class TestBuildMultiRegionKernelModeAndInstrum:
     def test_default_instrum_falls_back_to_instrum_param_list(self, monkeypatch):
         calls = []
 
-        def fake_get_ker(theta_regions, tr_i=0, phase=None, planet=None, instrum=None,
+        def fake_get_ker(theta_regions, phase=None, planet=None, instrum=None,
                          model_resolution=None):
             calls.append(dict(instrum=instrum, model_resolution=model_resolution))
             return [np.array([1.0]) for _ in theta_regions]
@@ -180,8 +180,8 @@ class TestBuildMultiRegionKernelModeAndInstrum:
                             lambda wave, Fp_list, rot_ker_list, weights: 'combined', raising=False)
 
         theta_regions = [{'spec_scale': 1.0}]
-        # mode defaults to 'high', instrum defaults to None -> instrum_param_list[tr_i].
-        region_kernel = retrieval._build_multi_region_kernel(theta_regions, tr_i=0)
+        # mode defaults to 'high', instrum defaults to None -> instrum_param_list[visit_i].
+        region_kernel = retrieval._build_multi_region_kernel(theta_regions, visit_i=0)
         region_kernel(wave=np.array([1.0]), Fp_by_region=[np.array([1.0])], phase_i=0.3)
 
         assert calls[0]['instrum'] == {'resol': 70_000}
@@ -206,7 +206,7 @@ class TestPrepareModelMultiRegLow:
             assert mode == 'low'
             return wave_native, [Fp_region_0, Fp_region_1], None
 
-        def fake_build_multi_region_kernel(theta_regions, tr_i=0, mode='high', instrum=None):
+        def fake_build_multi_region_kernel(theta_regions, visit_i=0, mode='high', instrum=None):
             assert mode == 'low'
             assert instrum == {'resol': 1000}
 
@@ -265,7 +265,7 @@ class TestPrepareModelMultiRegLow:
         def fake_prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star, mode='high'):
             return wave_native, [Fp_region_0, Fp_region_1], Fstar_native
 
-        def fake_build_multi_region_kernel(theta_regions, tr_i=0, mode='high', instrum=None):
+        def fake_build_multi_region_kernel(theta_regions, visit_i=0, mode='high', instrum=None):
             def region_kernel(wave, Fp_by_region, phase_i):
                 w0 = 1.0 if phase_i < 0.25 else 0.0
                 return w0 * Fp_by_region[0][15:-15] + (1 - w0) * Fp_by_region[1][15:-15]

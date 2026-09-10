@@ -420,14 +420,13 @@ special_init:
 # It is possible to use a custom function to generate the rotation kernel.
 # The function should be named `get_ker` and defined at module level in the file
 # pointed to by `get_ker_file` below. `retrieval.py` calls it as:
-#     get_ker(theta_regions, tr_i=tr_i, phase=phase, planet=planet,
+#     get_ker(theta_regions, phase=phase, planet=planet,
 #             instrum=instrum, model_resolution=model_resolution)
 # where:
 # - `theta_regions` is a list of `theta_dict` for each region, where `theta_dict` is
 #   a dictionnary with all the parameters needed for the model of region.
-# - `tr_i` is the index of the high resolution data sequence.
 # - `phase` is the mean orbital phase of the planet signal for this sequence,
-#   already computed by `retrieval.py` from `data_trs`/`planet` -- those are
+#   already computed by `retrieval.py` from `data_visits`/`planet` -- those are
 #   retrieval.py's own globals, not visible from this separately-loaded file just by
 #   naming them, hence passed in explicitly.
 # - `planet` is the `starships` Planet object for this retrieval.
@@ -438,7 +437,7 @@ special_init:
 # and resolution as the data.
 # Here is an example of a function that generates a Citrus rotation kernel:
 #
-# def get_ker(theta_regions, tr_i=0, phase=None, planet=None, instrum=None, model_resolution=None):
+# def get_ker(theta_regions, phase=None, planet=None, instrum=None, model_resolution=None):
 #     theta_dict = theta_regions[0]
 #     longitudes = [theta_dict['phase1'], 0.99]
 #     R_pl = theta_dict['R_pl'] * 0.01  # cgs to SI  (cm to m)

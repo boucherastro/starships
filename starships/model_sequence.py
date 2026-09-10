@@ -69,6 +69,8 @@ import astropy.constants as const
 
 from . import homemade as hm
 from . import spectrum
+from . import transpec
+from .extract import quick_norm
 from .convolution import degrade_and_resample
 from .mask_tools import interp1d_masked
 from . import petitradtrans_utils as prt
@@ -633,3 +635,166 @@ def build_model_sequence(
             raise ValueError(f"kind_trans must be 'transmission' or 'emission', got {kind_trans!r}")
 
     return np.ma.masked_invalid(model_seq)
+
+
+def apply_pca_to_model(
+    flux: np.ndarray,
+    pca,
+    reference_spec: Optional[np.ndarray] = None,
+    ratio: Optional[np.ndarray] = None,
+    n_pca: int = 2,
+    n_comps: int = 10,
+    norm: bool = True,
+    somme: bool = False,
+    plot: bool = False,
+) -> np.ma.MaskedArray:
+    """Apply the same PCA-truncation processing to an already-built model sequence
+    that was applied to the real reduced data, so the two are directly comparable.
+
+    Moved here from ``transpec.py`` (Chantier C1) -- despite living next to the real-data
+    reduction code, it was only ever called on model sequences (already Doppler-shifted/
+    injected by `quick_inject_clean` or `build_model_sequence` -- generating that sequence
+    is a distinct, earlier step, not part of this function). Merges what used to be two
+    near-duplicate functions, `build_trans_spectrum_mod2` and `build_trans_spectrum_mod_fast`
+    -- the latter was exactly the former with `reference_spec`/`ratio` left out (dividing by
+    a reference spectrum only matters when `flux` was injected into real reconstructed data;
+    the old `gen_model_sequence_noinj`'s default -- injecting into a flat sequence of ones --
+    made that division a no-op, hence the separate "fast" copy). `wave`/`noise`, accepted by
+    the old `build_trans_spectrum_mod2` but never actually used in its body, are dropped.
+
+    Parameters
+    ----------
+    flux : np.ndarray
+        Model sequence (n_exposures, n_orders, n_pixels), already built (Doppler-shifted,
+        combined) -- this function does not generate it.
+    pca : sklearn.decomposition.PCA
+        Already-fitted PCA object, the same one the real data was truncated with
+        (`transpec.apply_pca_truncation`).
+    reference_spec : np.ndarray, optional
+        Reference spectrum to divide by before PCA removal, matching
+        `Observations.reference_spec`. Left out (default) when `flux` was injected into a
+        flat baseline of ones, where dividing by it would be a no-op.
+    ratio : np.ndarray, optional
+        Extra normalization factor, applied (divided) before `reference_spec`.
+    n_pca : int, default 2
+        Number of PCA components to remove (see `transpec.remove_dem_pca_all`). No PCA
+        removal at all when 0.
+    n_comps : int, default 10
+        Passed through to `transpec.remove_dem_pca_all` (sigma-clipping component count).
+    norm : bool, default True
+        If True (default), normalize with `quick_norm` (removes the mean, same convention
+        as the real data). If False, just divide by the per-exposure/order mean.
+    somme : bool, default False
+        Passed through to `quick_norm`.
+    plot : bool, default False
+        Passed through to `transpec.remove_dem_pca_all` (diagnostic plot).
+
+    Returns
+    -------
+    np.ma.MaskedArray
+        PCA-truncated, normalized model sequence, same shape as `flux`.
+    """
+    flux_norm = flux / np.ma.median(flux, axis=-1)[:, :, None]
+    if ratio is not None:
+        flux_norm = flux_norm / ratio
+    if reference_spec is not None:
+        flux_norm = flux_norm / reference_spec
+
+    if n_pca > 0:
+        full_ts, _, _ = transpec.remove_dem_pca_all(
+            flux_norm, pca=pca, n_pcs=n_pca, n_comps=n_comps, plot=plot)
+    else:
+        full_ts = flux_norm
+
+    if norm:
+        final_ts = quick_norm(full_ts, somme=somme, take_all=False)
+    else:
+        final_ts = full_ts / np.ma.mean(full_ts, axis=-1)[:, :, None]
+
+    return final_ts
+
+
+def gen_model_sequence_noinj(
+    velocities: np.ndarray,
+    data_wave: Optional[np.ndarray] = None,
+    data_sep: Optional[np.ndarray] = None,
+    data_pca=None,
+    data_npc: Optional[int] = None,
+    planet=None,
+    model_wave: Optional[np.ndarray] = None,
+    model_spec: Optional[np.ndarray] = None,
+    alpha: Optional[np.ndarray] = None,
+    data_visit: Optional[dict] = None,
+    data_recon: Optional[np.ndarray] = None,
+    **kwargs,
+) -> np.ma.MaskedArray:
+    """Old combined-ratio model sequence: inject one model spectrum at a single rigid velocity.
+
+    Moved here from ``correlation.py`` (Chantier C1) -- it belongs with model generation,
+    not correlation. Kept only as a fallback path in ``logl_grid.py::_get_chi2_detailed``
+    for older saved model files that don't have ``Fp_high``/``Fstar_high`` split apart yet
+    (see ``load_model``). New code should use ``build_model_sequence`` instead, which
+    fixes Chantier A bug #2 (Fp/Fstar Doppler-shifted independently per exposure) -- this
+    function still has that bug for any model file that actually falls back to it.
+
+    Parameters
+    ----------
+    velocities : np.ndarray
+        Per-exposure velocities (km/s) at which to inject the model.
+    data_wave, data_sep, data_pca, data_npc : optional
+        Data-side quantities needed by the injection/PCA-removal step. Any left as
+        `None` are read from `data_visit` instead (see below).
+    planet : Planet
+        Used for `R_star`/`A_star`/`R_pl`.
+    model_wave, model_spec : np.ndarray
+        Native-resolution model wavelength/spectrum to inject.
+    alpha : np.ndarray of shape (n_spec,), optional
+        Fraction of planetary signal actually visible. Depends on `kind_trans`:
+        - transmission: fraction of the stellar disk hidden by the planet.
+        - emission: fraction of the planetary disk not hidden by the star.
+    data_visit : dict, optional
+        Fallback source for `data_wave`/`data_sep`/`data_pca`/`data_npc` when those
+        aren't passed directly (see `planet_obs.py::_visit_to_data_dict`).
+    data_recon : np.ndarray, optional
+        Reconstructed data sequence to inject the model into. Defaults to an array of
+        ones (inject into an otherwise-flat sequence), which is what every real caller
+        uses today.
+    **kwargs
+        Passed through to `spectrum.quick_inject_clean`.
+
+    Returns
+    -------
+    np.ma.MaskedArray
+        Model sequence, PCA-truncated the same way the data was.
+    """
+    if data_wave is None:
+        data_wave = data_visit['wave']
+
+    if data_sep is None:
+        data_sep = data_visit['sep']
+
+    if data_pca is None:
+        data_pca = data_visit['pca']
+    if data_npc is None:
+        data_npc = int(data_visit['params'][5])
+    if data_recon is None:
+        # -- Uncomment the other 2 lines if you want the full reconstructed data to inject the model in
+        data_recon = np.ones_like(data_wave)
+        # data_recon = data_visit['reconstructed']
+        # data_recon = data_recon/np.ma.median(data_recon,axis=-1)[:,:,None]/data_visit['ratio']/data_visit['reference_spec']
+
+    for arg in (planet, model_wave, model_spec):
+        if arg is None:
+            raise ValueError('`planet`, `model_wave` and `model_spec` need to be specified.')
+
+    # --- inject model in an empty sequence of ones
+    flux_inj, _ = spectrum.quick_inject_clean(data_wave, data_recon,
+                                               model_wave, model_spec,
+                                               velocities, data_sep, planet.R_star, planet.A_star,
+                                               RV=0.0, dv_star=0.,
+                                               R0=planet.R_pl, alpha=alpha, **kwargs)
+
+    # -- Remove the same number of pcas that were used to inject
+    model_seq = apply_pca_to_model(flux_inj, data_pca, n_pca=data_npc)
+
+    return model_seq
