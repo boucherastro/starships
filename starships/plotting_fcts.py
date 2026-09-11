@@ -1833,8 +1833,8 @@ def plot_airmass(visit, ax=None, marker='o', color='darkblue', label='Transit',
     return ax
 
 
-def plot_night_summary_NIRPS(visit, obs, ax=None, marker='o', color='darkblue',
-                              fig_name='', path_fig=None):
+def plot_night_summary(visit, obs, ax=None, marker='o', color='darkblue',
+                        fig_name='', path_fig=None):
     """Plot one visit's night-summary panels (S/N per order, airmass, S/N per exposure
     in the Y/H bands, H2O and other telluric pre-clean exponents, mean seeing).
 
@@ -1844,6 +1844,15 @@ def plot_night_summary_NIRPS(visit, obs, ax=None, marker='o', color='darkblue',
     seeing) not stored on `visit` itself -- these are read from `obs.headers` (the
     reduction's header collection, see Chantier B B2's `CADC` cleanup) rather than the
     now-removed `obs.headers_tellu`/`obs.headers_image`.
+
+    The seeing panel is instrument-agnostic (Chantier A Phase 4 follow-up, generalized
+    from the NIRPS-only `plot_night_summary_NIRPS`): it reads the header keyword name(s)
+    from `obs.instrument` (same convention as `instrument['airmass']`/`['bjd']`/etc.,
+    `starships.instruments`), either a single `'seeing'` key (one value per exposure,
+    e.g. SPIRou-APERO's `SGCSEE`) or a `'seeing_start'`/`'seeing_end'` pair averaged
+    together (e.g. NIRPS-APERO's ESO `HIERARCH ESO TEL AMBI FWHM START`/`END`). If
+    neither is defined for this instrument, the panel is left blank with a note instead
+    of raising -- not every instrument profile has a confirmed seeing keyword yet.
     """
     if ax is None:
         _, ax = plt.subplots(6, 1, figsize=(8, 15))
@@ -1895,16 +1904,27 @@ def plot_night_summary_NIRPS(visit, obs, ax=None, marker='o', color='darkblue',
     ax[4].axvspan(phase_t2, phase_t3, alpha=0.2)
     ax[4].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
 
-    start = np.array(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM START')[0])
-    end = np.array(obs.headers.get_all('HIERARCH ESO TEL AMBI FWHM END')[0])
-    mean_seeing = (start + end) / 2
+    instrument = getattr(obs, 'instrument', {}) or {}
+    if 'seeing' in instrument:
+        mean_seeing = np.array(obs.headers.get_all(instrument['seeing'])[0])
+    elif 'seeing_start' in instrument and 'seeing_end' in instrument:
+        start = np.array(obs.headers.get_all(instrument['seeing_start'])[0])
+        end = np.array(obs.headers.get_all(instrument['seeing_end'])[0])
+        mean_seeing = (start + end) / 2
+    else:
+        mean_seeing = None
 
-    ax[5].plot(visit.phase, mean_seeing, '-', marker=marker, color=color)
-    ax[5].set_ylabel('Mean seeing', fontsize=16)
-    ax[5].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
-    ax[5].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
-    ax[5].axvspan(phase_t2, phase_t3, alpha=0.2)
-    ax[5].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+    if mean_seeing is not None:
+        ax[5].plot(visit.phase, mean_seeing, '-', marker=marker, color=color)
+        ax[5].set_ylabel('Mean seeing', fontsize=16)
+        ax[5].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
+        ax[5].axvspan(phase_t1, phase_t4, alpha=0.2, label='Ingress/Egress')
+        ax[5].axvspan(phase_t2, phase_t3, alpha=0.2)
+        ax[5].axvspan(phase_t2, phase_t2, alpha=0.4, label='Total Transit')
+    else:
+        ax[5].text(0.5, 0.5, 'No seeing keyword registered for this instrument',
+                   ha='center', va='center', transform=ax[5].transAxes, fontsize=12)
+        ax[5].set_xlabel(r'Orbital phase ($\phi$)', fontsize=16)
 
     ax[0].get_figure().tight_layout()
 

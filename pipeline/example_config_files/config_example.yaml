@@ -94,9 +94,14 @@ reduction_params: {
   # last_tresh_lim: 5.0,
 }
 
-# Orders to plot reduction steps for
-# By default, will plot for orders 15, 33 and 41 in the Y, J and H bands
-idx_ord: [15, 33, 41]
+# Orders to plot reduction steps for (one figure per order, pipeline.reduction.reduction_plots).
+# null (default): use the instrument's own `diagnostic_orders` if it has one (e.g. NIRPS-APERO's
+# [15, 33, 41], in the Y/J/H bands for that instrument), else compute one representative order
+# per Y/J/H band automatically from this visit's real wavelength coverage
+# (pipeline.reduction.default_diagnostic_orders) -- works for any instrument without needing a
+# hand-tuned list (order indices/counts differ between instruments, e.g. SPIRou's 49 vs NIRPS's 75).
+# Set an explicit list here to override both.
+idx_ord: null
 
 # Exposures to remove for each night, keyed by visit_name, leave blank if none to remove.
 # These are now genuinely excluded from the reduction itself (reference spectrum, PCA), not

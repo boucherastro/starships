@@ -254,7 +254,10 @@ def bands(wave2d, band_list, cut=False):
     flat_list = [item for sublist in band_idx for item in sublist]
     
     if band_list == 'all':
-        flat_list = np.arange(0,49)
+        # Number of orders read from wave2d itself, not hardcoded (was `np.arange(0, 49)`,
+        # correct only for SPIRou's 49 orders -- wrong for any other instrument, e.g.
+        # NIRPS's 75, found while generalizing plot_night_summary for multi-instrument use).
+        flat_list = np.arange(wave2d.shape[0])
     
     return np.array(flat_list)
 

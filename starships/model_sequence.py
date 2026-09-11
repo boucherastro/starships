@@ -61,7 +61,7 @@ different cost tiers depending on whether the kernel varies with orbital phase:
   this only affects the opt-in multi-region case, never the default
   (``region_kernel=None``) path used by the rest of the pipeline.
 """
-from typing import Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import astropy.units as u
@@ -400,6 +400,65 @@ def precompute_theta_model(
         **retrieval_model_kwargs,
     )
 
+    # --- Step 2: degrade to `resolution` ---
+    # Factored out into degrade_fp_fstar() (Chantier A Phase 4) so a caller that needs
+    # the *same* native spectrum degraded to several different resolutions (e.g.
+    # retrieval.py::lnprob, one instrument resolution per visit) can generate it once
+    # per theta and degrade it separately per visit, instead of re-running the
+    # expensive native step (petitRADTRANS) once per visit for an identical result.
+    return degrade_fp_fstar(wave_trim, Fp_trim, Fstar_trim, resolution, native_resolution,
+                            theta_dict=theta_dict, planet=planet, rotation_kernel=rotation_kernel)
+
+
+def degrade_fp_fstar(
+        wave_native: np.ndarray,
+        Fp_native: np.ndarray,
+        Fstar_native: Optional[np.ndarray],
+        resolution: float,
+        native_resolution: float,
+        theta_dict: Optional[dict] = None,
+        planet=None,
+        rotation_kernel: Optional[str] = None,
+) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    """Degrade an already-generated native Fp/Fstar spectrum to `resolution` (Step 2 of
+    `precompute_theta_model`, factored out -- Chantier A Phase 4).
+
+    `precompute_theta_model` calls this right after `generate_native_fp_fstar`
+    (Step 1); it is exposed separately so a caller that needs one native spectrum
+    degraded to *several different* resolutions (e.g. `retrieval.py::lnprob`, one
+    instrument resolution per visit, potentially several visits/instruments per MCMC
+    step since Chantier A Phase 4's per-visit degradation fix) can generate the native
+    spectrum once per theta (via `generate_native_fp_fstar`/`_prepare_fp_native_by_region`)
+    and call this function once per resolution actually needed, instead of re-running
+    the expensive native petitRADTRANS step once per visit for an identical result
+    (found while investigating a stale "not optimal to re-compute the model for each
+    sequence" comment in `retrieval.py`).
+
+    Parameters
+    ----------
+    wave_native, Fp_native, Fstar_native : np.ndarray
+        Native (petitRADTRANS-resolution) wavelength/Fp/Fstar, as returned by
+        `generate_native_fp_fstar` -- NOT yet edge-trimmed. `Fstar_native` is `None`
+        in transmission (no separate stellar flux there).
+    resolution : float
+        Target resolving power for this call (e.g. one visit's instrument resolution).
+    native_resolution : float
+        Native/physical resolving power of `wave_native`/`Fp_native` (`Rbf`).
+    theta_dict, planet : optional
+        Forwarded to `_build_default_rotation_kernel` -- only needed when
+        `rotation_kernel` is not `None`.
+    rotation_kernel : {'transmission', 'emission'} or None, optional
+        Same phase-*independent* default rotation kernel as `precompute_theta_model`
+        -- applied to `Fp` (only) at native sampling, before degrading.
+
+    Returns
+    -------
+    wave : np.ndarray
+    Fp : np.ndarray
+        Degraded planet flux (transmission depth in transmission mode).
+    Fstar : np.ndarray or None
+        Degraded stellar flux, at the same resolution as `Fp`. `None` in transmission.
+    """
     # --- Optional default rotation kernel (Chantier A Phase 3, phase-independent) ---
     # Convolved at native sampling, *before* degrading to `resolution` -- same order
     # as the old spectrum.resampling(rot_ker=...) path (convolve first, degrade after)
@@ -409,22 +468,22 @@ def precompute_theta_model(
     default_kernel = _build_default_rotation_kernel(rotation_kernel, theta_dict, planet,
                                                      sampling_resolution=native_resolution)
     if default_kernel is not None:
-        Fp_trim = np.convolve(Fp_trim, default_kernel, mode='same')
+        Fp_native = np.convolve(Fp_native, default_kernel, mode='same')
 
     # Degrade the raw (petitRADTRANS-native-resolution) Fp down to `resolution`, evaluated
     # back on its own (trimmed) wavelength grid -- this is the "pre-convolution, once per
     # theta" step, done here rather than in the per-exposure loop of build_model_sequence().
-    Fp_pre = degrade_and_resample(wave_trim, Fp_trim, resolution=resolution,
-                                  input_resolution=native_resolution, sample=wave_trim)
+    Fp_pre = degrade_and_resample(wave_native, Fp_native, resolution=resolution,
+                                  input_resolution=native_resolution, sample=wave_native)
     Fp_pre = np.ma.masked_invalid(Fp_pre)
 
-    if Fstar_trim is not None:
+    if Fstar_native is not None:
         # Degrade Fstar with the exact same target resolution/grid as Fp. This matters:
         # Fp and Fstar must end up at the *same* resolution before build_model_sequence()
         # divides one by the other, otherwise the ratio would mix a smooth (still-native)
         # stellar spectrum with a properly-degraded planet spectrum.
-        Fstar_pre = degrade_and_resample(wave_trim, Fstar_trim, resolution=resolution,
-                                         input_resolution=native_resolution, sample=wave_trim)
+        Fstar_pre = degrade_and_resample(wave_native, Fstar_native, resolution=resolution,
+                                         input_resolution=native_resolution, sample=wave_native)
         Fstar_pre = np.ma.masked_invalid(Fstar_pre)
     else:
         # Transmission: no separate stellar flux to degrade.
@@ -433,7 +492,7 @@ def precompute_theta_model(
     # Drop the convolution boundary (same 15-point edge trim as prepare_model()) --
     # gauss_convolve()'s 'valid' mode already trims some of it, this removes what's left
     # of the edge region where the kernel didn't have a full window to work with.
-    wave_out = wave_trim[15:-15]
+    wave_out = wave_native[15:-15]
     Fp_out = Fp_pre[15:-15]
     Fstar_out = Fstar_pre[15:-15] if Fstar_pre is not None else None
 
@@ -798,3 +857,64 @@ def gen_model_sequence_noinj(
     model_seq = apply_pca_to_model(flux_inj, data_pca, n_pca=data_npc)
 
     return model_seq
+
+
+def group_visit_indices(keys: Sequence, grouping: str) -> List[List[int]]:
+    """Group visit indices for logL combination (Chantier A Phase 4).
+
+    The "scaling-free" logL prescription (Brogi & Line 2019 / Gibson 2020, see
+    ``logl_grid.py::_logl_from_chi2_terms``) pools raw chi2-like terms and N across
+    everything it is given, then takes the log *once* -- which implicitly assumes
+    a single shared noise-scaling nuisance parameter across everything pooled
+    together. Whether that assumption is appropriate depends on what is being
+    combined: multiple visits of the *same* instrument plausibly share one noise
+    character, but two genuinely different instruments (different DRS, different
+    systematics) usually don't -- and pooling them raises a harder problem before
+    that even matters: different instruments can have a different number of
+    spectral orders, which breaks the pooling outright (found on a real
+    SPIRou+NIRPS WASP-189b dataset, Phase 4 validation session).
+
+    This function only decides *which visits go in which group* -- the actual
+    per-group logL computation reuses the existing single-group code unchanged
+    (``_logl_from_chi2_terms`` in ``retrieval.py``/``logl_grid.py``), called once
+    per group; combining across groups is then just a sum of the resulting scalar
+    logL values (independent datasets -> additive log-likelihoods), not something
+    this function needs to do.
+
+    Parameters
+    ----------
+    keys : sequence
+        One grouping key per visit, e.g. ``instrum_param_list[i]['name']`` (the
+        physical instrument identity, stable across YAML aliases like ``'spirou'``
+        vs ``'SPIRou-APERO'``) for ``grouping='per_instrument'``. Ignored for
+        ``'all'``/``'per_visit'``.
+    grouping : {'all', 'per_visit', 'per_instrument'}
+        - ``'all'``: one group with every visit (the original, pre-Phase-4
+          behaviour -- requires every visit to share the same order layout, e.g.
+          a single-instrument run).
+        - ``'per_visit'``: each visit is its own group -- always safe, but never
+          shares a noise-scaling assumption across visits, even same-instrument
+          ones.
+        - ``'per_instrument'``: visits sharing the same key are pooled together
+          (numerically identical to ``'all'`` for a single-instrument run), each
+          distinct key becomes its own group.
+
+    Returns
+    -------
+    list of list of int
+        One list of visit indices per group, in first-occurrence order.
+    """
+    n = len(keys)
+    if grouping == 'all':
+        return [list(range(n))]
+    elif grouping == 'per_visit':
+        return [[i] for i in range(n)]
+    elif grouping == 'per_instrument':
+        groups = {}
+        for i, key in enumerate(keys):
+            groups.setdefault(key, []).append(i)
+        return list(groups.values())
+    else:
+        raise ValueError(
+            f"logl_grouping must be 'all', 'per_visit', or 'per_instrument', got {grouping!r}"
+        )

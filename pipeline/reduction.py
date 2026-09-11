@@ -9,6 +9,7 @@ interp1d_masked.iprint=False
 import astropy.constants as const
 import astropy.units as u
 import numpy as np
+import starships.analysis as a
 import starships.planet_obs as pl_obs
 from starships.planet_obs import Observations
 import starships.plotting_fcts as pf
@@ -300,12 +301,46 @@ def save_planet_signal(visit, nametag, scratch_dir, bad_indexs=[]):
     pl_obs.save_reduced_sequence(out_filename, visit, path=scratch_dir, bad_indexs=bad_indexs)
 
 
+def default_diagnostic_orders(visit, instrument, bands=('y', 'j', 'h')):
+    """One representative spectral order per band (Y/J/H), for `reduction_plots`'s
+    per-order diagnostic figures, when neither the reduction YAML (`idx_ord`) nor the
+    instrument profile (`diagnostic_orders`) gives an explicit list.
+
+    Derived from this visit's own real wavelength coverage (`analysis.bands`) instead
+    of a hardcoded index list, so it stays meaningful regardless of order numbering/
+    count differences between instruments (Chantier A Phase 4 follow-up -- found that
+    NIRPS's 75 orders don't line up with SPIRou's tuned order indices at all: order 41,
+    documented as "H band", actually falls in the middle of J band for a real
+    NIRPS-APERO/High-Efficiency reduction).
+    """
+    orders = []
+    for band in bands:
+        idx = a.bands(visit.wv, band)
+        if len(idx) > 0:
+            orders.append(int(np.median(idx)))
+    return orders
+
+
 def reduction_plots(config_dict, obs, visit, n_pc, path_fig, nametag):
+    # plot_night_summary reads instrument-specific header keywords (seeing, telluric
+    # exponents) via obs.instrument -- generic across instruments since the Chantier A
+    # Phase 4 follow-up (previously NIRPS-only, plot_night_summary_NIRPS, crashed for
+    # any other instrument, e.g. a real SPIRou-APERO dataset).
     if n_pc == config_dict['n_pc'][0]:
-        pf.plot_night_summary_NIRPS(visit, obs, path_fig=str(path_fig.parent.parent) + '/', fig_name='')
+        pf.plot_night_summary(visit, obs, path_fig=str(path_fig.parent.parent) + '/', fig_name='')
+
+    # Diagnostic orders for the per-order plots below: explicit YAML override first
+    # (config_dict['idx_ord']), then a static per-instrument default
+    # (instrument['diagnostic_orders'], only set for instruments it has been confirmed
+    # against), else computed from this visit's real data (default_diagnostic_orders).
+    idx_ord_list = config_dict.get('idx_ord')
+    if not idx_ord_list:
+        idx_ord_list = obs.instrument.get('diagnostic_orders')
+    if not idx_ord_list:
+        idx_ord_list = default_diagnostic_orders(visit, obs.instrument)
 
     # plot for specified orders
-    for idx_ord in config_dict['idx_ord']:
+    for idx_ord in idx_ord_list:
         pf.plot_steps(visit, idx_ord, path_fig=str(path_fig) + '/', fig_name = nametag + f'_ord{idx_ord}')
 
 

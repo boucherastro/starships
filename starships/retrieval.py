@@ -41,7 +41,7 @@ import starships.planet_obs as pl_obs
 from starships.planet_obs import Observations, Planet
 import starships.petitradtrans_utils as prt
 import starships.model_sequence as model_seq
-from starships.logl_grid import _chi2_from_terms
+from starships.logl_grid import _chi2_from_terms, _logl_from_chi2_terms
 from starships.homemade import unpack_kwargs_from_command_line, pop_kwargs_with_message, calc_shift
 from starships import retrieval_utils as ru
 from starships.retrieval_inputs import convert_cmd_line_to_types
@@ -500,10 +500,21 @@ def setup_retrieval(input_parameters, **kwargs):
     if retrieval_type == 'JR':
         assign_model_type(wv_range_high)
         
-    # --- Define the default resolution for high-res models ---
-    # The models at high resolution will be downgraded
-    # to the highest instruments resolution when generated.
-    # Then the model can be downgraded again to match other high-res instrument's
+    # --- Define the reference resolution for high-res models ---
+    # Chantier A Phase 4: each visit's per-exposure model sequence is now degraded
+    # to *its own* instrument's resolution (instrum_param_list[visit_i]['resol']),
+    # not this shared value -- a multi-instrument run must not compare a
+    # lower-resolution instrument's exposures to a model that was only ever
+    # blurred to a finer instrument's resolution. `res_instru` (the max across
+    # every high-res instrument in the run) is kept only as the resolution used
+    # to generate the single, visit-independent high-res model reused by JR's
+    # LOW RES block for spectrophotometric/photometric data whose wavelength
+    # range is fully covered by the high-res data (`model_type == 'high'`,
+    # `assign_model_type`) -- that path compares a static spectrum, not a
+    # per-exposure sequence, and is itself re-degraded to the low-res
+    # instrument's own (coarser) resolution by prepare_photometry/
+    # prepare_spectrophotometry, so using the finest available high-res model as
+    # its starting point is the right choice, not a leftover collapse.
     global res_instru
     res_instru = max([p_list['resol'] for p_list in instrum_param_list])
 
@@ -562,6 +573,19 @@ def setup_retrieval(input_parameters, **kwargs):
     # every target (Antoine-confirmed approximation) -- so the extra realism usually
     # is not worth requiring every dataset to have been re-saved with `vr` first.
     use_real_stellar_rv = input_params.get('use_real_stellar_rv', False)
+
+    # --- Chantier A Phase 4: HIGH RES logL combination across visits ---
+    # How to group visits before taking the log of the pooled scaling-free chi2
+    # terms (see model_sequence.group_visit_indices's docstring for the full
+    # reasoning). Default 'per_instrument': numerically identical to the old,
+    # always-pool-everything behaviour for any existing single-instrument config
+    # (multiple visits of the same instrument still end up in one group), but a
+    # multi-instrument run works out of the box instead of crashing (found on a
+    # real SPIRou+NIRPS WASP-189b dataset -- different instruments can have a
+    # different number of spectral orders, which the old unconditional pooling
+    # could not handle at all).
+    global logl_grouping
+    logl_grouping = input_params.get('logl_grouping', 'per_instrument')
 
     # rotation_kernel: phase-*independent* default rotation kernel applied once per
     # theta by model_sequence.precompute_theta_model (Chantier A Phase 3) -- vsini-
@@ -712,11 +736,21 @@ def get_complementary_ranges(ranges1, ranges2):
 
 def load_high_res_data():
     """This function needs to be run after ´­setup_retrieval´.
-    The function reads the input data and prepare it."""
+    The function reads the input data and prepare it.
 
-    global data_info, data_visits
+    Chantier A Phase 4: `data_info_list` keeps each visit's alpha_frac/icorr/N
+    separate (one dict per visit, same convention as `logl_grid.py`'s
+    `data_info_list`) instead of eagerly flattening everything into one
+    concatenated `data_info` dict -- the old flattening assumed every visit
+    shares the same number of spectral orders, which breaks for a genuinely
+    multi-instrument run (found on a real SPIRou+NIRPS WASP-189b dataset). How
+    (and whether) visits get pooled before the log-likelihood's log is taken is
+    now `lnprob`'s job, via `logl_grouping` (see `model_sequence.group_visit_indices`).
+    """
 
-    data_info = {'all_alpha_frac': [], 'all_icorr': [], 'all_N': [], 'bad_indexs': []}
+    global data_info_list, data_visits
+
+    data_info_list = []
     data_visits = []
 
     for high_res_file_stem, n_pc_i in zip(high_res_file_stem_list, n_pc):
@@ -732,20 +766,9 @@ def load_high_res_data():
         # all_alpha_frac is the fraction of the total planet signal received during the exposure.
         data_visit_i['i_pl_signal'] = data_info_i['all_alpha_frac'] > 0.5
         data_visits.append(data_visit_i)
-        # Patch for now data_info. Need to modify how the logl is computed to make it more clean.
-        # Would not work with different instruments
-        for key in ['all_alpha_frac', 'all_N', 'bad_indexs']:
-            data_info[key].append(data_info_i[key])
-        try:
-            data_info['all_icorr'].append(data_info_i['all_icorr'] + data_info['all_icorr'][-1][-1] + 1)
-        except IndexError:
-            data_info['all_icorr'].append(data_info_i['all_icorr'])
-    for key in data_info.keys():
-        data_info[key] = np.concatenate(data_info[key], axis=0)
+        data_info_list.append(data_info_i)
 
-    data_info['bad_indexs'] = None  # Leave it to None. Not implemented yet.
-
-    return data_info, data_visits
+    return data_info_list, data_visits
 
 
 def load_low_res_data(pad_n_res_elem=5):
@@ -1150,7 +1173,7 @@ def unpack_theta(theta):
                                         (theta_region['R_pl'] * const.R_jup) ** 2).cgs.value
             
         # Some values need to be set to None if not included in the fit or not in fixed_params.
-        for key in ['wind', 'p_cloud', 'gamma_scat', 'scat_factor', 'C/O', 'Fe/H', 'cloud_fraction']:
+        for key in ['wind', 'p_cloud', 'gamma_scat', 'scat_factor', 'C/O', 'Fe/H']:
             if key not in combined_dict:
                 combined_dict[key] = None
             
@@ -1214,15 +1237,24 @@ def prepare_abundances(theta_dict, mode=None, ref_linelists=None):
 
 
 def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
-                              species_dict=None, Raf=None, rot_ker=None,
-                              return_fp_fstar=False):
+                              species_dict=None, Raf=None, rot_ker=None):
     """Generate one theta's model spectrum, at high or low resolution.
 
     High res: petitRADTRANS spectrum degraded to instrument resolution (optionally
-    convolved with a multi-region kernel, see `rot_ker` below -- wind broadening
-    itself is handled elsewhere, see `return_fp_fstar`). Low res: petitRADTRANS
-    spectrum Doppler-shifted by the systemic velocity (see the comment in the
-    ``mode == 'low'`` branch below for why no per-exposure term is needed there).
+    convolved with a multi-region kernel, see `rot_ker` below). Low res:
+    petitRADTRANS spectrum Doppler-shifted by the systemic velocity (see the comment
+    in the ``mode == 'low'`` branch below for why no per-exposure term is needed
+    there).
+
+    Note: `lnprob`'s own HIGH RES model generation (Chantier A Phase 2-4) does not
+    go through this function -- it needs Fp/Fstar kept separate (not combined into
+    the ratio this function returns) so it can Doppler-shift them independently per
+    exposure, and (since Phase 4) generates the native spectrum once per theta and
+    degrades it once per visit instead of once per call. See
+    `_prepare_fp_native_by_region`/`model_sequence.degrade_fp_fstar`, called
+    directly from `lnprob` for that path. This function (and `prepare_model_multi_reg`
+    below) stays the combined-ratio entry point for every other caller (LOW RES,
+    `retrieval_utils.py` analysis/plotting, regression-test model generation).
 
     Parameters
     ----------
@@ -1241,32 +1273,13 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
         the configured instruments.
     rot_ker : object, optional
         Pre-built multi-region kernel (from `get_ker`, one region's array),
-        forwarded to `petitradtrans_utils.prepare_model` (`mode='high'`,
-        combined-ratio path only -- see `return_fp_fstar` below). `None` (default)
-        takes the plain Gaussian-degradation path.
-    return_fp_fstar : bool, default False
-        Chantier A Phase 2: if True, return Fp and Fstar kept separate (see
-        `_prepare_fp_fstar_high`) instead of the combined `Fp/Fstar` ratio, so the
-        caller can Doppler-shift them independently per exposure
-        (`model_sequence.build_model_sequence`) -- this is what fixes bug #2 (the
-        star's tiny reflex RV getting dragged at the planet's orbital velocity by the
-        old rigid combined-ratio shift). Only supported for `mode='high'` -- raises
-        `NotImplementedError` for `mode='low'`. Wind broadening (transmission) is
-        fully supported here too, via `_prepare_fp_fstar_high` ->
-        `precompute_theta_model`'s `rotation_kernel` argument (Chantier A Phase 3,
-        `rotation_kernel: 'transmission'` in the YAML) -- unlike the removed old
-        combined-ratio wind path, there is no longer a wind-specific restriction on
-        this flag.
+        forwarded to `petitradtrans_utils.prepare_model` (`mode='high'`). `None`
+        (default) takes the plain Gaussian-degradation path.
 
     Returns
     -------
     wv_all : np.ndarray
     model_all : np.ndarray
-        Only when `return_fp_fstar` is False (the default).
-    Fp_all : np.ndarray
-    Fstar_all : np.ndarray or None
-        Only when `return_fp_fstar` is True. `Fstar_all` is `None` in transmission
-        (no separate stellar flux there).
     """
     # Take the highest resolution among instruments
     if Raf is None:
@@ -1287,19 +1300,6 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
     # Note that if species is None (not specified), `linelist_names[mode]` will be used inside `prepare_abundances`.
     species = prepare_abundances(theta_dict, mode, species_dict)
 
-    if return_fp_fstar:
-        # Chantier A Phase 2: Fp/Fstar kept separate (instead of combined into a
-        # single ratio here), so the caller (lnprob) can Doppler-shift them
-        # independently per exposure -- see model_sequence.py, this is what fixes
-        # bug #2 (star's tiny reflex RV getting dragged at the planet's orbital
-        # velocity by the old rigid combined-ratio shift).
-        if mode != 'high':
-            raise NotImplementedError(
-                "return_fp_fstar=True only supports mode='high' -- Chantier A "
-                "Phase 2 scope. Use return_fp_fstar=False (the default) for mode='low'."
-            )
-        return _prepare_fp_fstar_high(theta_dict, atmo_obj_list, species, fct_star, Raf)
-
     # --- Generating the model
     args = [theta_dict[key] for key in ['pressures', 'temperatures', 'gravity', 'P0', 'p_cloud', 'R_pl', 'R_star']]
     kwargs = dict(gamma_scat=theta_dict['gamma_scat'],
@@ -1312,16 +1312,7 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
                     fct_star=fct_star)
     wv_all, model_all = list(), list()
     for atmo_obj in atmo_obj_list:
-        if theta_dict['cloud_fraction'] == None or theta_dict['cloud_fraction'] == 1:
-            wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
-        else:
-            cloud_f = theta_dict['cloud_fraction']
-            clear_f = 1 - cloud_f
-            wv_out, model_out_cloudy = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
-            theta_dict['p_cloud_clear'] = None
-            args_clear = [theta_dict[key] for key in ['pressures', 'temperatures', 'gravity', 'P0', 'p_cloud_clear', 'R_pl', 'R_star']]
-            wv_out, model_out_clear = prt.retrieval_model_plain(atmo_obj, species, planet, *args_clear, **kwargs)
-            model_out = (cloud_f * model_out_cloudy) + (clear_f * model_out_clear)
+        wv_out, model_out = prt.retrieval_model_plain(atmo_obj, species, planet, *args, **kwargs)
 
         if mode == 'high':
             # Downgrade the model. `rot_ker`, if given (from prepare_model_multi_reg's
@@ -1359,77 +1350,16 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
     return wv_all, model_all
 
 
-def _prepare_fp_fstar_high(theta_dict, atmo_obj_list, species, fct_star, Raf):
-    """High-res, Fp/Fstar-separated model generation for one theta (Chantier A Phase 2).
-
-    Mirrors the combined-ratio path in `prepare_model_high_or_low` above (same
-    `atmo_obj_list` loop, one entry per wavelength range/instrument, concatenated at
-    the end) but keeps Fp and Fstar apart instead of dividing them into a ratio here
-    -- that division now happens per exposure, after independent Doppler shifts, in
-    `model_sequence.build_model_sequence`.
-
-    The cloudy/clear blend (a special-cased branch in the old code) is done here with
-    `model_sequence.combine_regions`, generically, on Fp only -- Fstar does not
-    depend on cloud coverage, so the clear-sky call's Fstar (computed twice,
-    redundantly, but only when `cloud_fraction` is actually used) is simply not
-    reused; either one would be identical.
-    """
-    # `kind_trans` is passed positionally to precompute_theta_model() below -- kept
-    # out of this dict to avoid a duplicate-argument clash.
-    kwargs = dict(gamma_scat=theta_dict['gamma_scat'],
-                 kappa_factor=theta_dict['scat_factor'],
-                 C_to_O=theta_dict['C/O'],
-                 Fe_to_H=theta_dict['Fe/H'],
-                 specie_2_lnlst=linelist_names['high'],
-                 dissociation=dissociation)
-    native_res = prt_res['high']
-
-    wv_all, Fp_all, Fstar_all = [], [], []
-    for atmo_obj in atmo_obj_list:
-        if theta_dict['cloud_fraction'] is None or theta_dict['cloud_fraction'] == 1:
-            wv_out, Fp_out, Fstar_out = model_seq.precompute_theta_model(
-                atmo_obj, species, planet, theta_dict, kind_trans,
-                resolution=Raf, native_resolution=native_res, fct_star=fct_star,
-                rotation_kernel=rotation_kernel, **kwargs)
-        else:
-            # Same "regenerate with cloud=None" trick as the old combined-ratio path
-            # (there: a dedicated `p_cloud_clear` theta key set to None; here, a
-            # plain dict copy with `p_cloud` overridden -- simpler now that
-            # precompute_theta_model reads `theta_dict['p_cloud']` directly).
-            cloud_f = theta_dict['cloud_fraction']
-            clear_f = 1 - cloud_f
-            wv_out, Fp_cloudy, Fstar_out = model_seq.precompute_theta_model(
-                atmo_obj, species, planet, theta_dict, kind_trans,
-                resolution=Raf, native_resolution=native_res, fct_star=fct_star,
-                rotation_kernel=rotation_kernel, **kwargs)
-            theta_dict_clear = {**theta_dict, 'p_cloud': None}
-            _, Fp_clear, _ = model_seq.precompute_theta_model(
-                atmo_obj, species, planet, theta_dict_clear, kind_trans,
-                resolution=Raf, native_resolution=native_res, fct_star=fct_star,
-                rotation_kernel=rotation_kernel, **kwargs)
-            Fp_out = model_seq.combine_regions([Fp_cloudy, Fp_clear], [cloud_f, clear_f])
-
-        wv_all.append(wv_out)
-        Fp_all.append(Fp_out)
-        Fstar_all.append(Fstar_out)
-
-    wv_all = np.concatenate(wv_all)
-    Fp_all = np.concatenate(Fp_all)
-    # Fstar_all[i] is None for every i in transmission (no separate stellar flux);
-    # concatenate only makes sense when there is something real to concatenate.
-    Fstar_all = np.concatenate(Fstar_all) if Fstar_all[0] is not None else None
-
-    return wv_all, Fp_all, Fstar_all
-
-
 def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star, mode='high'):
     """Generate every region's native (undegraded) Fp for one visit.
 
     Chantier A Phase 3: true multi-region wiring into the Fp/Fstar-separated
     engine (`len(theta_regions) > 1`; `theta_regions` is an arbitrary user-defined
     split of the planet -- e.g. citrus/longitude slices, the documented example, but
-    nothing here assumes that specific geometry). Mirrors `_prepare_fp_fstar_high`'s
-    per-region/per-atmo_obj loop and cloudy/clear blend, but calls
+    nothing here assumes that specific geometry; also reused, as of Chantier A Phase
+    4, for the single-region case -- `lnprob` calls this once per theta regardless of
+    region count, see its HIGH RES block). Mirrors the combined-ratio path in
+    `prepare_model_high_or_low` (same per-region/per-atmo_obj loop) but calls
     `model_sequence.generate_native_fp_fstar` (no degradation) instead of
     `precompute_theta_model`: the per-exposure kernel built by `get_ker`
     already bakes in the resolution degradation (see
@@ -1473,22 +1403,9 @@ def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star, mode='h
                      dissociation=dissociation)
         wv_all, Fp_all, Fstar_all = [], [], []
         for atmo_obj in atmo_obj_list:
-            if theta_dict['cloud_fraction'] is None or theta_dict['cloud_fraction'] == 1:
-                wv_out, Fp_out, Fstar_out = model_seq.generate_native_fp_fstar(
-                    atmo_obj, species, planet, theta_dict, kind_trans,
-                    fct_star=fct_star, **kwargs)
-            else:
-                # Same "regenerate with cloud=None" trick as _prepare_fp_fstar_high.
-                cloud_f = theta_dict['cloud_fraction']
-                clear_f = 1 - cloud_f
-                wv_out, Fp_cloudy, Fstar_out = model_seq.generate_native_fp_fstar(
-                    atmo_obj, species, planet, theta_dict, kind_trans,
-                    fct_star=fct_star, **kwargs)
-                theta_dict_clear = {**theta_dict, 'p_cloud': None}
-                _, Fp_clear, _ = model_seq.generate_native_fp_fstar(
-                    atmo_obj, species, planet, theta_dict_clear, kind_trans,
-                    fct_star=fct_star, **kwargs)
-                Fp_out = model_seq.combine_regions([Fp_cloudy, Fp_clear], [cloud_f, clear_f])
+            wv_out, Fp_out, Fstar_out = model_seq.generate_native_fp_fstar(
+                atmo_obj, species, planet, theta_dict, kind_trans,
+                fct_star=fct_star, **kwargs)
             wv_all.append(wv_out)
             Fp_all.append(Fp_out)
             Fstar_all.append(Fstar_out)
@@ -1553,18 +1470,18 @@ def _build_multi_region_kernel(theta_regions, visit_i, mode='high', instrum=None
     return region_kernel
 
 
-def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf):
+def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf, native=None):
     """Fp/Fstar-separated model generation for the true multi-region case (Phase 3).
 
-    Counterpart to `_prepare_fp_fstar_high` for `len(theta_regions) > 1`: since the
-    per-region rotation kernel is phase-*dependent* in general (regions rotate
+    Counterpart to `lnprob`'s single-region path for `len(theta_regions) > 1`: since
+    the per-region rotation kernel is phase-*dependent* in general (regions rotate
     into/out of view across a visit), the per-region combination cannot happen once
-    per theta the way `_prepare_fp_fstar_high`/`combine_regions` do it for the
-    cloudy/clear blend -- it must happen once *per exposure*, inside
-    `build_model_sequence`'s `region_kernel` hook (see `_build_multi_region_kernel`,
-    `model_sequence.combine_regions_with_kernel`). This function only prepares what
-    is needed *before* the exposure loop: each region's native Fp (kept separate,
-    not yet combined) and the single shared, degraded Fstar.
+    per theta the way the single-region case degrades its one native spectrum -- it
+    must happen once *per exposure*, inside `build_model_sequence`'s `region_kernel` hook
+    (see `_build_multi_region_kernel`, `model_sequence.combine_regions_with_kernel`).
+    This function only prepares what is needed *before* the exposure loop: each
+    region's native Fp (kept separate, not yet combined) and the single shared,
+    degraded Fstar.
 
     Parameters
     ----------
@@ -1575,6 +1492,13 @@ def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf):
         Visit index, forwarded to `_build_multi_region_kernel`/`get_ker`.
     Raf : float
         Target (instrument) resolving power, used to degrade the shared Fstar.
+    native : tuple, optional
+        Pre-computed `(wave_native, Fp_by_region, Fstar_native)` from
+        `_prepare_fp_native_by_region`, reused across visits sharing the same theta
+        (Chantier A Phase 4 optimization -- the native spectrum depends only on
+        theta/region, never on the visit; only its degradation to `Raf` and its
+        per-exposure kernel genuinely do). Computed fresh internally, as before, when
+        not given.
 
     Returns
     -------
@@ -1590,15 +1514,18 @@ def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf):
         `region_kernel(wave, Fp_by_region, phase_i)` -> combined spectrum for that
         phase, ready for `build_model_sequence`.
     """
-    init_atmo_if_not_done('high')
-    n_wv_rng = len(globals()['wv_range_high'])
-    atmo_obj_list = [globals()[f'atmo_high_{i_rng}'] for i_rng in range(n_wv_rng)]
-    init_stellar_spectrum_if_not_done('high')
-    fct_star = globals()['fct_star_high']
     native_res = prt_res['high']
 
-    wave_native, Fp_by_region, Fstar_native = _prepare_fp_native_by_region(
-        theta_regions, atmo_obj_list, fct_star)
+    if native is None:
+        init_atmo_if_not_done('high')
+        n_wv_rng = len(globals()['wv_range_high'])
+        atmo_obj_list = [globals()[f'atmo_high_{i_rng}'] for i_rng in range(n_wv_rng)]
+        init_stellar_spectrum_if_not_done('high')
+        fct_star = globals()['fct_star_high']
+        wave_native, Fp_by_region, Fstar_native = _prepare_fp_native_by_region(
+            theta_regions, atmo_obj_list, fct_star)
+    else:
+        wave_native, Fp_by_region, Fstar_native = native
 
     if Fstar_native is not None:
         # Fstar is region-independent -- degrade the shared native spectrum the
@@ -1615,12 +1542,14 @@ def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf):
     return wave_out, Fp_by_region, Fstar_out, region_kernel_fct
 
 
-def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=None, visit_i=0, Raf=None,
-                            return_fp_fstar=False):
+def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=None, visit_i=0, Raf=None):
     """Generate and combine the model for every region in `theta_regions`.
 
     Calls `prepare_model_high_or_low` once per region in `theta_regions`, weights
     each region's contribution by its `spec_scale`, and sums them.
+
+    Note: `lnprob`'s own HIGH RES model generation does not call this function --
+    see `prepare_model_high_or_low`'s docstring.
 
     Parameters
     ----------
@@ -1638,22 +1567,11 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
         orbital phase of the planet signal, passed to `get_ker` as `phase`) and
         `instrum_param_list[visit_i]` (this visit's instrument, passed to `get_ker` as
         `instrum`) -- not otherwise forwarded to `get_ker` itself.
-    return_fp_fstar : bool, default False
-        Chantier A Phase 2: if True, keep Fp/Fstar separate (see
-        `prepare_model_high_or_low`) and combine the regions' Fp contributions with
-        `model_sequence.combine_regions` instead of `np.sum`. Fstar does not depend
-        on the region (same stellar spectrum for all of them), so it is taken
-        from the first region rather than combined. Same `mode='high'`-only
-        restriction as `prepare_model_high_or_low`.
 
     Returns
     -------
     wv_out : np.ndarray
     model_out : np.ndarray
-        Only when `return_fp_fstar` is False (the default).
-    Fp_out : np.ndarray
-    Fstar_out : np.ndarray or None
-        Only when `return_fp_fstar` is True.
     """
     # Mean orbital phase of the planet signal for this visit -- computed here (not
     # inside `get_ker`) because a custom `get_ker_file` is loaded as its own module
@@ -1665,31 +1583,6 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
     # Get the list of rotation kernels (one per region)
     rot_ker_list = get_ker(theta_regions, phase=mean_phase, planet=planet,
                            instrum=instrum_param_list[visit_i], model_resolution=prt_res[mode])
-
-    if return_fp_fstar:
-        # Chantier A Phase 2: same region combination as below, but on
-        # Fp/Fstar kept separate rather than an already-combined ratio.
-        wv_list, Fp_list, Fstar_list, weights = [], [], [], []
-        for theta_dict, reg_id in zip(theta_regions, region_id):
-            wv_i, Fp_i, Fstar_i = prepare_model_high_or_low(theta_dict, mode,
-                                                             rot_ker=rot_ker_list[reg_id - 1],
-                                                             atmo_obj=atmo_obj,
-                                                             Raf=Raf,
-                                                             return_fp_fstar=True)
-            wv_list.append(wv_i)
-            Fp_list.append(Fp_i)
-            Fstar_list.append(Fstar_i)
-            weights.append(theta_dict['spec_scale'])
-
-        # Region contributions summed generically (same mechanism as the
-        # cloudy/clear blend inside _prepare_fp_fstar_high above) instead of the
-        # bare `np.sum(model_list, axis=0)` used by the combined-ratio path below.
-        Fp_out = model_seq.combine_regions(Fp_list, weights)
-        # Fstar does not depend on the region (same fct_star, same
-        # wavelength grid for every region) -- any one of them is the same
-        # stellar spectrum, so there is nothing to combine here.
-        Fstar_out = Fstar_list[0]
-        return wv_list[0], Fp_out, Fstar_out
 
     wv_list = []
     model_list = []
@@ -2041,7 +1934,44 @@ def lnprob(theta, ):
         # For the rest, just use the first region (we only need general informations)
         theta_dict = theta_regions[0]
 
-        logl_i = []
+        # Chantier A Phase 3: true multi-region (more than one entry in theta_regions
+        # -- e.g. citrus/longitude slices, the documented get_ker example, but any
+        # user-defined region split works the same way) needs a per-exposure kernel
+        # -- regions rotate into/out of view across a visit, so they cannot be
+        # combined once per theta the way the single-region fast path below does.
+        # Same for every visit (depends only on theta_regions), hoisted out of the
+        # per-visit loop below.
+        is_multi_region = len(theta_regions) > 1
+
+        # Chantier A Phase 4 (optimization): the native (undegraded) petitRADTRANS
+        # spectrum depends only on theta/region, never on the visit -- generate it
+        # once per theta here (shared across every visit, even across different
+        # instruments/resolutions), instead of once per visit inside the loop below
+        # (a real, avoidable petitRADTRANS call per visit -- found investigating a
+        # stale "not optimal to re-compute the model for each sequence" comment;
+        # `_prepare_fp_native_by_region` already generalizes to a single region, so
+        # this covers both the multi-region and single-region cases identically).
+        # Only the per-visit degradation to that visit's own instrument resolution
+        # (`instru_res`, Phase 4) and, for multi-region, the per-exposure kernel
+        # genuinely depend on the visit.
+        init_atmo_if_not_done('high')
+        n_wv_rng_high = len(wv_range_high)
+        atmo_obj_list_high = [globals()[f'atmo_high_{i_rng}'] for i_rng in range(n_wv_rng_high)]
+        init_stellar_spectrum_if_not_done('high')
+        fct_star_high = globals()['fct_star_high']
+        native_res = prt_res['high']
+        wave_native, Fp_native_by_region, Fstar_native = _prepare_fp_native_by_region(
+            theta_regions, atmo_obj_list_high, fct_star_high)
+
+        if not all(np.isfinite(Fp_i[100:-100]).all() for Fp_i in Fp_native_by_region):
+            log.warning("NaN in high res model spectrum encountered")
+            return -np.inf
+
+        # Chantier A Phase 4: one entry per visit, kept separate (not pooled into
+        # one running concatenation) -- how visits get grouped before the log is
+        # taken is decided once, after this loop, by `logl_grouping` (see
+        # model_seq.group_visit_indices).
+        visit_terms = []
         # --- Computing the logL for all sequences
         for visit_i, data_visit_i in enumerate(data_visits):
 
@@ -2049,18 +1979,18 @@ def lnprob(theta, ):
                                 data_visit_i['t_start'] * u.d, planet.mid_tr,
                                 planet.period, plnt=True).value
 
-            # Chantier A Phase 3: true multi-region (more than one entry in
-            # theta_regions -- e.g. citrus/longitude slices, the documented
-            # get_ker example, but any user-defined region split works the same
-            # way) needs a per-exposure kernel -- regions rotate into/out of view
-            # across a visit, so they cannot be combined once per theta the way
-            # the single-region fast path below does. See
-            # prepare_model_multi_reg_high_per_exposure/_build_multi_region_kernel.
-            is_multi_region = len(theta_regions) > 1
+            # Chantier A Phase 4: degrade to *this visit's* own instrument
+            # resolution, not the shared res_instru (max across every high-res
+            # instrument in the run) -- a lower-resolution instrument's exposures
+            # must not be compared to a model that was only ever blurred to a finer
+            # instrument's resolution.
+            instru_res = instrum_param_list[visit_i]['resol']
 
             if is_multi_region:
                 wv_high, Fp_by_region, Fstar_high, region_kernel_fct = \
-                    prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, res_instru)
+                    prepare_model_multi_reg_high_per_exposure(
+                        theta_regions, visit_i, instru_res,
+                        native=(wave_native, Fp_native_by_region, Fstar_native))
 
                 if not all(np.isfinite(Fp_i[100:-100]).all() for Fp_i in Fp_by_region):
                     log.warning("NaN in high res model spectrum encountered")
@@ -2081,11 +2011,14 @@ def lnprob(theta, ):
                 Fp_high = region_kernel_fct(wv_high, Fp_by_region, mean_phase)
                 model_high = Fp_high / Fstar_high if Fstar_high is not None else Fp_high
             else:
-                # NOTE: Not optimal to re-compute the model for each sequence.
-                # Could be done once for all regions and then the rotation kernel
-                # could be applied to the model for each region depending on the phase.
-                wv_high, Fp_high, Fstar_high = prepare_model_multi_reg(
-                    theta_regions, 'high', visit_i=visit_i, Raf=res_instru, return_fp_fstar=True)
+                # Chantier A Phase 4: only the (cheap) degradation to this visit's
+                # own instrument resolution happens here now -- the (expensive)
+                # native spectrum was already generated once, above, outside this
+                # loop (`_prepare_fp_native_by_region`, with a single region).
+                wv_high, Fp_high, Fstar_high = model_seq.degrade_fp_fstar(
+                    wave_native, Fp_native_by_region[0], Fstar_native,
+                    resolution=instru_res, native_resolution=native_res,
+                    theta_dict=theta_dict, planet=planet, rotation_kernel=rotation_kernel)
 
                 if not np.isfinite(Fp_high[100:-100]).all():
                     log.warning("NaN in high res model spectrum encountered")
@@ -2154,31 +2087,79 @@ def lnprob(theta, ):
             model_norm = model_seq.apply_pca_to_model(
                 model_seq_i, data_visit_i['pca'], n_pca=n_pc) / data_visit_i['noise']
 
-            # Chi2 terms computed per order, then combined with the same formula
-            # logl_grid.py's get_logl() uses (`_chi2_from_terms`, Chantier A Phase
-            # 2) instead of the older correlation.py::calc_logl_BL_ord -- kept
-            # "nolog" (raw chi2, not yet log-transformed) here on purpose: the
-            # actual log is only taken once, after summing over all visits, by
-            # corr.sum_logl() below (same two-stage summation as the old path).
+            # Cross/squared terms computed per order, kept separate (not yet
+            # combined into chi2, not yet log-transformed) -- same terms
+            # logl_grid.py's get_logl() combines (`_chi2_from_terms`/
+            # `_logl_from_chi2_terms`, Chantier A Phase 2/4) instead of the older
+            # correlation.py::calc_logl_BL_ord. Kept per visit here (not pooled
+            # into a running concatenation across visits) so that grouping
+            # (`logl_grouping`, below) can pool exactly the visits it should --
+            # e.g. per instrument -- and no others.
             flux = data_visit_i['flux']
-            logl_tr = np.ma.zeros((model_norm.shape[0], model_norm.shape[1]))
+            ct_tr = np.ma.zeros((model_norm.shape[0], model_norm.shape[1]))
+            st_tr = np.ma.zeros((model_norm.shape[0], model_norm.shape[1]))
             for iOrd in range(model_norm.shape[1]):
                 if flux[:, iOrd].mask.all():
                     continue
-                ct = np.ma.sum(model_norm[:, iOrd] * flux[:, iOrd], axis=-1)
-                st = np.ma.sum(model_norm[:, iOrd] ** 2, axis=-1)
-                logl_tr[:, iOrd] = _chi2_from_terms(ct, st, data_visit_i['s2f'][:, iOrd])
+                ct_tr[:, iOrd] = np.ma.sum(model_norm[:, iOrd] * flux[:, iOrd], axis=-1)
+                st_tr[:, iOrd] = np.ma.sum(model_norm[:, iOrd] ** 2, axis=-1)
 
-            if not np.isfinite(logl_tr).all():
+            if not np.isfinite(_chi2_from_terms(ct_tr, st_tr, data_visit_i['s2f'])).all():
                 return -np.inf
 
-            logl_i.append(logl_tr)
+            data_info_i = data_info_list[visit_i]
+            visit_terms.append(dict(
+                ct=ct_tr, st=st_tr, sf=data_visit_i['s2f'],
+                N=data_info_i['all_N'], icorr=data_info_i['all_icorr'],
+                alpha_frac=data_info_i['all_alpha_frac'],
+                instrument=instrum_param_list[visit_i]['name'],
+            ))
 
-        logl_all_visits = np.concatenate(logl_i, axis=0)
-        log.debug(f'Shape of individual logl for all exposures (all visits combined): {logl_all_visits.shape}')
-        total += corr.sum_logl(logl_all_visits, data_info['all_icorr'], orders,
-                               data_info['all_N'], axis=0, del_idx=data_info['bad_indexs'], nolog=True,
-                               alpha=data_info['all_alpha_frac'])
+        # --- Chantier A Phase 4: group visits, then take the log once per group ---
+        # The scaling-free logL prescription (Brogi & Line 2019, `_logl_from_chi2_terms`,
+        # kind='BL') pools raw chi2 terms and N *within* a group and takes the log
+        # once for that group -- see model_seq.group_visit_indices's docstring for
+        # why grouping (not just concatenating everything, the old behaviour) is
+        # needed for a genuinely multi-instrument run, and why combining across
+        # groups afterward is just a sum of the resulting scalar logL values
+        # (independent datasets -> additive log-likelihoods), nothing fancier.
+        orders_sel = slice(None) if orders is None else orders
+        instrument_keys = [vt['instrument'] for vt in visit_terms]
+        for group in model_seq.group_visit_indices(instrument_keys, logl_grouping):
+            # Concatenate only this group's visits -- icorr is a per-visit index
+            # into that visit's own exposures, so it needs the same running
+            # offset the old code applied globally, just scoped to the group.
+            ct_list, st_list, sf_list, N_list, icorr_list, alpha_list = [], [], [], [], [], []
+            offset = 0
+            for visit_i in group:
+                vt = visit_terms[visit_i]
+                ct_list.append(vt['ct'])
+                st_list.append(vt['st'])
+                sf_list.append(vt['sf'])
+                N_list.append(vt['N'])
+                alpha_list.append(vt['alpha_frac'])
+                icorr_list.append(vt['icorr'] + offset)
+                offset += vt['ct'].shape[0]
+
+            ct_g = np.ma.concatenate(ct_list, axis=0)
+            st_g = np.ma.concatenate(st_list, axis=0)
+            sf_g = np.ma.concatenate(sf_list, axis=0)
+            N_g = np.ma.concatenate(N_list, axis=0)
+            alpha_g = np.concatenate(alpha_list, axis=0)
+            icorr_g = np.concatenate(icorr_list, axis=0)
+
+            # Per-exposure light-curve weighting (apply_alpha/all_alpha_frac):
+            # weighting the summed chi2 by alpha_frac is the same as weighting
+            # ct/st/sf individually before summing (linear in each term, model
+            # scaling alpha fixed at 1 here) -- matches the old
+            # correlation.py::sum_logl behaviour exactly.
+            w = alpha_g[icorr_g][:, None]
+            ct_sum = np.ma.sum(ct_g[icorr_g][:, orders_sel] * w)
+            st_sum = np.ma.sum(st_g[icorr_g][:, orders_sel] * w)
+            sf_sum = np.ma.sum(sf_g[icorr_g][:, orders_sel] * w)
+            N_sum = np.ma.sum(N_g[icorr_g][:, orders_sel])
+
+            total += _logl_from_chi2_terms(ct_sum, st_sum, sf_sum, N_sum)
 
     ###################
     # --- LOW RES --- #
@@ -2197,7 +2178,11 @@ def lnprob(theta, ):
         # If at least one instrument need the low-res model, then compute it
         model_type = [infos.get('model_type', 'low') for infos
                       in list(spectrophotometric_data.values()) + list(photometric_data.values())]
-        if 'low' in model_type:
+        # Captured before the per-instrument loop below shadows `model_type`
+        # with a single string per iteration.
+        needs_low_model = 'low' in model_type
+        needs_high_model = 'high' in model_type
+        if needs_low_model:
             # Chantier A Phase 3f: multi-region LOW RES, evaluated at a handful of
             # representative phases and averaged (`prepare_model_multi_reg_low`)
             # instead of ignoring every region but one -- see that function's
@@ -2210,6 +2195,23 @@ def lnprob(theta, ):
             if np.sum(np.isnan(model_low)) > 0:
                 log.info("NaN in low res model spectrum encountered")
                 return -np.inf
+
+        if needs_high_model:
+            # Chantier A Phase 4: this JR-only path (`model_type == 'high'`,
+            # `assign_model_type` -- a spectrophotometric/photometric dataset
+            # whose wavelength range is fully covered by the high-res data)
+            # compares a single static spectrum, not a per-exposure sequence, so
+            # it is generated independently here rather than reused from the
+            # HIGH RES block's per-visit loop above (which, since Phase 4, no
+            # longer shares one common resolution across visits -- reusing
+            # whatever visit happened to run last would make this synthesis
+            # depend on visit iteration order). Degraded to `res_instru` (the
+            # finest resolution among the run's high-res instruments), then
+            # re-degraded to each low-res instrument's own resolution by
+            # `prepare_photometry`/`prepare_spectrophotometry` below, same as
+            # before Phase 4.
+            wv_high_for_lowres, model_high_for_lowres = prepare_model_multi_reg(
+                theta_regions, 'high', visit_i=0, Raf=res_instru)
 
         # Iterate over all low-res spectrophotometric observations
         # NOTE: You may think that you can use the function to clean the following loop,
@@ -2229,7 +2231,7 @@ def lnprob(theta, ):
                 if model_type == 'low':
                     args = (wv_low, model_low, prt_res['low'], infos)
                 else:
-                    args = (wv_high, model_high, res_instru, infos, prt_res['high'])
+                    args = (wv_high_for_lowres, model_high_for_lowres, res_instru, infos, prt_res['high'])
                 # Generate the synthetic data
                 _, synt_data = prepare_fct(*args)        
                 
@@ -2247,7 +2249,16 @@ def lnprob(theta, ):
                 scale_uncert = theta_dict.get(f'log_f_{instru_name}', 1)
                 total += corr.calc_logl_chi2_scaled(data, uncert, synt_data, scale_uncert)
 
-        del wv_low, model_low
+        # Pre-existing latent bug fixed in passing (Chantier A Phase 4): these
+        # were deleted unconditionally, but only exist when their respective
+        # `needs_*_model` flag is True -- in JR, if `assign_model_type` ever
+        # assigned every low-res instrument to `model_type == 'high'` (none
+        # left needing the dedicated low-res model), the unconditional
+        # `del wv_low, model_low` would have raised a `NameError`.
+        if needs_low_model:
+            del wv_low, model_low
+        if needs_high_model:
+            del wv_high_for_lowres, model_high_for_lowres
 
     if retrieval_type != 'LRR':
         # Chantier A Phase 2: the Fp/Fstar-separated engine also sets Fp_high/

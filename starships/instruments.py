@@ -76,6 +76,13 @@ spirou['resol'] = 64000
 spirou['high_res_wv_lim'] = [0.9, 2.55]
 spirou['nord'] = 49
 spirou['npix'] = 4088
+# Seeing keyword for plotting_fcts.plot_night_summary (Chantier A Phase 4 follow-up) --
+# CFHT/SPIRou-APERO's real per-exposure seeing estimate, confirmed present (and
+# populated, unlike several other seeing-like keywords that are sentinel -9999.9 in
+# practice) on a real local WASP-33b/SPIRou header. `SGESEE` (its uncertainty) is not
+# currently read anywhere -- kept as a note here, not a second dict key, until a plot
+# actually wants it.
+spirou['seeing'] = 'SGCSEE'
 
 # nirps, apero DRS
 nirps_apero = dict()
@@ -91,6 +98,23 @@ nirps_apero['berv'] = 'BERV'
 nirps_apero['list_file_patterns'] = _nirps_apero_file_patterns
 nirps_apero['resol'] = 80000
 nirps_apero['high_res_wv_lim'] = [0.9, 1.98]
+# nord/npix confirmed from a real NIRPS-APERO (High Efficiency) reduction (WASP-189b,
+# Chantier A Phase 4 validation) -- previously unset here (only SPIRou/IGRINS had them).
+nirps_apero['nord'] = 75
+nirps_apero['npix'] = 4088
+# Seeing keywords for plotting_fcts.plot_night_summary -- ESO/VLT's ambient-seeing
+# estimate at the start/end of the exposure, averaged (same as the old
+# plot_night_summary_NIRPS-only behaviour).
+nirps_apero['seeing_start'] = 'HIERARCH ESO TEL AMBI FWHM START'
+nirps_apero['seeing_end'] = 'HIERARCH ESO TEL AMBI FWHM END'
+# Default diagnostic orders for pipeline.reduction.reduction_plots's per-order plots
+# (plotting_fcts.plot_steps), one per Y/J/H band -- known-good values reused from the
+# pre-existing config_example.yaml default (originally tuned for a NIRPS-APERO target).
+# Explicit override: config_dict['idx_ord'] in the reduction YAML. Automatic fallback
+# for any instrument without a static list here: pipeline.reduction's
+# default_diagnostic_orders, one representative order per band computed from the real
+# data actually loaded, no per-instrument list to keep in sync by hand.
+nirps_apero['diagnostic_orders'] = [15, 33, 41]
 # nirps, geneva/ESPRESSO DRS
 # implementing
 nirps_geneva = dict()
@@ -296,9 +320,20 @@ def read_all_sp_spirou_apero(path, file_list, wv_default=None, blaze_default=Non
     """
     Read all spectra
     Must have a list with all filename to read
+
+    Returns
+    -------
+    headers, wv, count, blaze, filenames, recon
+        `recon` (found while setting up the WASP-189b/SPIRou-APERO Chantier A Phase 4
+        validation dataset, same kind of format as the NIRPS-APERO case fixed in
+        Chantier B's B2 follow-up) is the embedded telluric reconstruction spectrum when
+        this file bundles flux/wave/blaze/recon for a fiber as extensions of the *same*
+        file (`FluxAB`/`WaveAB`/`BlazeAB`/`Recon`, no external blaze file, no separate
+        `list_recon`), or `None` when this file doesn't have one (the normal case --
+        recon then comes from a genuinely separate `list_recon` file list, as before).
     """
 
-    headers, count, wv, blaze = list_of_dict([]), [], [], []
+    headers, count, wv, blaze, recon = list_of_dict([]), [], [], [], []
     blaze_path = blaze_path or path
 
     headers_princ = list_of_dict([])
@@ -320,39 +355,67 @@ def read_all_sp_spirou_apero(path, file_list, wv_default=None, blaze_default=Non
             filenames.append(filename)
             hdul = fits.open(path / Path(filename))
 
-            header = hdul[0].header
+            # Some SPIRou-APERO DRS outputs bundle flux/wave/blaze for a fiber as
+            # extensions of the *same* file (e.g. `FluxAB`/`WaveAB`/`BlazeAB`, the
+            # science-combined fiber) instead of referencing an external blaze file by
+            # name (`CDBBLAZE` header keyword, looked up below) -- same kind of format
+            # as the NIRPS-APERO case handled by `read_all_sp_nirps_apero` (Chantier B,
+            # B2 follow-up). Unlike NIRPS's single-letter 'A'/'B' fibers, SPIRou's
+            # combined fiber is named 'AB' (two characters) -- read the suffix from the
+            # extension name itself (`hdu1_name[len('Flux'):]`) rather than assuming a
+            # single trailing character.
+            ext_names = [hdu.name for hdu in hdul]
+            hdu1_name = hdul[1].name
+            fiber = hdu1_name[len('Flux'):] if hdu1_name.startswith('Flux') else None
+            wave_ext, blaze_ext = f'Wave{fiber}', f'Blaze{fiber}'
+            embedded_calib = fiber is not None and wave_ext in ext_names and blaze_ext in ext_names
+
+            header = hdul[1].header if embedded_calib else hdul[0].header
             image = hdul[1].data
 
             headers.append(header)
             count.append(image)
 
-            try:
-                wv_file = wv_default or hdul[0].header['WAVEFILE']
-                with fits.open(path / Path(wv_file)) as f:
-                    wvsol = f[0].data
-            except (KeyError,FileNotFoundError) as e:
-                use_cheby = cheby or (header.get('WAVEPOLY', '') == 'Chebyshev')
-                if use_cheby:
-                    wvsol = fits2wavenew(image, header)
-                else:
-                    wvsol = fits2wave(image, header)
-
-            if blaze_default:
-                blaze_file = blaze_default
-            elif 'CDBBLAZE' in header:
-                blaze_file = header['CDBBLAZE']
+            if embedded_calib:
+                wvsol = hdul[wave_ext].data
+                blaze0 = hdul[blaze_ext].data
+                if 'Recon' in ext_names:
+                    recon.append(hdul['Recon'].data)
             else:
-                raise KeyError(
-                    f"Cannot find blaze file: 'CDBBLAZE' keyword missing from header of {filename}. "
-                    "Pass blaze_default=<filename> to read_all_sp_spirou_apero or fetch_data."
-                )
+                try:
+                    wv_file = wv_default or hdul[0].header['WAVEFILE']
+                    with fits.open(path / Path(wv_file)) as f:
+                        wvsol = f[0].data
+                except (KeyError,FileNotFoundError) as e:
+                    use_cheby = cheby or (header.get('WAVEPOLY', '') == 'Chebyshev')
+                    if use_cheby:
+                        wvsol = fits2wavenew(image, header)
+                    else:
+                        wvsol = fits2wave(image, header)
 
-            blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
+                if blaze_default:
+                    blaze_file = blaze_default
+                elif 'CDBBLAZE' in header:
+                    blaze_file = header['CDBBLAZE']
+                else:
+                    raise KeyError(
+                        f"Cannot find blaze file: 'CDBBLAZE' keyword missing from header of {filename}, "
+                        "and no embedded Wave*/Blaze* extensions found either. "
+                        "Pass blaze_default=<filename> to read_all_sp_spirou_apero or fetch_data."
+                    )
+
+                blaze0 = fits.getdata(blaze_path / Path(blaze_file), ext=1)
+
             blaze.append(blaze0)
-
             wv.append(wvsol/1000)
+            hdul.close()
 
-    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
+    # Only treat recon as available if every exposure actually had an embedded Recon
+    # extension -- a per-format property, not something that should vary per-exposure
+    # (same consistency check as read_all_sp_nirps_apero).
+    recon_out = np.array(recon) if len(recon) == len(filenames) and recon else None
+
+    return headers, np.array(wv), np.array(count), np.array(blaze), filenames, recon_out
 
 
 spirou['read_all_sp'] = read_all_sp_spirou_apero
