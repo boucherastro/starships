@@ -126,3 +126,40 @@ class TestPrepareModelMultiRegGetKerWiring:
         assert call['planet'] is not None
         # Only the two exposures where i_pl_signal is True enter the mean.
         assert call['phase'] == pytest.approx(np.mean([0.1, 0.2]))
+
+    def test_falls_back_to_ephemeris_phase_when_no_real_visit_exists(self, monkeypatch):
+        """Chantier A Phase 4 (c-k vs lbl per instrument): `lnprob`'s LOW RES block
+        calls this function with `visit_i=0` even for a pure LRR run on lbl-flagged
+        low-res data alone -- no real high-res visit, `data_visits` not even set as
+        a global (`load_high_res_data` only runs for JR/HRR). Found as a real
+        `NameError` while testing exactly this on real KELT-20b data (g395H_1/
+        g395H_2 both lbl, `instrum: []`)."""
+        calls = []
+
+        def fake_get_ker(theta_regions, phase=None, planet=None, instrum=None,
+                         model_resolution=None):
+            calls.append(dict(phase=phase, instrum=instrum))
+            return [None for _ in theta_regions]
+
+        def fake_prepare_model_high_or_low(theta_dict, mode, rot_ker=None, atmo_obj=None, Raf=None):
+            return np.array([1.0, 2.0]), np.array([0.1, 0.2])
+
+        monkeypatch.setattr(retrieval, 'get_ker', fake_get_ker, raising=False)
+        monkeypatch.setattr(retrieval, 'prepare_model_high_or_low', fake_prepare_model_high_or_low,
+                            raising=False)
+        monkeypatch.delattr(retrieval, 'data_visits', raising=False)
+        monkeypatch.setattr(retrieval, 'planet', _DummyPlanet(mid_tr_value=0.0, period_days=3.0),
+                            raising=False)
+        monkeypatch.setattr(retrieval, 'instrum_param_list', [], raising=False)
+        monkeypatch.setattr(retrieval, 'prt_res', {'high': 250_000}, raising=False)
+        monkeypatch.setattr(retrieval, 'region_id', [1], raising=False)
+        monkeypatch.setattr(retrieval, 'kind_trans', 'emission', raising=False)
+
+        theta_regions = [{'spec_scale': 1.0}]
+        retrieval.prepare_model_multi_reg(theta_regions, 'high', visit_i=0)
+
+        assert len(calls) == 1
+        # Mid-eclipse convention (same as get_representative_low_res_phases), not a
+        # crash, and no instrument metadata to forward (none exists).
+        assert calls[0]['phase'] == 0.5
+        assert calls[0]['instrum'] is None

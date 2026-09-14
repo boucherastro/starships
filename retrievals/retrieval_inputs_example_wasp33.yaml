@@ -36,10 +36,21 @@ n_pc:
   
 # Dictionary of path to spectrophotometric data (ex: JWST, HST)
 # If empty, no spectrophotometric data will be used
+# Each instrument entry may set `opacity_mode: 'c-k'` (default, not shown below) or
+# `'lbl'` to model it with full line-by-line opacities instead of the coarser c-k
+# ones (Chantier A Phase 4). This is opt-in per instrument, so the (much slower) lbl
+# cost is only paid where actually needed. Under the hood, `opacity_mode: 'lbl'` folds
+# that instrument's wavelength range into the high-res one and reuses the high-res
+# model for it (same mechanism as an instrument whose range happens to already be
+# covered by a real high-res spectrograph) -- works with or without a real high-res
+# instrument in `instrum` above (a retrieval can run on lbl-flagged low-res data alone).
+# See retrievals/opacity_mode_explained.md for the full picture (all scenarios, cost,
+# limitations).
 spectrophotometric_data:
-#   wfc3: 
+#   wfc3:
 #     file_path: '~/projects/def-dlafre/adb/Observations/HST/WFC3'
 #     file_name: 'WASP-33_WFC3_full_res.ecsv'
+#     opacity_mode: 'c-k'  # or 'lbl' -- optional, defaults to 'c-k' if absent
 
 # Dictionary of path to photometric data (ex: Spitzer)
 # If empty, no photometric data will be used

@@ -12,7 +12,7 @@ import os
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import yaml
 import logging
 import numpy as np
@@ -471,18 +471,55 @@ def setup_retrieval(input_parameters, **kwargs):
 
     # --- Setup wavelength range ---
     global instrum_param_list, wv_range_high, wv_range_low
-    # Get wv_range for each high_res instrument
     instrum_param_list = [load_instrum(instrum_name) for instrum_name in instrum]
+
+    # Low-res data is loaded first (instead of after wv_range_high, as before
+    # Chantier A Phase 4) because building wv_range_high below now needs to know
+    # which spectrophotometric instruments, if any, opted into `opacity_mode: 'lbl'`.
+    load_low_res_data()
+    load_photometry()
+
+    # --- High resolution wavelength range ---
+    # Chantier A Phase 4 (c-k vs lbl per instrument, Antoine 2026-09-11): a
+    # spectrophotometric instrument can opt into `opacity_mode: 'lbl'` (new
+    # per-instrument YAML key under `spectrophotometric_data`, default 'c-k' --
+    # unchanged behaviour for every existing config) to be modelled with full
+    # lbl (line-by-line) opacities instead of the coarser c-k ones. Rather than
+    # inventing a separate low-res "lbl" model (its own atmo object, its own
+    # species/linelist selection, its own resolution knob), such an instrument
+    # is simply treated as *another high-res instrument*: its wavelength range
+    # is folded into wv_range_high below, so it gets its own (or a shared, if
+    # overlapping) `atmo_high_i` object, exactly like a real high-res
+    # spectrograph's range from `load_instrum`. This lets it flow through the
+    # existing `assign_model_type`/`model_type == 'high'` reuse path (Phase 4,
+    # earlier this session): full-resolution lbl model generated once, then
+    # re-degraded to its own (coarser) resolution by `prepare_spectrophotometry`
+    # downstream, same as any other low-res instrument that happens to be fully
+    # covered by the high-res data. No YAML key exists for `photometric_data`:
+    # whether a given photometric instrument ends up using the lbl-backed model
+    # or the default c-k one simply falls out of the same coverage check every
+    # other low-res instrument already goes through in `assign_model_type` --
+    # lbl if its own wavelength range happens to be fully covered by the (now
+    # lbl-extended) wv_range_high, c-k otherwise. `instrum` (hence
+    # instrum_param_list) may be completely empty here -- a retrieval can be run
+    # on lbl-flagged spectrophotometric data alone, with no real high-res
+    # instrument at all (see the res_instru fallback below).
+    lbl_spectrophotometric_ranges = get_lbl_spectrophotometric_ranges(spectrophotometric_data)
+
     wv_range_high = [instrum_param['high_res_wv_lim'] for instrum_param in instrum_param_list]
+    wv_range_high += lbl_spectrophotometric_ranges
     wv_range_high = get_wv_range(wv_range_high)
     log.info(f'wavelength range for model at high res: {wv_range_high}')
 
-    # Define the low resolution wavelength range based on low resolution data
+    # --- Low resolution (c-k) wavelength range ---
     # NOTE: The low-res models are taking less memory, so we model the full range,
     #       even the regions in between where there is no data.
-    load_low_res_data()
-    load_photometry()
-    wv_range_all_low = [infos['wv_range'] for infos in spectrophotometric_data.values()]
+    #       lbl-flagged spectrophotometric instruments are excluded here -- they
+    #       are modelled through wv_range_high/atmo_high above instead (see the
+    #       comment block above), and will always be assigned `model_type ==
+    #       'high'` below since their own range is now always part of wv_range_high.
+    wv_range_all_low = [infos['wv_range'] for infos in spectrophotometric_data.values()
+                         if infos.get('opacity_mode', 'c-k') != 'lbl']
     wv_range_all_low += [infos['wv_range'] for infos in photometric_data.values()]
 
     if retrieval_type != 'LRR':
@@ -490,16 +527,27 @@ def setup_retrieval(input_parameters, **kwargs):
         # It won't necessarily be used, but it is useful for analysis later on.
         # So add it to the list of wv_range
         wv_range_all_low.append([np.min(wv_range_high), np.max(wv_range_high)])
-    
-    # The low resolution data will model the full range
-    wv_range_low = [[np.min(wv_range_all_low), np.max(wv_range_all_low)]]
+
+    # The low resolution data will model the full range.
+    wv_range_low = get_wv_range_low(wv_range_all_low)
     log.info(f'wavelength range for model at low res: {wv_range_low}')
-    
+
     # Assign (to each low res dataset) which kind of model (high or low)
-    # will be used to compare with the data (only use in JR mode)
-    if retrieval_type == 'JR':
+    # will be used to compare with the data. Normally JR-only (the low-res
+    # data can only reuse the high-res model when a real high-res block also
+    # runs) -- but also run whenever an lbl-flagged spectrophotometric
+    # instrument is present, regardless of retrieval_type: that instrument has
+    # no other path to actually get its lbl model without this assignment
+    # running (see the wv_range_high comment block above).
+    if (retrieval_type == 'JR') or lbl_spectrophotometric_ranges:
         assign_model_type(wv_range_high)
         
+    # --- Resolution of the planet model ---
+    # Moved ahead of res_instru below (Chantier A Phase 4, c-k vs lbl): res_instru's
+    # empty-instrum_param_list fallback needs prt_res['high'] already defined.
+    global prt_res
+    prt_res = {'high': int(1e6 / opacity_sampling), 'low': 1000}
+
     # --- Define the reference resolution for high-res models ---
     # Chantier A Phase 4: each visit's per-exposure model sequence is now degraded
     # to *its own* instrument's resolution (instrum_param_list[visit_i]['resol']),
@@ -516,7 +564,7 @@ def setup_retrieval(input_parameters, **kwargs):
     # prepare_spectrophotometry, so using the finest available high-res model as
     # its starting point is the right choice, not a leftover collapse.
     global res_instru
-    res_instru = max([p_list['resol'] for p_list in instrum_param_list])
+    res_instru = get_res_instru(instrum_param_list, prt_res['high'])
 
     # --- Initialize model objects to None ---
     # Initialize atmo objects based on the wavelength ranges (put None for now)
@@ -528,10 +576,6 @@ def setup_retrieval(input_parameters, **kwargs):
     # Same for the stellar spectra
     for mode in ['high', 'low']:
         globals()[f'fct_star_{mode}'] = None
-
-    # --- Resolution of the planet model ---
-    global prt_res
-    prt_res = {'high': int(1e6 / opacity_sampling), 'low': 1000}
 
     # --- Chantier A Phase 3f: representative phases for LOW RES multi-region ---
     # Low-res data (photometry/spectrophotometry) is usually integrated over a whole
@@ -780,6 +824,12 @@ def load_low_res_data(pad_n_res_elem=5):
     The function reads the data file (found in `spectrophotometric_data`),
     extracts the wavelengths, data, uncertainties, instrument resolution, and wavelength range.
 
+    Each instrument's entry may also set `opacity_mode: 'c-k'` (default) or
+    `'lbl'` (Chantier A Phase 4). `'lbl'` models that instrument with full
+    line-by-line opacities instead of the coarser c-k ones, by folding its
+    wavelength range into the high-res one (`setup_retrieval`) instead of the
+    low-res one -- see `setup_retrieval`'s wv_range_high comment block for why.
+
     Args:
     pad_n_res_elem (int, optional):
         The number of resolution elements to use for padding the wavelength range. 
@@ -959,13 +1009,141 @@ def load_photometry(model_res=250, pad_n_res_elem=5):
             infos['wv_range'] = [wv_min, wv_max]
 
     return photometric_data
-    
-def assign_model_type(wv_rng_list_high):
+
+
+def get_lbl_spectrophotometric_ranges(spectrophotometric_data_dict: Dict[str, dict]) -> List[list]:
+    """Wavelength ranges of spectrophotometric instruments using `opacity_mode: 'lbl'`.
+
+    Chantier A Phase 4 (c-k vs lbl per instrument): pure helper factored out of
+    `setup_retrieval` so the folding-into-`wv_range_high` decision (see that
+    function's wv_range_high comment block) is unit-testable without needing to
+    run the whole, heavily side-effectful `setup_retrieval`.
+
+    Parameters
+    ----------
+    spectrophotometric_data_dict : dict
+        `spectrophotometric_data`, keyed by instrument name. Each value is
+        expected to already have a `'wv_range'` key (set by `load_low_res_data`)
+        and may optionally have an `'opacity_mode'` key (`'c-k'` or `'lbl'`,
+        defaults to `'c-k'` if absent -- unchanged behaviour for existing configs).
+
+    Returns
+    -------
+    list of [float, float]
+        `wv_range` of every instrument with `opacity_mode == 'lbl'`, in
+        dictionary iteration order. Empty if none (the common case today).
+    """
+    return [infos['wv_range'] for infos in spectrophotometric_data_dict.values()
+            if infos.get('opacity_mode', 'c-k') == 'lbl']
+
+
+def get_res_instru(instrum_param_list: List[dict], native_high_res_resolution: float) -> float:
+    """Reference resolution used to generate the high-res model reused by the LOW
+    RES block for spectrophotometric/photometric data (`res_instru` in
+    `setup_retrieval`, see that function's comment block for the full rationale).
+
+    Chantier A Phase 4 (c-k vs lbl per instrument): pure helper factored out of
+    `setup_retrieval` for the same reason as `get_lbl_spectrophotometric_ranges` --
+    `instrum_param_list` can now be empty (a retrieval running entirely on
+    lbl-flagged low-res data, no real high-res instrument at all), a case with no
+    real HR-instrument data available on any dataset used so far this session, so
+    worth covering with a direct unit test rather than only by reasoning.
+
+    Parameters
+    ----------
+    instrum_param_list : list of dict
+        One `load_instrum(...)` dict per real high-res instrument in `instrum`.
+        May be empty.
+    native_high_res_resolution : float
+        Fallback resolution when `instrum_param_list` is empty (`prt_res['high']`
+        in `setup_retrieval` -- the model's own native lbl sampling resolution,
+        so no degradation happens at this stage; `prepare_spectrophotometry`/
+        `prepare_photometry` re-degrade to each instrument's own, coarser,
+        resolution downstream anyway).
+
+    Returns
+    -------
+    float
+        `max(p['resol'] for p in instrum_param_list)` if non-empty, else
+        `native_high_res_resolution`.
+    """
+    if instrum_param_list:
+        return max(p_list['resol'] for p_list in instrum_param_list)
+    return native_high_res_resolution
+
+
+def get_wv_range_low(wv_range_all_low: List[list]) -> List[list]:
+    """The single wavelength range the low-res (c-k) model will be generated over
+    (`wv_range_low` in `setup_retrieval`), spanning the min/max of every input range.
+
+    Chantier A Phase 4 (c-k vs lbl per instrument): pure helper factored out of
+    `setup_retrieval`, mainly to guard a real crash found on real data (not just a
+    hypothetical edge case): `wv_range_all_low` can be genuinely empty when every
+    low-res instrument is lbl-flagged (folded into `wv_range_high` instead) and
+    there is no photometric data either, in a pure LRR run (no high-res-range
+    padding fallback) -- `np.min`/`np.max` raise `ValueError` on an empty array.
+
+    Parameters
+    ----------
+    wv_range_all_low : list of [float, float]
+        Every c-k low-res instrument's `wv_range` (plus, outside LRR, the full
+        high-res range -- see `setup_retrieval`), not yet merged/reduced.
+
+    Returns
+    -------
+    list of [float, float]
+        `[[min, max]]` over every input range, or `[]` if `wv_range_all_low` is
+        itself empty (no dedicated low-res model is needed at all in that case).
+    """
+    if wv_range_all_low:
+        return [[np.min(wv_range_all_low), np.max(wv_range_all_low)]]
+    return []
+
+
+def get_low_res_dv_shift(theta_dict: dict) -> float:
+    """Systemic-velocity Doppler shift (km/s) applied to a low-res model spectrum
+    -- one with no genuine per-exposure timing of its own to track BERV/orbital
+    motion with (unlike high-res, where `data_visit['RV_const']` already bakes in
+    RV_sys, BERV and the mean orbital velocity at mid-transit, see `norv_sequence`
+    in planet_obs.py). Only the (fixed) systemic velocity matters, plus the same
+    `rv` residual parameter used in high-res, so a Joint Retrieval fits a single
+    shared RV offset for both resolutions.
+
+    Shared by every low-res-model caller: `prepare_model_high_or_low`'s `mode ==
+    'low'` branch, `prepare_model_multi_reg_low` (any `mode`), and `lnprob`'s LOW
+    RES block (Chantier A Phase 4's `model_type == 'high'` reuse path, single-region
+    case -- the multi-region case gets this for free through
+    `prepare_model_multi_reg_low`, called with `mode='high'` there).
+
+    Parameters
+    ----------
+    theta_dict : dict
+        Any one region's parameter dict (as produced by `unpack_theta`) with an
+        `'rv'` key -- `rv` is a shared, not per-region, parameter, so any region
+        gives the same value.
+
+    Returns
+    -------
+    float
+        `planet.RV_sys` (km/s) + `theta_dict['rv']` (defaults to 0.0 if absent).
+    """
+    return planet.RV_sys.to(u.km / u.s).value + theta_dict.get('rv', 0.0)
+
+
+def assign_model_type(wv_rng_list_high: List[list]) -> None:
     """Assign the kind of model (high res or low res) that will be used
     to create synthetic data. The input is the list of wavelength ranges
     that are covered by the high res models. If one of these ranges covers
     entirely the data of a specific instrument, then the high res model is used.
-    The low res model is used otherwise."""
+    The low res model is used otherwise.
+
+    Chantier A Phase 4 (c-k vs lbl per instrument): a spectrophotometric
+    instrument with `opacity_mode: 'lbl'` has its own wavelength range folded
+    into `wv_rng_list_high` by the caller (`setup_retrieval`), so it is always
+    assigned 'high' here -- that is how it gets its lbl model. A photometric
+    instrument (no `opacity_mode` key) is assigned 'high' the same way any
+    other low-res instrument would be: only if it happens to be fully covered
+    by `wv_rng_list_high`, lbl-extended or not."""
     
     for data_dict in [spectrophotometric_data, photometric_data]:
         for infos in data_dict.values():
@@ -1330,15 +1508,9 @@ def prepare_model_high_or_low(theta_dict, mode, atmo_obj=None, fct_star=None,
 
         elif mode == 'low':
             # --- Applying the Doppler shift due to the star's systemic velocity ---
-            # Unlike high-res (where `data_visit['RV_const']` already bakes in RV_sys,
-            # BERV and the mean orbital velocity at mid-transit, see `norv_sequence`
-            # in planet_obs.py), the low-res model is generated at rest and never
-            # shifted otherwise. Low-res data is usually averaged over a whole
-            # transit, so there is no per-exposure BERV/orbital term to track here:
-            # only the (fixed) systemic velocity matters, plus the same `rv`
-            # residual parameter used in high-res, so a Joint Retrieval fits a
-            # single shared RV offset for both resolutions.
-            dv_shift = planet.RV_sys.to(u.km / u.s).value + theta_dict.get('rv', 0.0)
+            # See get_low_res_dv_shift's docstring for why low-res never gets a
+            # per-exposure BERV/orbital term the way high-res does.
+            dv_shift = get_low_res_dv_shift(theta_dict)
             wv_out = wv_out * calc_shift(dv_shift, kind='rel')
 
         wv_all.append(wv_out)
@@ -1566,7 +1738,18 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
         Transit/visit index. Used to select `data_visits[visit_i]` (to compute the mean
         orbital phase of the planet signal, passed to `get_ker` as `phase`) and
         `instrum_param_list[visit_i]` (this visit's instrument, passed to `get_ker` as
-        `instrum`) -- not otherwise forwarded to `get_ker` itself.
+        `instrum`) -- not otherwise forwarded to `get_ker` itself. If there is no real
+        high-res visit at `visit_i` (Chantier A Phase 4: `lnprob`'s LOW RES block calls
+        this function with `visit_i=0` even for a pure LRR run on lbl-flagged low-res
+        data alone, with no real high-res visit whatsoever -- `data_visits` may not
+        even exist as a global in that case, since `load_high_res_data` is only called
+        for JR/HRR), falls back to an ephemeris-only representative phase (same
+        mid-eclipse/mid-transit convention as `get_representative_low_res_phases`) and
+        `instrum=None`. Harmless when `get_ker` is the default no-op (`get_ker_file:
+        null`, ignores both arguments) -- only actually changes the result if a
+        phase/instrument-aware custom `get_ker` is combined with a run that has no real
+        high-res visit at all (unusual: such kernels are normally used with real
+        per-exposure high-res time series).
 
     Returns
     -------
@@ -1577,12 +1760,18 @@ def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=Non
     # inside `get_ker`) because a custom `get_ker_file` is loaded as its own module
     # and cannot see `data_visits`/`planet`, retrieval.py's own globals, just by naming
     # them (see `ru.load_custom_get_ker`'s docstring).
-    all_phases = (data_visits[visit_i]['t_start'] - planet.mid_tr.value) / planet.period.to('d').value % 1
-    mean_phase = np.mean(all_phases[data_visits[visit_i]['i_pl_signal']])
+    data_visits_avail = globals().get('data_visits', [])
+    if visit_i < len(data_visits_avail):
+        all_phases = (data_visits_avail[visit_i]['t_start'] - planet.mid_tr.value) / planet.period.to('d').value % 1
+        mean_phase = np.mean(all_phases[data_visits_avail[visit_i]['i_pl_signal']])
+        instrum_for_ker = instrum_param_list[visit_i]
+    else:
+        mean_phase = 0.5 if kind_trans == 'emission' else 0.0
+        instrum_for_ker = None
 
     # Get the list of rotation kernels (one per region)
     rot_ker_list = get_ker(theta_regions, phase=mean_phase, planet=planet,
-                           instrum=instrum_param_list[visit_i], model_resolution=prt_res[mode])
+                           instrum=instrum_for_ker, model_resolution=prt_res[mode])
 
     wv_list = []
     model_list = []
@@ -1665,8 +1854,11 @@ def get_representative_low_res_phases(planet, kind_trans, n_phases=None):
     return phases % 1
 
 
-def prepare_model_multi_reg_low(theta_regions):
-    """Generate and combine the LOW RES model for every region (Chantier A Phase 3f).
+def prepare_model_multi_reg_low(theta_regions, mode: str = 'low'):
+    """Generate and combine a whole-visit (no genuine per-exposure timing) model for
+    every region, averaged over a handful of representative phases instead of a real
+    exposure sequence (Chantier A Phase 3f; `mode='high'` added in Chantier A Phase
+    4 -- see below).
 
     LOW RES counterpart to `prepare_model_multi_reg_high_per_exposure`: reuses the
     exact same multi-region kernel machinery (`_prepare_fp_native_by_region`,
@@ -1687,10 +1879,7 @@ def prepare_model_multi_reg_low(theta_regions):
     spectra are then simply averaged. No per-exposure Doppler shift is needed here
     (`vrp_orb=vr_orb=0`): unlike high-res, low-res only ever applies a single,
     fixed Doppler shift (systemic velocity + `rv`), the same regardless of phase,
-    applied once after the region combination -- same as the single-region path
-    below (see `prepare_model_high_or_low`'s `mode == 'low'` branch for the
-    pre-existing, unchanged caveat about the RV frame of space-based low-res
-    instruments).
+    applied once after the region combination -- see `get_low_res_dv_shift`.
 
     No explicit resolution degradation happens here (unlike the HIGH RES per-
     exposure path, which degrades `Fstar` to `Raf` once) -- `prepare_photometry`/
@@ -1701,37 +1890,56 @@ def prepare_model_multi_reg_low(theta_regions):
     twice (the same class of bug fixed by Chantier A Phase 1 -- conflating an
     already-degraded resolution with the model's true physical resolution).
 
+    `mode='high'` (Chantier A Phase 4): `lnprob`'s LOW RES block reuses this same
+    function, unchanged beyond the `mode` string, for spectrophotometric/
+    photometric instruments whose data is synthesized from the high-res model
+    (`model_type == 'high'` -- a real high-res spectrograph's range, or an
+    `opacity_mode: 'lbl'` low-res instrument's own range folded into
+    `wv_range_high`). That reuse is *also* a whole-visit-integrated comparison with
+    no genuine per-exposure timing (spectrophotometric/photometric data is not a
+    real high-res exposure sequence, regardless of which atmo objects generate the
+    underlying spectrum) -- the same representative-phase averaging applies
+    uniformly, whether or not a real high-res visit happens to exist elsewhere in
+    the run (previously, this reuse path pulled a real visit's own mean phase via
+    `prepare_model_multi_reg`'s `visit_i`, a mismatch: that visit's timing has
+    nothing to do with the low-res data being synthesized, and simply didn't exist
+    for a pure LRR run on lbl-flagged low-res data alone).
+
     Parameters
     ----------
     theta_regions : list of dict
         One dict per region (`len(theta_regions) > 1`), as produced by
         `unpack_theta`.
+    mode : {'low', 'high'}, default 'low'
+        Which resolution's atmo objects/species/stellar spectrum to use
+        (`wv_range_{mode}`, `atmo_{mode}_i`, `fct_star_{mode}`, `prt_res[mode]`,
+        `linelist_names[mode]` via `_prepare_fp_native_by_region`).
 
     Returns
     -------
     wv_out : np.ndarray
     model_out : np.ndarray
-        Same signature as `prepare_model_high_or_low(theta_dict, 'low')`.
+        Same signature as `prepare_model_high_or_low(theta_dict, mode)`.
     """
-    init_atmo_if_not_done('low')
-    n_wv_rng = len(globals()['wv_range_low'])
-    atmo_obj_list = [globals()[f'atmo_low_{i_rng}'] for i_rng in range(n_wv_rng)]
-    init_stellar_spectrum_if_not_done('low')
-    fct_star = globals()['fct_star_low']
+    init_atmo_if_not_done(mode)
+    n_wv_rng = len(globals()[f'wv_range_{mode}'])
+    atmo_obj_list = [globals()[f'atmo_{mode}_{i_rng}'] for i_rng in range(n_wv_rng)]
+    init_stellar_spectrum_if_not_done(mode)
+    fct_star = globals()[f'fct_star_{mode}']
 
     wave_native, Fp_by_region, Fstar_native = _prepare_fp_native_by_region(
-        theta_regions, atmo_obj_list, fct_star, mode='low')
+        theta_regions, atmo_obj_list, fct_star, mode=mode)
 
     # `get_ker`'s documented contract reads `instrum['resol']` (see
     # `retrievals/retrieval_inputs_example_rotation.yaml`'s "Rotation kernel
     # function" block) -- low-res instrument dicts (`spectrophotometric_data`/
     # `photometric_data`) use the key `'res'` instead, and there is no single
     # low-res "instrument" the way there is a high-res visit
-    # (`instrum_param_list[visit_i]`) -- `prt_res['low']`, the model's own native
+    # (`instrum_param_list[visit_i]`) -- `prt_res[mode]`, the model's own native
     # sampling resolution, is the only resolution genuinely defined at this stage.
-    instrum_low = {'resol': prt_res['low']}
-    region_kernel_fct = _build_multi_region_kernel(theta_regions, visit_i=0, mode='low',
-                                                    instrum=instrum_low)
+    instrum_for_ker = {'resol': prt_res[mode]}
+    region_kernel_fct = _build_multi_region_kernel(theta_regions, visit_i=0, mode=mode,
+                                                    instrum=instrum_for_ker)
 
     # Edge-trim to match combine_regions_with_kernel's convolution-boundary
     # convention (same 15-point trim as prepare_model_multi_reg_high_per_exposure's
@@ -1754,23 +1962,82 @@ def prepare_model_multi_reg_low(theta_regions):
     # for HIGH RES time series compared against PCA-detrended data around a unity
     # baseline), not the raw depth/ratio itself. LOW RES callers downstream
     # (`prepare_photometry`/`prepare_spectrophotometry`, and the single-region
-    # `prepare_model_high_or_low`'s `mode == 'low'` branch they also consume) all
-    # expect the raw, unwrapped quantity (`Fp/Fstar` in emission, transit depth in
-    # transmission) -- undo the injection formula here (`alpha=1.0`, so this is
-    # exact, not an approximation) rather than changing what every other LOW RES
-    # consumer expects.
+    # `prepare_model_high_or_low` path they also consume) all expect the raw,
+    # unwrapped quantity (`Fp/Fstar` in emission, transit depth in transmission) --
+    # undo the injection formula here (`alpha=1.0`, so this is exact, not an
+    # approximation) rather than changing what every other LOW RES consumer expects.
     if kind_trans == 'emission':
         model_avg = injected_avg - 1.0
     else:
         model_avg = 1.0 - injected_avg
 
     # Same fixed systemic-velocity shift as the single-region low-res path
-    # (`prepare_model_high_or_low`'s `mode == 'low'` branch) -- applied once, after
-    # averaging, since it is the same for every representative phase.
-    dv_shift = planet.RV_sys.to(u.km / u.s).value + theta_regions[0].get('rv', 0.0)
+    # (`get_low_res_dv_shift`) -- applied once, after averaging, since it is the
+    # same for every representative phase.
+    dv_shift = get_low_res_dv_shift(theta_regions[0])
     wv_out = wave_out * calc_shift(dv_shift, kind='rel')
 
     return wv_out, model_avg
+
+
+def prepare_static_model(theta_regions, mode: str, Raf: Optional[float] = None, atmo_obj=None):
+    """Generate a whole-visit (no genuine per-exposure timing) model spectrum, for
+    any region count and mode -- the single entry point for this need (Chantier A
+    Phase 3f/4), used both by `lnprob`'s LOW RES block (`needs_low_model`/
+    `needs_high_model`) and by post-retrieval analysis
+    (`retrieval_utils.get_contribution`), so both compute this the exact same way.
+
+    Dispatches to `prepare_model_multi_reg_low` (multi-region: phase-averaged over
+    `representative_phases_low`, `Raf`/`atmo_obj` unused -- see that function's
+    docstring for why no explicit degradation happens there) or
+    `prepare_model_high_or_low` (single-region: no combination needed) +
+    `get_low_res_dv_shift` applied explicitly for `mode != 'low'`
+    (`prepare_model_high_or_low`'s `mode == 'low'` branch already applies it
+    internally; `prepare_model_multi_reg_low` applies it internally for every mode).
+
+    Parameters
+    ----------
+    theta_regions : list of dict
+        One dict per region, as produced by `unpack_theta`.
+    mode : {'low', 'high'}
+    Raf : float, optional
+        Target resolving power for the single-region, `mode != 'low'` path only
+        (forwarded to `prepare_model_high_or_low`). Defaults to `get_res_instru`
+        (safe even with no real high-res instrument at all) if not given --
+        `lnprob` passes its own precomputed `res_instru` instead of recomputing it
+        every call; other callers (e.g. `get_contribution`, for post-retrieval
+        analysis) can just omit it.
+    atmo_obj : optional
+        Forwarded to `prepare_model_high_or_low` (single-region only -- the
+        multi-region path always uses the module's own cached atmo objects for
+        `mode`, see `prepare_model_multi_reg_low`).
+
+    Returns
+    -------
+    wv_out : np.ndarray
+    model_out : np.ndarray
+    actual_res : float
+        The resolving power `model_out` is actually at: `prt_res[mode]` (native --
+        multi-region, or single-region `mode == 'low'`) or the single-region
+        `mode != 'low'` path's effective `Raf`. Callers that degrade further
+        downstream (e.g. `prepare_photometry`/`prepare_spectrophotometry`) must use
+        this, not assume a fixed resolution regardless of region count.
+    """
+    if len(theta_regions) > 1:
+        wv_out, model_out = prepare_model_multi_reg_low(theta_regions, mode=mode)
+        return wv_out, model_out, prt_res[mode]
+
+    if mode != 'low' and Raf is None:
+        Raf = get_res_instru(instrum_param_list, prt_res['high'])
+
+    wv_out, model_out = prepare_model_high_or_low(theta_regions[0], mode, Raf=Raf, atmo_obj=atmo_obj)
+
+    if mode == 'low':
+        return wv_out, model_out, prt_res['low']
+
+    dv_shift = get_low_res_dv_shift(theta_regions[0])
+    wv_out = wv_out * calc_shift(dv_shift, kind='rel')
+    return wv_out, model_out, Raf
 
 
 def prepare_photometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_res: float, data_info: dict,
@@ -2183,35 +2450,37 @@ def lnprob(theta, ):
         needs_low_model = 'low' in model_type
         needs_high_model = 'high' in model_type
         if needs_low_model:
-            # Chantier A Phase 3f: multi-region LOW RES, evaluated at a handful of
-            # representative phases and averaged (`prepare_model_multi_reg_low`)
-            # instead of ignoring every region but one -- see that function's
-            # docstring. Single-region path (all real configs today) unchanged.
-            if len(theta_regions) > 1:
-                wv_low, model_low = prepare_model_multi_reg_low(theta_regions)
-            else:
-                wv_low, model_low = prepare_model_high_or_low(theta_dict, 'low')
+            # Chantier A Phase 3f/4: whole-visit model (no genuine per-exposure
+            # timing), any region count -- see `prepare_static_model`'s docstring.
+            wv_low, model_low, _ = prepare_static_model(theta_regions, 'low')
 
             if np.sum(np.isnan(model_low)) > 0:
                 log.info("NaN in low res model spectrum encountered")
                 return -np.inf
 
         if needs_high_model:
-            # Chantier A Phase 4: this JR-only path (`model_type == 'high'`,
+            # Chantier A Phase 4: this path (`model_type == 'high'`,
             # `assign_model_type` -- a spectrophotometric/photometric dataset
-            # whose wavelength range is fully covered by the high-res data)
-            # compares a single static spectrum, not a per-exposure sequence, so
-            # it is generated independently here rather than reused from the
-            # HIGH RES block's per-visit loop above (which, since Phase 4, no
-            # longer shares one common resolution across visits -- reusing
-            # whatever visit happened to run last would make this synthesis
-            # depend on visit iteration order). Degraded to `res_instru` (the
-            # finest resolution among the run's high-res instruments), then
-            # re-degraded to each low-res instrument's own resolution by
-            # `prepare_photometry`/`prepare_spectrophotometry` below, same as
-            # before Phase 4.
-            wv_high_for_lowres, model_high_for_lowres = prepare_model_multi_reg(
-                theta_regions, 'high', visit_i=0, Raf=res_instru)
+            # whose wavelength range is fully covered by the high-res data: a
+            # real high-res spectrograph's range, or an `opacity_mode: 'lbl'`
+            # low-res instrument's own range folded into wv_range_high) compares
+            # a single static, whole-visit spectrum, not a per-exposure sequence
+            # -- exactly the same situation `needs_low_model` above is in, just
+            # sourced from the high-res atmo objects instead of the dedicated
+            # low-res ones (`prepare_static_model`, mode='high', regardless of
+            # whether a real high-res visit happens to exist elsewhere in this
+            # run -- previously, this path pulled a real visit's own mean phase
+            # via `prepare_model_multi_reg`'s `visit_i`, a mismatch: that
+            # visit's timing has nothing to do with the low-res data being
+            # synthesized here, and simply doesn't exist at all for a pure LRR
+            # run on lbl-flagged low-res data alone). `model_high_for_lowres_res`
+            # (the resolution `model_high_for_lowres` is actually at -- varies
+            # with region count, see `prepare_static_model`'s docstring) is
+            # needed by the per-instrument loop below, which re-degrades to each
+            # low-res instrument's own (coarser) resolution by
+            # `prepare_photometry`/`prepare_spectrophotometry`.
+            wv_high_for_lowres, model_high_for_lowres, model_high_for_lowres_res = \
+                prepare_static_model(theta_regions, 'high', Raf=res_instru)
 
         # Iterate over all low-res spectrophotometric observations
         # NOTE: You may think that you can use the function to clean the following loop,
@@ -2231,7 +2500,8 @@ def lnprob(theta, ):
                 if model_type == 'low':
                     args = (wv_low, model_low, prt_res['low'], infos)
                 else:
-                    args = (wv_high_for_lowres, model_high_for_lowres, res_instru, infos, prt_res['high'])
+                    args = (wv_high_for_lowres, model_high_for_lowres, model_high_for_lowres_res,
+                             infos, prt_res['high'])
                 # Generate the synthetic data
                 _, synt_data = prepare_fct(*args)        
                 

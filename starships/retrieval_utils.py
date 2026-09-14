@@ -3375,24 +3375,32 @@ def normalize_spec_sample(spec_sample, wave=None, shift_fct=None, wv_norm=None, 
 
 
 def get_contribution(list_of_species, retrieval_obj, theta_regions, mode='low', atmo_obj=None):
-    """ Get the contribution by keeping only the species in `list_of_species`"""
-    
+    """ Get the contribution by keeping only the species in `list_of_species`.
+
+    Uses `retrieval_obj.prepare_static_model` (Chantier A Phase 4) -- the same
+    whole-visit, representative-phase-averaged (multi-region) or single-region +
+    explicit RV-shift entry point `lnprob`'s LOW RES block uses, so a contribution
+    plot made here matches what the retrieval actually fit against (previously
+    `prepare_model_multi_reg`, a real-visit-`phase`-based mismatch for spectro-
+    photometric/photometric analysis -- see `prepare_static_model`'s docstring).
+    """
+
     # Copy input dict (so you don't modify the input object)
     theta_reg_single = [dict(theta_dict) for theta_dict in theta_regions]
 
     # Init outputs
     out_spec = dict()
-    
+
     # Spec with all species
-    wv, out_spec['All'] = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+    wv, out_spec['All'], _ = retrieval_obj.prepare_static_model(theta_reg_single, mode, atmo_obj=atmo_obj)
 
     # Spec without any opacity (apart from CIA for H2-H2 and He-H2 which are always there)
     all_species = retrieval_obj.line_opacities + retrieval_obj.continuum_opacities
     for theta_dict in theta_reg_single:
         for specie in all_species:
             theta_dict[specie] = 1e-99
-            
-    _, out_spec['No Species'] = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+
+    _, out_spec['No Species'], _ = retrieval_obj.prepare_static_model(theta_reg_single, mode, atmo_obj=atmo_obj)
 
 
     # Iterate over input species
@@ -3418,7 +3426,7 @@ def get_contribution(list_of_species, retrieval_obj, theta_regions, mode='low', 
                 if specie in specie_name:
                     theta_dict[specie] = 1e-99
         
-        _, spec_no_specie = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+        _, spec_no_specie, _ = retrieval_obj.prepare_static_model(theta_reg_single, mode, atmo_obj=atmo_obj)
                 
         # ===========================================================
         # Spec with only the targetted species contribution
@@ -3433,7 +3441,7 @@ def get_contribution(list_of_species, retrieval_obj, theta_regions, mode='low', 
                 if specie not in specie_name:
                     theta_dict[specie] = 1e-99
                     
-        _, spec_specie_only = retrieval_obj.prepare_model_multi_reg(theta_reg_single, mode=mode, atmo_obj=atmo_obj)
+        _, spec_specie_only, _ = retrieval_obj.prepare_static_model(theta_reg_single, mode, atmo_obj=atmo_obj)
 
         # Save it in output
         out_spec[f'Without {specie_key}'] = spec_no_specie

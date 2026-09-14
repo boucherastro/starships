@@ -58,6 +58,21 @@ class _DummyPlanet:
             self.RV_sys = _DummyQuantity(rv_sys_kms)
 
 
+class TestGetLowResDvShift:
+    """Chantier A Phase 4: extracted from `prepare_model_high_or_low`'s `mode ==
+    'low'` branch so `prepare_model_multi_reg_low` (any mode) and `lnprob`'s LOW
+    RES block (single-region `model_type == 'high'` reuse) can all share the exact
+    same formula instead of three separately-written copies."""
+
+    def test_combines_systemic_velocity_and_rv_residual(self, monkeypatch):
+        monkeypatch.setattr(retrieval, 'planet', _DummyPlanet(rv_sys_kms=5.0), raising=False)
+        assert retrieval.get_low_res_dv_shift({'rv': 1.0}) == 6.0
+
+    def test_rv_defaults_to_zero_if_absent(self, monkeypatch):
+        monkeypatch.setattr(retrieval, 'planet', _DummyPlanet(rv_sys_kms=5.0), raising=False)
+        assert retrieval.get_low_res_dv_shift({}) == 5.0
+
+
 class TestGetRepresentativeLowResPhases:
     """Ephemeris-only, circular-orbit approximation (Antoine: eccentricity-aware
     orbit code elsewhere in the package is unreliable, so deliberately not used
@@ -253,6 +268,55 @@ class TestPrepareModelMultiRegLow:
         # `prepare_model_high_or_low`'s `mode == 'low'` branch.
         expected_shift = calc_shift(6.0, kind='rel')
         np.testing.assert_allclose(wv_out, wave_trimmed * expected_shift, rtol=1e-10)
+
+    def test_mode_high_uses_the_high_res_globals(self, monkeypatch):
+        """Chantier A Phase 4: `lnprob`'s LOW RES block reuses this function with
+        `mode='high'` for spectrophotometric/photometric data synthesized from the
+        high-res model (`model_type == 'high'`) when there is no real high-res
+        visit to pull a per-exposure phase from (previously handled by
+        `prepare_model_multi_reg`'s `visit_i`, which doesn't apply here -- see
+        that function's docstring). Same orchestration as `mode='low'` above,
+        just reading the `_high` globals instead of `_low` ones."""
+        wave_native = np.linspace(1.999, 2.001, 200)
+        Fp_region_0 = np.full(wave_native.shape, 1.0)
+
+        def fake_prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star, mode='high'):
+            assert mode == 'high'
+            assert atmo_obj_list == ['fake_atmo_high']
+            assert fct_star == 'fake_fct_star_high'
+            return wave_native, [Fp_region_0], None
+
+        def fake_build_multi_region_kernel(theta_regions, visit_i=0, mode='high', instrum=None):
+            assert mode == 'high'
+            assert instrum == {'resol': 250_000}
+            return lambda wave, Fp_by_region, phase_i: Fp_by_region[0][15:-15]
+
+        monkeypatch.setattr(retrieval, '_prepare_fp_native_by_region',
+                            fake_prepare_fp_native_by_region, raising=False)
+        monkeypatch.setattr(retrieval, '_build_multi_region_kernel',
+                            fake_build_multi_region_kernel, raising=False)
+        monkeypatch.setattr(retrieval, 'init_atmo_if_not_done', lambda mode: None, raising=False)
+        monkeypatch.setattr(retrieval, 'init_stellar_spectrum_if_not_done', lambda mode: None,
+                            raising=False)
+        monkeypatch.setattr(retrieval, 'wv_range_high', [(1.9, 2.1)], raising=False)
+        monkeypatch.setattr(retrieval, 'atmo_high_0', 'fake_atmo_high', raising=False)
+        monkeypatch.setattr(retrieval, 'fct_star_high', 'fake_fct_star_high', raising=False)
+        # transmission (not emission): no Fstar needed -- build_model_sequence requires
+        # a real Fstar for emission (raises ValueError otherwise), irrelevant to what
+        # this test actually checks (mode threading to the _high globals).
+        monkeypatch.setattr(retrieval, 'kind_trans', 'transmission', raising=False)
+        monkeypatch.setattr(retrieval, 'prt_res', {'high': 250_000}, raising=False)
+        monkeypatch.setattr(retrieval, 'planet', _DummyPlanet(rv_sys_kms=0.0), raising=False)
+        monkeypatch.setattr(retrieval, 'representative_phases_low', np.array([0.5]),
+                            raising=False)
+
+        theta_regions = [dict(spec_scale=1.0)]
+        wv_out, model_out = retrieval.prepare_model_multi_reg_low(theta_regions, mode='high')
+
+        wave_trimmed = wave_native[15:-15]
+        # Single region, transmission, Fp_region_0 = 1.0 -> raw depth = 1.0 (same
+        # convention as TestPrepareModelMultiRegLow's mode='low' test above).
+        np.testing.assert_allclose(model_out, np.full(wave_trimmed.shape, 1.0))
 
     def test_emission_unwraps_the_injection_formula_correctly(self, monkeypatch):
         """Same regression as above, `kind_trans='emission'` branch (`1 + depth`,
