@@ -1766,6 +1766,1025 @@ class CitrusRotationKernel(BaseKerMulti):
 
 
 #####################################################
+# --- Hotspot + wind rotation kernel (Chantier A) ---
+#####################################################
+#
+# Unlike CitrusRotationKernel above, whose analytic chord-length trick
+# (citrus_to_ker) only works because solid-body rotation makes v_los depend
+# on longitude alone, a genuine 2D brightness feature (a displaced hotspot)
+# or a wind field that depends on latitude (a jet, a day-to-night flow)
+# couples both surface coordinates together and leaves no closed-form
+# shortcut. The functions below build the kernel numerically instead:
+# discretize the visible surface on a grid, evaluate brightness and
+# line-of-sight velocity at each point, and histogram the result into a
+# velocity kernel -- the same integral citrus_to_ker solves analytically,
+# just carried out on a grid. They are deliberately geometry-agnostic
+# (bin_weighted_velocities especially makes no assumption about where its
+# samples came from), so they are reusable beyond HotspotWindRotationKernel
+# below -- e.g. a numerical cross-check of citrus_to_ker itself, or a future
+# transit/transmission terminator-ring kernel built the same way (see
+# tutorials/rotation_kernel_examples/ for the full derivation, including the
+# transit-ring analytic result that inspired this approach).
+#
+# Sky-plane geometry (unit sphere, edge-on orbit, zero obliquity -- same
+# implicit assumption already used by every kernel above):
+#
+#   phi        : planet-centered latitude (rad), spin axis = pole
+#   lam        : planet-centered longitude (rad), increases eastward
+#                (lam = 0 is an arbitrary reference meridian -- for the
+#                hotspot kernel below, the substellar meridian)
+#   lam_obs    : sub-observer longitude, see phase_to_lam_obs
+#
+#   x = cos(phi) * sin(lam - lam_obs)    (east-west on the sky)
+#   y = sin(phi)                          (north-south on the sky)
+#   z = cos(phi) * cos(lam - lam_obs)    (toward the observer)
+#
+# A point is visible when z > 0, and for emission the projected-area
+# (Lambertian) weight is simply mu = z (since R = 1).
+
+
+def phase_to_lam_obs(phase):
+    """Convert an orbital phase to the sub-observer longitude `lam_obs`.
+
+    Centralizes the phase convention so every caller (kernel construction,
+    plotting) agrees with each other by construction instead of duplicating
+    the formula. Phase=0 is mid-transit (nightside facing the observer,
+    `lam_obs = +-pi`), phase=0.5 is secondary eclipse (dayside facing the
+    observer, `lam_obs = 0`) -- matching `CitrusRotationKernel`,
+    `planet_obs.Planet.phase`, and every retrieval yaml in this repo.
+
+    The *sign* of `lam_obs`'s drift with phase (this function's one genuine
+    physics content, beyond that phase=0.5 <-> lam_obs=0 alignment) was
+    originally guessed wrong. Caught by a direct physical check: for a
+    tidally-locked planet on a prograde orbit, a fixed surface feature (e.g.
+    a hotspot) must drift toward, and disappear over, the *eastern* limb as
+    phase increases past 0.5 -- verified by re-deriving the sub-observer
+    longitude from orbital mechanics (a prograde circular orbit, matching
+    `orbite.rv_theo_t`'s sign convention: `RV_planet(phase) =
+    +K*sin(2*pi*phase)`, redshift positive), which gives
+    `lam_obs = -2*pi*(phase - 0.5)`, not `+2*pi*(phase - 0.5)`.
+
+    Parameters
+    ----------
+    phase : scalar float
+        Orbital phase, any real number (wrapped to [0, 1) internally).
+
+    Returns
+    -------
+    float
+        Sub-observer longitude (rad).
+    """
+    return -2 * np.pi * ((phase - 0.5) % 1.0)
+
+
+def wrap_to_pi(angle):
+    """Wrap an angle (or array of angles) to the range (-pi, pi].
+
+    Longitude differences need this because longitude is periodic: e.g. the
+    angular distance between lam=350 deg and lam=10 deg is 20 deg, not 340 deg.
+
+    Parameters
+    ----------
+    angle : np.ndarray
+        Angle(s) in radians, any range.
+
+    Returns
+    -------
+    np.ndarray
+        Equivalent angle(s) wrapped to (-pi, pi].
+    """
+    return np.mod(angle + np.pi, 2 * np.pi) - np.pi
+
+
+def smooth_threshold(value, width):
+    """Smoothed step function: ~1 where `value > 0`, ~0 where `value < 0`.
+
+    A `tanh` transition of scale `width` centered on `value = 0`, i.e. the
+    same softening already used for the hotspot ellipse boundary
+    (`HotspotWindRotationKernel.hot_region_weight`), factored out here so it
+    can be reused for *any* hard latitude cutoff in the wind field (the jet's
+    `|phi| < jet_half_lat` and the day-to-night flow's `|phi| > onset`) --
+    a plain boolean mask there would give the wind speed itself a
+    discontinuity at the cutoff latitude, which (like the hotspot's hard
+    edge) introduces ringing into the kernel after convolution with the
+    instrumental profile.
+
+    Parameters
+    ----------
+    value : np.ndarray
+        Signed distance from the threshold (positive = inside/active,
+        negative = outside/inactive), in the same units as `width`.
+    width : float
+        Width of the transition. `width -> 0` recovers a hard step.
+
+    Returns
+    -------
+    np.ndarray
+        Smoothed mask, same shape as `value`, values in (0, 1).
+    """
+    return 0.5 * (1.0 + np.tanh(value / width))
+
+
+def equal_area_latlon_grid(n_lat, n_lon):
+    """Build a latitude/longitude grid over the full sphere with equal-area cells.
+
+    A naive uniform grid in (phi, lam) over-samples the poles (cells shrink
+    in physical area as cos(phi) -> 0 near the poles), which would silently
+    over-weight polar surface elements in the kernel integral. To avoid that,
+    we sample uniformly in sin(phi) instead of phi: since the sphere's area
+    element is dOmega = cos(phi) dphi dlam = d(sin phi) dlam, a grid that is
+    uniform in (sin(phi), lam) has *exactly* equal cell area, and the solid
+    angle per cell is then just a constant -- no cos(phi) weighting needed
+    anywhere else in the pipeline.
+
+    Parameters
+    ----------
+    n_lat : int
+        Number of latitude bins (uniform in sin(phi), covering the full
+        -pi/2 to pi/2 range).
+    n_lon : int
+        Number of longitude bins (uniform in lam, covering the full
+        -pi to pi range).
+
+    Returns
+    -------
+    phi : np.ndarray, shape (n_lat, n_lon)
+        Latitude of each grid cell center (rad), via meshgrid.
+    lam : np.ndarray, shape (n_lat, n_lon)
+        Longitude of each grid cell center (rad), via meshgrid.
+    d_omega : float
+        Solid angle of a single grid cell (sr), same for every cell.
+    """
+    # Cell edges uniform in sin(phi) in [-1, 1], and cell centers at the
+    # midpoint of each edge pair (in sin(phi) space, not in phi space).
+    sin_phi_edges = np.linspace(-1.0, 1.0, n_lat + 1)
+    sin_phi_centers = 0.5 * (sin_phi_edges[:-1] + sin_phi_edges[1:])
+    phi_centers = np.arcsin(sin_phi_centers)
+
+    lon_edges = np.linspace(-np.pi, np.pi, n_lon + 1)
+    lon_centers = 0.5 * (lon_edges[:-1] + lon_edges[1:])
+
+    phi, lam = np.meshgrid(phi_centers, lon_centers, indexing='ij')
+
+    d_sin_phi = sin_phi_edges[1] - sin_phi_edges[0]
+    d_lon = lon_edges[1] - lon_edges[0]
+    d_omega = d_sin_phi * d_lon
+
+    return phi, lam, d_omega
+
+
+def project_to_sky(phi, lam, lam_obs):
+    """Project planet-centered spherical coordinates onto the sky plane.
+
+    Parameters
+    ----------
+    phi : np.ndarray
+        Latitude (rad).
+    lam : np.ndarray
+        Longitude (rad), same shape as `phi`.
+    lam_obs : float
+        Sub-observer longitude (rad), see `phase_to_lam_obs`.
+
+    Returns
+    -------
+    x, y, z : np.ndarray
+        Sky-plane coordinates on the unit sphere (east-west, north-south,
+        toward observer).
+    mu : np.ndarray
+        Projected-area (Lambertian) weight, mu = z (>= 0 on the visible
+        hemisphere, meaningless -- and masked out by `visible` -- on the far
+        side).
+    visible : np.ndarray of bool
+        True where the surface element faces the observer (z > 0).
+    """
+    dlam = lam - lam_obs
+    x = np.cos(phi) * np.sin(dlam)
+    y = np.sin(phi)
+    z = np.cos(phi) * np.cos(dlam)
+    mu = z
+    visible = z > 0
+    return x, y, z, mu, visible
+
+
+def los_velocity_from_zonal(v_zonal, phi, lam, lam_obs):
+    """Project a purely zonal (east-west tangential) velocity field to the line of sight.
+
+    For a velocity vector tangent to circles of latitude (the "zonal"
+    direction -- no north-south component, so this cannot break north-south
+    symmetry by itself), the line-of-sight projection collapses to a clean
+    1D formula independent of latitude except through `v_zonal` itself:
+
+        v_los(phi, lam) = v_zonal(phi, lam) * sin(lam - lam_obs)
+
+    Sign convention: **redshift-positive** (matching `orbite.rv_theo_t`'s
+    `RV_planet(phase) = +K*sin(2*pi*phase)`, the convention used for Kp/Vsys
+    throughout this repo) -- verified against a direct physical check
+    (`phase_to_lam_obs`'s docstring): a prograde-rotating hotspot must drift
+    toward, and disappear over, the eastern limb as phase increases past
+    0.5, and a day-to-night flow (moving from the visible dayside into the
+    hidden nightside) must be redshifted (receding) when viewed at secondary
+    eclipse (`los_velocity_from_day_night`'s docstring) -- neither held with
+    an earlier, un-derived guess at this sign.
+
+    Parameters
+    ----------
+    v_zonal : np.ndarray
+        Local eastward tangential speed (m/s) at each grid point. Can
+        already include solid rotation, a jet, a day-to-night term, etc. --
+        this function only cares about the total zonal speed.
+    phi : np.ndarray
+        Latitude (rad), same shape as `v_zonal` (unused directly here, kept
+        for a consistent call signature -- the latitude dependence already
+        lives inside `v_zonal`).
+    lam : np.ndarray
+        Longitude (rad), same shape as `v_zonal`.
+    lam_obs : float
+        Sub-observer longitude (rad).
+
+    Returns
+    -------
+    np.ndarray
+        Line-of-sight velocity (m/s), same shape as `v_zonal`.
+    """
+    return v_zonal * np.sin(lam - lam_obs)
+
+
+def los_velocity_from_day_night(speed, phi, lam, lam_obs):
+    """Project a "radially outward from the substellar point" velocity field to the line of sight.
+
+    A day-to-night flow's most direct path is *not* tangent to circles of
+    latitude (that is only true exactly on the equator) -- it follows the
+    great circle through the substellar point (lam=0, phi=0) and the local
+    grid point, pointing away from the substellar point and toward the
+    antistellar point. Seen face-on at secondary eclipse, this is exactly
+    the "center-to-limb, in every direction" picture: radiating outward from
+    the disk center (the substellar point) toward the edge.
+
+    Deriving the local unit vector for that direction (call it `e_psi`, the
+    direction of increasing angular distance `psi` from the substellar
+    point) and projecting it onto the line of sight the same way
+    `los_velocity_from_zonal` does for `e_lambda` gives, after simplifying:
+
+        cos(psi) = cos(phi) * cos(lam)                    (angular distance from substellar point)
+        v_los(phi, lam) = -speed(phi, lam) *
+            (cos(psi) * cos(phi) * cos(lam - lam_obs) - cos(lam_obs)) / sin(psi)
+
+    Sign convention: **redshift-positive**, same as `los_velocity_from_zonal`
+    (see that function's docstring) -- checked directly here too: at
+    secondary eclipse (`lam_obs=0`), this reduces to `+speed * sin(psi)`,
+    always >= 0 (redshifted), matching the physical expectation that gas
+    flowing from the visible dayside into the hidden nightside is receding
+    from the observer, and growing from 0 at the disk center (`psi=0`, the
+    substellar point) to its largest values at the limb (`psi` approaching
+    90 deg) -- not a spatially uniform shift.
+
+    Consistency check: exactly on the equator (phi=0), this reduces to
+    `sign(sin(lam)) * los_velocity_from_zonal(speed, 0, lam, lam_obs)` --
+    i.e. proportional to `los_velocity_from_zonal`'s own `e_lambda`
+    projection, with the sign flip at lam=0 an earlier version of this
+    function applied everywhere (not just on the equator, which was the bug
+    this version fixes: away from the equator, a point at high latitude is
+    *not* reached most directly by moving along its own line of latitude).
+
+    Parameters
+    ----------
+    speed : np.ndarray
+        Local day-to-night flow speed (m/s, always >= 0 -- the outward
+        direction is already encoded in the projection itself, so this does
+        not need an explicit sign flip from the caller). Typically
+        `day_night_speed * mask(|phi| > onset)`.
+    phi, lam : np.ndarray
+        Latitude/longitude (rad), same shape as `speed`.
+    lam_obs : float
+        Sub-observer longitude (rad).
+
+    Returns
+    -------
+    np.ndarray
+        Line-of-sight velocity (m/s), same shape as `speed`.
+    """
+    cos_psi = np.cos(phi) * np.cos(lam)
+    # Clip away from exactly 0 to avoid a 0/0 division right at the
+    # substellar/antistellar points -- those two points are single grid
+    # cells at most, and both sit at phi=0, so any onset latitude > 0
+    # already gives them zero weight through `speed`; the clip just keeps
+    # the arithmetic finite there instead of producing a stray NaN that
+    # `speed * finite_but_wrong_value` would not otherwise clean up.
+    sin_psi = np.sqrt(np.clip(1 - cos_psi**2, 1e-12, None))
+    dlam = lam - lam_obs
+    e_psi_dot_zobs = (cos_psi * np.cos(phi) * np.cos(dlam) - np.cos(lam_obs)) / sin_psi
+    return -speed * e_psi_dot_zobs
+
+
+def make_velocity_grid(v_max, res_elem, n_os=None, pad=7.0):
+    """Build the centered velocity grid a kernel is sampled on.
+
+    Mirrors the convention already used throughout this module
+    (`SolidRotationKernel.get_ker`, `CitrusRotationKernel.get_ker`, ...): pad
+    the grid by a few resolution elements beyond the kernel's physical
+    extent, and center it exactly on v=0 (`np.arange` does not guarantee
+    that on its own).
+
+    Parameters
+    ----------
+    v_max : float
+        Largest line-of-sight speed (m/s) the kernel can physically reach
+        (a safe upper bound is enough, it only sets the grid extent).
+    res_elem : float
+        Instrumental resolution element (m/s).
+    n_os : float, optional
+        Oversampling factor relative to `res_elem`. If None, a default
+        sampling of `res_elem / 10` is used.
+    pad : float
+        Extra padding around the kernel, in units of `res_elem`.
+
+    Returns
+    -------
+    np.ndarray
+        Centered velocity grid (m/s).
+    """
+    v_edge = v_max + pad * res_elem
+    delta_v = res_elem / 10 if n_os is None else res_elem / n_os
+    v_grid = np.arange(-v_edge, v_edge, delta_v)
+    v_grid -= np.mean(v_grid)
+    return v_grid
+
+
+def bin_weighted_velocities(v_los, weight, v_grid, norm=True):
+    """Turn a cloud of (line-of-sight velocity, weight) samples into a kernel.
+
+    This is the fully generic core of this whole section: it makes no
+    assumption about where `v_los` and `weight` came from -- a lat/lon grid
+    over a disk, a ring of points around a transit terminator, an
+    irregularly-sampled mesh, anything. It is the discrete equivalent of the
+    brightness-weighted-velocity-distribution integral every rotation kernel
+    in this module ultimately computes: each grid cell of surface weight
+    `weight[i]` contributes a Dirac spike at `v_los[i]`, and summing (binning)
+    those spikes over many cells approximates the smooth kernel.
+
+    Cells outside the visible hemisphere (or otherwise excluded) should
+    simply carry `weight = 0` -- they still contribute a (harmless) empty
+    bin count.
+
+    Parameters
+    ----------
+    v_los : np.ndarray
+        Line-of-sight velocity samples (m/s), any shape.
+    weight : np.ndarray
+        Weight (brightness x projected area x solid angle, or any other
+        relevant measure) of each sample, same shape as `v_los`.
+    v_grid : np.ndarray
+        Uniformly-spaced, centered velocity grid to bin onto (as returned by
+        `make_velocity_grid`).
+    norm : bool
+        Whether to normalize the resulting kernel to unit sum. Default True.
+
+    Returns
+    -------
+    np.ndarray
+        Kernel evaluated on `v_grid` (same length).
+    """
+    # Build bin edges from the (assumed uniform) grid spacing, so that
+    # v_grid[i] sits at the center of its own bin.
+    dv = np.diff(v_grid).mean()
+    edges = np.concatenate([v_grid - dv / 2, [v_grid[-1] + dv / 2]])
+
+    kernel, _ = np.histogram(v_los.ravel(), bins=edges, weights=weight.ravel())
+
+    if norm:
+        total = kernel.sum()
+        if total == 0:
+            # Grid resolution too coarse compared to v_grid, or an
+            # entirely-invisible/zero-weight configuration: fall back to a
+            # delta function at v=0 rather than dividing by zero, matching
+            # the behaviour CitrusRotationKernel.get_ker already has for
+            # the analogous degenerate case.
+            idx = np.argmin(np.abs(v_grid))
+            kernel[idx] = 1.0
+        else:
+            kernel = kernel / total
+
+    return kernel
+
+
+def plot_sky_view(ax, phi, lam, color, phase, cmap='inferno', vmin=None, vmax=None):
+    """Plot a color map as seen by the observer at a given orbital phase.
+
+    Only the visible hemisphere is drawn (the far side is left blank), using
+    the exact same sky-plane projection (`project_to_sky`) the kernel itself
+    integrates over -- so this is literally "what the kernel calculation
+    sees" at that phase, not a separate/approximate rendering of it. The
+    generic primitive `HotspotWindRotationKernel.show()`'s panels are built
+    from (mirrors `plot_sphere`'s role for `CitrusRotationKernel.show()`).
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes to draw into.
+    phi, lam : np.ndarray
+        Surface grid (rad), e.g. `kernel.phi`, `kernel.lam`.
+    color : np.ndarray
+        Value to color-map at each grid point (e.g. a hot/cold weight, or a
+        line-of-sight velocity), same shape as `phi`.
+    phase : scalar float
+        Orbital phase (0 = transit, 0.5 = secondary eclipse -- see
+        `phase_to_lam_obs`).
+    cmap, vmin, vmax :
+        Forwarded to `pcolormesh`.
+
+    Returns
+    -------
+    matplotlib.collections.QuadMesh
+        The plotted mesh (handy for attaching a shared colorbar).
+    """
+    lam_obs = phase_to_lam_obs(phase)
+    x, y, z, mu, visible = project_to_sky(phi, lam, lam_obs)
+
+    # NaN out the far side so pcolormesh leaves it blank instead of drawing
+    # it (it would otherwise draw at whatever `color` value sits there, even
+    # though those grid points are physically not facing the observer).
+    plotted = np.where(visible, color, np.nan)
+    mesh = ax.pcolormesh(x, y, plotted, shading='nearest', cmap=cmap, vmin=vmin, vmax=vmax)
+
+    # Disk outline, for a clean "planet" look even where color is NaN right
+    # at the limb (grid resolution can leave a ragged edge otherwise).
+    ax.add_patch(plt.Circle((0, 0), 1.0, fill=False, color='0.3', lw=0.8))
+    ax.set_xlim(-1.05, 1.05)
+    ax.set_ylim(-1.05, 1.05)
+    ax.set_aspect('equal')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title(f'phase = {phase:.2f}', fontsize=9)
+
+    return mesh
+
+
+class HotspotWindRotationKernel(BaseKerMulti):
+    """Rotation kernel for a planet with an elliptical hotspot and a 3-component wind field.
+
+    Physical picture
+    -----------------
+    The planet's disk is split into two brightness regions:
+
+    - A "hot" region: an ellipse in (longitude, latitude) space, centered on
+      the substellar meridian by default but allowed an east-west (and, if
+      really needed, north-south) offset -- this is the classic
+      eastward-shifted hotspot seen on many hot Jupiters.
+    - A "cold" region: everything else.
+
+    Both regions share the same surface wind field, the sum of three
+    components:
+
+    1. Solid-body rotation, rate `omega_rot` (typically the tidally-locked
+       value, 2*pi / orbital period) -- *zonal* (tangent to circles of
+       latitude around the spin axis).
+    2. A superrotating equatorial jet: an extra `jet_delta_omega` confined
+       to `|latitude| < jet_half_lat` -- also zonal.
+    3. A day-to-night flow: a constant speed `day_night_speed` confined to
+       `|latitude| > day_night_lat_onset`, directed *away from the
+       substellar point along the great circle through it* (a toy model of
+       the day-to-night overturning circulation -- see
+       tutorials/rotation_kernel_examples/ for the full derivation). This is
+       **not** zonal -- seen face-on at secondary eclipse it radiates
+       outward from the disk center toward the limb in every direction,
+       only coinciding with the zonal (east-west) direction exactly on the
+       equator. It needs its own line-of-sight projection
+       (`los_velocity_from_day_night`), separate from the other two (see
+       `zonal_wind_field` and `day_night_speed_field`).
+
+    None of the three components has a north-south component of its own
+    (each individually preserves north-south symmetry), but only the first
+    two are tangent to latitude circles -- worth keeping straight since it
+    is easy to assume "no north-south component" implies "zonal", which is
+    not the same thing away from the equator.
+
+    This class returns *two* kernels (hot region, cold region), each
+    carrying only the *geometric* (visibility x projected-area x
+    solid-angle) weight of its region -- exactly like `CitrusRotationKernel`
+    returns one kernel per longitude slice. The actual brightness/
+    temperature contrast between the hot and cold regions is deliberately
+    *not* baked in here: it belongs downstream, as the per-region spectrum
+    weight (`theta_dict['spec_scale']` in
+    `model_sequence.combine_regions_with_kernel`), the same way the citrus
+    kernel is already used. Keeping that split makes this drop-in compatible
+    with the existing multi-region retrieval pipeline.
+
+    Because the hotspot is a genuine 2D brightness feature and the
+    jet/day-night masks depend on latitude, there is no closed-form
+    shortcut left (unlike `CitrusRotationKernel`) -- the kernel is built
+    numerically, via the generic grid + histogram machinery earlier in this
+    section (`equal_area_latlon_grid`, `bin_weighted_velocities`, ...).
+
+    See `tutorials/rotation_kernel_examples/` for the full theoretical
+    derivation and worked examples (this class started life there as
+    `starships_analysis/hotspot_wind_kernel/`, folded in once validated).
+
+    Parameters
+    ----------
+    pl_rad : scalar astropy quantity
+        Planet radius.
+    omega_rot : scalar astropy quantity
+        Solid-body rotation rate (rad/s) -- the tidally-locked value is
+        `2 * pi * u.rad / P_orb` for most hot Jupiters.
+    resolution : scalar (float or int)
+        Spectral resolution of the instrument.
+    hotspot_lon : scalar astropy quantity (angle)
+        East-west offset of the hotspot center from the substellar meridian
+        (positive = eastward, the usual advected-hotspot direction).
+    hotspot_half_lon : scalar astropy quantity (angle)
+        Half-width of the hotspot ellipse in longitude.
+    hotspot_half_lat : scalar astropy quantity (angle)
+        Half-width of the hotspot ellipse in latitude.
+    hotspot_lat : scalar astropy quantity (angle), optional
+        North-south offset of the hotspot center. Default 0 deg (no N-S
+        symmetry breaking) -- included for completeness, but a nonzero value
+        should be a deliberate choice, not the default assumption.
+    hotspot_edge_width : float, optional
+        Softness of the hotspot boundary, in units of the ellipse's own
+        normalized radius (0 = infinitely sharp edge, ~0.1-0.3 = a gradual
+        transition). A soft edge avoids the ringing a hard-edged brightness
+        step would otherwise introduce after convolution with the
+        instrumental profile. Default 0.2.
+    jet_delta_omega : scalar astropy quantity, optional
+        Extra angular rotation rate of the equatorial superrotating jet, on
+        top of `omega_rot`. Default 0 (no jet).
+    jet_half_lat : scalar astropy quantity (angle), optional
+        Latitude half-extent of the jet (active for `|latitude| < jet_half_lat`).
+        Default 0 deg, which disables the jet regardless of `jet_delta_omega`
+        (an empty latitude band).
+    day_night_speed : scalar astropy quantity, optional
+        Constant speed of the day-to-night flow, directed away from the
+        substellar *point* along the great circle through it (not along a
+        line of latitude -- see the class docstring). Default 0 (no flow).
+    day_night_lat_onset : scalar astropy quantity (angle), optional
+        Latitude beyond which the day-to-night flow is active
+        (`|latitude| > day_night_lat_onset`). Default 90 deg, which disables
+        the flow regardless of `day_night_speed` (no latitude satisfies it).
+    wind_mask_edge_width : scalar astropy quantity (angle), optional
+        Softness of the jet's and day-to-night flow's latitude cutoffs
+        (`jet_half_lat`, `day_night_lat_onset`) -- the same idea as
+        `hotspot_edge_width`, but for the wind field's latitude masks rather
+        than the brightness map: a hard cutoff would give the wind *speed*
+        itself a discontinuity at that latitude, which introduces ringing
+        into the kernel the same way a hard-edged hotspot would. Applied via
+        a single shared width (not a separate one per mask) since both are
+        the same kind of feature -- a latitude threshold -- and there is no
+        reason to expect them to need different smoothing scales. Does not
+        affect whether a component is disabled: `jet_delta_omega=0` or
+        `day_night_speed=0` (the defaults) already zero out that component's
+        contribution regardless of how soft its mask is. Default 3 deg.
+    n_lat, n_lon : int, optional
+        Resolution of the equal-area surface grid the kernel is numerically
+        integrated on. Defaults (181, 361) are generous for a smooth kernel;
+        lower them for quick exploratory plots.
+
+    Attributes
+    ----------
+    res_elem : float
+        Instrumental resolution element (m/s), set by `BaseKerMulti.__init__`.
+    """
+
+    def __init__(self, pl_rad, omega_rot, resolution, *,
+                 hotspot_lon, hotspot_half_lon, hotspot_half_lat,
+                 hotspot_lat=0 * u.deg, hotspot_edge_width=0.2,
+                 jet_delta_omega=0 / u.s, jet_half_lat=0 * u.deg,
+                 day_night_speed=0 * u.m / u.s, day_night_lat_onset=90 * u.deg,
+                 wind_mask_edge_width=3 * u.deg,
+                 n_lat=181, n_lon=361):
+        super().__init__(resolution)
+
+        (pl_rad, omega_rot,
+         hotspot_lon, hotspot_lat, hotspot_half_lon, hotspot_half_lat,
+         jet_delta_omega, jet_half_lat,
+         day_night_speed, day_night_lat_onset, wind_mask_edge_width) = convert_default_units(
+            [pl_rad, omega_rot,
+             hotspot_lon, hotspot_lat, hotspot_half_lon, hotspot_half_lat,
+             jet_delta_omega, jet_half_lat,
+             day_night_speed, day_night_lat_onset, wind_mask_edge_width],
+            ['m', '1/s', 'rad', 'rad', 'rad', 'rad', '1/s', 'rad', 'm/s', 'rad', 'rad'])
+
+        self.r_p = pl_rad
+        self.omega_rot = omega_rot
+        self.hotspot_lon = hotspot_lon
+        self.hotspot_lat = hotspot_lat
+        self.hotspot_half_lon = hotspot_half_lon
+        self.hotspot_half_lat = hotspot_half_lat
+        self.hotspot_edge_width = hotspot_edge_width
+        self.jet_delta_omega = jet_delta_omega
+        self.jet_half_lat = jet_half_lat
+        self.day_night_speed = day_night_speed
+        self.day_night_lat_onset = day_night_lat_onset
+        self.wind_mask_edge_width = wind_mask_edge_width
+
+        # The surface grid does not depend on orbital phase, so it is built
+        # once here and reused by every `get_ker` call.
+        self.n_lat = n_lat
+        self.n_lon = n_lon
+        self.phi, self.lam, self.d_omega = equal_area_latlon_grid(n_lat, n_lon)
+
+    def zonal_wind_field(self, phi, lam):
+        """Total eastward (zonal) wind speed at each grid point, in the planet frame.
+
+        Solid-body rotation plus the superrotating jet -- both genuinely
+        *zonal* (tangent to circles of latitude around the spin axis). The
+        day-to-night flow is *not* zonal (see `day_night_speed_field` and
+        `los_velocity_from_day_night`): its most direct path from the
+        substellar to the antistellar point only coincides with a line of
+        latitude on the equator, so it needs its own projection rather than
+        being folded into this sum.
+
+        Both masks below are smoothed (not boolean) latitude thresholds --
+        see `wind_mask_edge_width` in the class docstring -- but a disabled
+        component (default parameters, `jet_delta_omega=0`) still
+        contributes exactly zero regardless of the mask's value, since the
+        mask only ever multiplies an already-zero speed.
+
+        Parameters
+        ----------
+        phi : np.ndarray
+            Latitude (rad).
+        lam : np.ndarray
+            Longitude (rad), lam=0 at the substellar meridian, same shape as `phi`.
+
+        Returns
+        -------
+        np.ndarray
+            Eastward wind speed (m/s), same shape as `phi`.
+        """
+        return self.solid_rotation_field(phi) + self.jet_field(phi)
+
+    def solid_rotation_field(self, phi):
+        """Solid-body rotation speed (m/s, eastward) at each grid point.
+
+        Tangential speed shrinks toward the poles as the lever arm
+        `R*cos(phi)` shrinks. Split out from `zonal_wind_field` as its own
+        method so a diagnostic plot can show this component on its own
+        (`plot_velocity_components`).
+
+        Parameters
+        ----------
+        phi : np.ndarray
+            Latitude (rad).
+
+        Returns
+        -------
+        np.ndarray
+            Eastward speed (m/s), same shape as `phi`.
+        """
+        return self.omega_rot * self.r_p * np.cos(phi)
+
+    def jet_field(self, phi):
+        """Superrotating-jet extra eastward speed (m/s) at each grid point.
+
+        Same `cos(phi)` lever arm as solid rotation, confined to a latitude
+        band around the equator (smoothed cutoff at `+-jet_half_lat`, see
+        `wind_mask_edge_width`). Split out from `zonal_wind_field` as its own
+        method so a diagnostic plot can show this component on its own
+        (`plot_velocity_components`).
+
+        Parameters
+        ----------
+        phi : np.ndarray
+            Latitude (rad).
+
+        Returns
+        -------
+        np.ndarray
+            Eastward speed (m/s), same shape as `phi`.
+        """
+        jet_mask = smooth_threshold(self.jet_half_lat - np.abs(phi), self.wind_mask_edge_width)
+        return self.jet_delta_omega * self.r_p * np.cos(phi) * jet_mask
+
+    def day_night_speed_field(self, phi):
+        """Day-to-night flow speed at each grid point (always >= 0), confined to high latitude.
+
+        Unlike `zonal_wind_field`, this is a *speed*, not a vector component
+        -- the outward-from-substellar *direction* is applied separately by
+        `los_velocity_from_day_night`, which is why there is no `sign(lam)`
+        here anymore (that used to fake the "away from substellar on both
+        flanks" behavior using the zonal direction, which only happens to be
+        correct exactly on the equator).
+
+        Parameters
+        ----------
+        phi : np.ndarray
+            Latitude (rad).
+
+        Returns
+        -------
+        np.ndarray
+            Day-to-night flow speed (m/s), same shape as `phi`.
+        """
+        # Smoothed cutoff at +-day_night_lat_onset, see wind_mask_edge_width.
+        day_night_mask = smooth_threshold(np.abs(phi) - self.day_night_lat_onset,
+                                           self.wind_mask_edge_width)
+        return self.day_night_speed * day_night_mask
+
+    def los_velocity_components(self, phase):
+        """Line-of-sight velocity, split into its physical components, at a given phase.
+
+        Same total as `get_ker` computes internally, just not summed --
+        meant for diagnostic plots (`plot_velocity_components`) that show
+        each wind mechanism's own contribution to what the observer sees,
+        rather than only the combined result.
+
+        Parameters
+        ----------
+        phase : scalar float
+            Orbital phase (see `get_ker`'s docstring for the convention).
+
+        Returns
+        -------
+        dict of np.ndarray
+            Keys `'solid_rotation'`, `'jet'`, `'day_night'`, `'total'` (the
+            exact sum of the first three) -- each an array of LOS velocities
+            (m/s) on the kernel's own `(phi, lam)` grid.
+        """
+        lam_obs = phase_to_lam_obs(phase)
+        phi, lam = self.phi, self.lam
+
+        los_solid = los_velocity_from_zonal(self.solid_rotation_field(phi), phi, lam, lam_obs)
+        los_jet = los_velocity_from_zonal(self.jet_field(phi), phi, lam, lam_obs)
+        los_day_night = los_velocity_from_day_night(self.day_night_speed_field(phi),
+                                                      phi, lam, lam_obs)
+
+        return {
+            'solid_rotation': los_solid,
+            'jet': los_jet,
+            'day_night': los_day_night,
+            'total': los_solid + los_jet + los_day_night,
+        }
+
+    def hot_region_weight(self, phi, lam):
+        """Fraction of the local brightness attributed to the hot region, in [0, 1].
+
+        A smoothed indicator of the hotspot ellipse: `equal to 1` well inside
+        the ellipse, `equal to 0` well outside, with a `tanh` transition of
+        relative width `hotspot_edge_width` around the ellipse boundary
+        (normalized elliptical radius = 1).
+
+        Parameters
+        ----------
+        phi : np.ndarray
+            Latitude (rad).
+        lam : np.ndarray
+            Longitude (rad), same shape as `phi`.
+
+        Returns
+        -------
+        np.ndarray
+            Hot-region weight, same shape as `phi`. `1 - this` is the
+            cold-region weight (the two are a strict partition of unity).
+        """
+        # wrap_to_pi handles the case where the hotspot straddles the +-pi
+        # longitude branch cut.
+        dlam = wrap_to_pi(lam - self.hotspot_lon)
+        dphi = phi - self.hotspot_lat
+        ellipse_radius = np.sqrt((dlam / self.hotspot_half_lon) ** 2
+                                  + (dphi / self.hotspot_half_lat) ** 2)
+        # Same smoothed-threshold helper the wind masks use (see
+        # wind_mask_edge_width): active (~1) where ellipse_radius < 1.
+        return smooth_threshold(1.0 - ellipse_radius, self.hotspot_edge_width)
+
+    def get_ker(self, phase, n_os=None, pad=7, norm=True):
+        """Get the [hot region, cold region] kernels for a given orbital phase.
+
+        Parameters
+        ----------
+        phase : scalar float
+            Orbital phase, between 0 and 1. Standard convention (matching
+            `CitrusRotationKernel`, `Planet.phase`, and every retrieval yaml
+            in this repo): phase=0 is mid-transit (nightside facing the
+            observer), phase=0.5 is secondary eclipse (dayside facing the
+            observer).
+        n_os : scalar, optional
+            Oversampling of the velocity grid (see `make_velocity_grid`).
+        pad : scalar
+            Padding around the kernel, in units of resolution elements.
+        norm : bool
+            Whether to normalize so the two kernels sum to 1 (flux
+            conservation across regions), matching `CitrusRotationKernel`'s
+            convention. Default True.
+
+        Returns
+        -------
+        v_grid : np.ndarray
+        ker_list : list of two np.ndarray
+            `[kernel_hot, kernel_cold]`.
+        """
+        lam_obs = phase_to_lam_obs(phase)
+        phi, lam, d_omega = self.phi, self.lam, self.d_omega
+
+        _, _, _, mu, visible = project_to_sky(phi, lam, lam_obs)
+
+        v_los = self.los_velocity_components(phase)['total']
+
+        w_hot = self.hot_region_weight(phi, lam)
+
+        # Purely geometric weight (visibility x projected area x solid
+        # angle), split between the two regions -- no brightness contrast
+        # baked in here, see the class docstring.
+        base_weight = np.where(visible, mu, 0.0) * d_omega
+        weight_hot = base_weight * w_hot
+        weight_cold = base_weight * (1.0 - w_hot)
+
+        # Safe upper bound on the largest line-of-sight speed reachable by
+        # any combination of the three wind components -- used only to size
+        # the velocity grid, does not need to be tight.
+        v_max = ((abs(self.omega_rot) + abs(self.jet_delta_omega)) * self.r_p
+                  + abs(self.day_night_speed))
+        v_grid = make_velocity_grid(v_max, self.res_elem, n_os=n_os, pad=pad)
+
+        kernel_hot = bin_weighted_velocities(v_los, weight_hot, v_grid, norm=False)
+        kernel_cold = bin_weighted_velocities(v_los, weight_cold, v_grid, norm=False)
+
+        if norm:
+            total = kernel_hot.sum() + kernel_cold.sum()
+            if total == 0:
+                # Grid too coarse relative to v_grid (or a degenerate,
+                # entirely-invisible configuration): fall back to a delta
+                # function at v=0, same convention as CitrusRotationKernel.
+                idx = np.argmin(np.abs(v_grid))
+                kernel_hot = np.zeros_like(v_grid)
+                kernel_hot[idx] = 1.0
+                kernel_cold = np.zeros_like(v_grid)
+            else:
+                kernel_hot = kernel_hot / total
+                kernel_cold = kernel_cold / total
+
+        return v_grid, [kernel_hot, kernel_cold]
+
+    def brightness_map(self):
+        """Convenience helper: the full-sphere hot/cold weight map, for plotting.
+
+        Not used by `get_ker` itself (which works cell-by-cell on the same
+        grid); exposed separately for diagnostic plots (`show`,
+        `plot_regions`). The hotspot is fixed in the planet frame, so this
+        does not depend on orbital phase.
+
+        Returns
+        -------
+        phi, lam : np.ndarray
+            The surface grid (rad).
+        w_hot : np.ndarray
+            Hot-region weight at each grid point, in [0, 1].
+        """
+        return self.phi, self.lam, self.hot_region_weight(self.phi, self.lam)
+
+    def plot_regions(self, phase, ax=None):
+        """Sky view of the hot/cold region split at a given phase.
+
+        Parameters
+        ----------
+        phase : scalar float
+        ax : matplotlib.axes.Axes, optional
+            Drawn into a new figure/axes if not given.
+
+        Returns
+        -------
+        matplotlib.collections.QuadMesh
+        """
+        if ax is None:
+            _, ax = plt.subplots(figsize=(4, 4))
+        phi, lam, w_hot = self.brightness_map()
+        mesh = plot_sky_view(ax, phi, lam, w_hot, phase, cmap='inferno', vmin=0, vmax=1)
+        ax.set_title(f'Regions (1=hot, 0=cold)\nphase={phase:.3f}', fontsize=9)
+        return mesh
+
+    def plot_los_velocity(self, phase, ax=None, vmax=None):
+        """Sky view of the total line-of-sight velocity at a given phase.
+
+        Parameters
+        ----------
+        phase : scalar float
+        ax : matplotlib.axes.Axes, optional
+            Drawn into a new figure/axes if not given.
+        vmax : float, optional
+            Color scale half-range (km/s), symmetric around 0. Defaults to
+            this map's own peak magnitude -- pass one explicitly to compare
+            several panels (e.g. `plot_velocity_components`'s) on the same
+            scale.
+
+        Returns
+        -------
+        matplotlib.collections.QuadMesh
+        """
+        if ax is None:
+            _, ax = plt.subplots(figsize=(4, 4))
+        v_los = self.los_velocity_components(phase)['total'] / 1e3
+        if vmax is None:
+            vmax = np.nanmax(np.abs(v_los))
+        mesh = plot_sky_view(ax, self.phi, self.lam, v_los, phase,
+                              cmap='coolwarm', vmin=-vmax, vmax=vmax)
+        ax.set_title(f'LOS velocity [km/s]\nphase={phase:.3f}', fontsize=9)
+        return mesh
+
+    def plot_velocity_components(self, phase, axes=None):
+        """Sky view of each wind mechanism's own LOS velocity, side by side.
+
+        All three panels share one color scale (the largest magnitude among
+        the three), so their relative importance is directly comparable -- a
+        component disabled by its own default parameters just plots as a
+        uniformly blank disk rather than a mismatched, misleadingly
+        "significant looking" color range of its own.
+
+        Parameters
+        ----------
+        phase : scalar float
+        axes : sequence of 3 matplotlib.axes.Axes, optional
+            Drawn into a new figure/axes if not given.
+
+        Returns
+        -------
+        matplotlib.collections.QuadMesh
+            The last panel's mesh (handy for attaching one shared colorbar).
+        """
+        if axes is None:
+            _, axes = plt.subplots(1, 3, figsize=(10, 3.5))
+        components = self.los_velocity_components(phase)
+        labels = ['solid_rotation', 'jet', 'day_night']
+        titles = ['Solid rotation', 'Jet', 'Day-to-night']
+        vmax = max(np.nanmax(np.abs(components[label])) for label in labels) / 1e3
+        vmax = max(vmax, 1e-9)  # avoid a degenerate vmin=vmax=0 if all three are disabled
+        mesh = None
+        for ax, label, title in zip(axes, labels, titles):
+            mesh = plot_sky_view(ax, self.phi, self.lam, components[label] / 1e3, phase,
+                                  cmap='coolwarm', vmin=-vmax, vmax=vmax)
+            ax.set_title(title, fontsize=9)
+        return mesh
+
+    def plot_kernel(self, phase, ax=None, n_os=5, fwhm=None):
+        """Native and instrument-degraded kernel, hot and cold regions, at a given phase.
+
+        Parameters
+        ----------
+        phase : scalar float
+        ax : matplotlib.axes.Axes, optional
+            Drawn into a new figure/axes if not given.
+        n_os : scalar, optional
+            Forwarded to `get_ker`/`degrade_ker` (velocity-grid oversampling).
+        fwhm : float, optional
+            Forwarded to `degrade_ker` (instrumental FWHM). Defaults to the
+            kernel's own resolution element if not given.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+        """
+        if ax is None:
+            _, ax = plt.subplots(figsize=(7, 4))
+        v_grid, (ker_hot, ker_cold) = self.get_ker(phase=phase, n_os=n_os)
+        v_grid_d, (ker_hot_d, ker_cold_d) = self.degrade_ker(phase=phase, n_os=n_os, fwhm=fwhm)
+        ax.plot(v_grid / 1e3, ker_hot, color='C1', label='hot (native)')
+        ax.plot(v_grid / 1e3, ker_cold, color='C0', label='cold (native)')
+        ax.plot(v_grid_d / 1e3, ker_hot_d, '--', color='C1', label='hot (degraded)')
+        ax.plot(v_grid_d / 1e3, ker_cold_d, '--', color='C0', label='cold (degraded)')
+        ax.set_xlabel('v [km/s]')
+        ax.set_ylabel('Kernel')
+        ax.set_title(f'Native vs. instrument-degraded kernel\nphase={phase:.3f}', fontsize=9)
+        ax.legend(fontsize=7)
+        return ax
+
+    def show(self, phase, n_os=5, fwhm=None):
+        """All diagnostic panels for this kernel at one phase, in a single figure.
+
+        The `HotspotWindRotationKernel` equivalent of
+        `CitrusRotationKernel.show()`: regions, LOS velocity, the three wind
+        components separately, and the native vs. instrument-degraded
+        kernel, all in one call instead of writing each panel by hand.
+
+        Parameters
+        ----------
+        phase : scalar float
+        n_os, fwhm :
+            Forwarded to `plot_kernel`.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        fig = plt.figure(figsize=(13, 10))
+        gs = fig.add_gridspec(3, 3, height_ratios=[1, 1, 0.8], hspace=0.55, wspace=0.3)
+
+        ax_regions = fig.add_subplot(gs[0, 0])
+        self.plot_regions(phase, ax=ax_regions)
+
+        ax_vlos = fig.add_subplot(gs[0, 1])
+        mesh_vlos = self.plot_los_velocity(phase, ax=ax_vlos)
+        fig.colorbar(mesh_vlos, ax=ax_vlos, shrink=0.8, label='km/s')
+
+        axes_components = [fig.add_subplot(gs[1, i]) for i in range(3)]
+        mesh_components = self.plot_velocity_components(phase, axes=axes_components)
+        fig.colorbar(mesh_components, ax=axes_components, shrink=0.8, label='km/s')
+
+        ax_kernel = fig.add_subplot(gs[2, :])
+        self.plot_kernel(phase, ax=ax_kernel, n_os=n_os, fwhm=fwhm)
+
+        fig.suptitle(f'HotspotWindRotationKernel diagnostics — phase={phase:.3f}')
+        return fig
+
+
+#####################################################
 # --- Other section (not sure yet how to call it) ---
 #####################################################
 

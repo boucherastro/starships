@@ -27,11 +27,14 @@ table of contents once these tutorials get built into a Sphinx/ReadTheDocs site 
 
 1. `reduction/` — turn raw instrument data into a reduced sequence
    (`pipeline/reduction.py`, `starships.transpec.ReductionParams`). Start here.
-2. `stellar_fit_examples/` — fit the stellar spectrum (`starships.stellar_fit`). Needed as an
+2. `rotation_kernel_examples/` — planetary rotation/wind kernels (`starships.spectrum`), a
+   forward-modeling building block used when generating model spectra. Self-contained theory
+   and math, no data or fitted products needed -- independent of the other folders here.
+3. `stellar_fit_examples/` — fit the stellar spectrum (`starships.stellar_fit`). Needed as an
    input for emission retrievals; independent of retrieval/logl-map machinery otherwise.
-3. *(planned)* `retrieval/` — run and inspect a retrieval (`starships.retrieval`). Not created yet
+4. *(planned)* `retrieval/` — run and inspect a retrieval (`starships.retrieval`). Not created yet
    — Chantier A/C API still moving.
-4. `logl_grid_examples/` — log-likelihood / Kp-Vsys detection maps (`starships.logl_grid`),
+5. `logl_grid_examples/` — log-likelihood / Kp-Vsys detection maps (`starships.logl_grid`),
    typically run as a lighter-weight alternative or complement to a full retrieval.
 
 More folders (correlation/ttest, ...) will be added as their respective chantiers stabilize the
