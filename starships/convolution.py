@@ -229,6 +229,37 @@ def resample_constant_res(wv, flux, wv_range=None, resolution=None, kind='cubic'
     return wv_resampled, flux_resampled
 
 
+def required_margin(wv_min: float, resolution: float, n_fwhm: int = 7) -> float:
+    """Wavelength margin (same units as `wv_min`) `degrade_and_resample` needs
+    beyond its `sample` range, to have room for a full convolution kernel at
+    `resolution` -- the exact formula `degrade_and_resample` uses internally for
+    its own padding (see its `Notes`), factored out here so a caller that needs
+    to know *in advance* how much margin a future `degrade_and_resample` call
+    will require (e.g. how wide to generate a model, or how much padding a
+    loaded data file's own wavelength range needs) uses the same number, not an
+    independently maintained guess that can silently drift out of sync with it
+    (found as a real bug, Chantier A, 2026-09-16: a photometric instrument's
+    `wv_range` was padded with an unrelated fixed constant, `pad_n_res_elem`,
+    that happened to leave zero margin left over for `prepare_photometry`'s own
+    `degrade_and_resample` call downstream -- silent NaN in the synthetic data).
+
+    Parameters
+    ----------
+    wv_min : float
+        Shortest wavelength in the region that will need a margin -- the margin
+        scales with wavelength, since resolving power is wavelength / d(wavelength).
+    resolution : float
+        Target resolving power the eventual `degrade_and_resample` call will use.
+    n_fwhm : int, default 7
+        Same meaning as `degrade_and_resample`'s own `n_fwhm`.
+
+    Returns
+    -------
+    float
+    """
+    return n_fwhm * wv_min / resolution
+
+
 def degrade_and_resample(wv: np.ndarray, flux: np.ndarray, resolution: float,
                           input_resolution: float, sample: np.ndarray,
                           n_fwhm: int = 7, kind: str = 'cubic') -> np.ndarray:
@@ -294,10 +325,14 @@ def degrade_and_resample(wv: np.ndarray, flux: np.ndarray, resolution: float,
     A wavelength pad of `n_fwhm` resolution elements (at `resolution`) is added
     around `sample`'s range before resampling, so that the edge trimming done by
     gauss_convolve()'s default 'valid' mode does not clip any of the requested
-    `sample` points. The pad is clipped to whatever is actually available in `wv`.
+    `sample` points -- see `required_margin`, which computes this same pad for
+    callers that need to know it in advance (e.g. to size how wide a model or a
+    loaded data file's wavelength range needs to be for this function not to run
+    out of margin and return NaN near the edges). The pad is clipped to whatever
+    is actually available in `wv`.
     """
     wv_min, wv_max = np.min(sample), np.max(sample)
-    pad = n_fwhm * wv_min / resolution
+    pad = required_margin(wv_min, resolution, n_fwhm=n_fwhm)
     wv_range = (max(wv_min - pad, np.min(wv)), min(wv_max + pad, np.max(wv)))
 
     cond = (wv >= wv_range[0]) & (wv <= wv_range[1])

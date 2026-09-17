@@ -12,7 +12,7 @@ import os
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 import yaml
 import logging
 import numpy as np
@@ -36,7 +36,7 @@ from starships.mask_tools import interp1d_masked
 interp1d_masked.iprint = False
 import starships.correlation as corr
 from starships.analysis import bands
-from starships.convolution import degrade_and_resample
+from starships.convolution import degrade_and_resample, required_margin
 import starships.planet_obs as pl_obs
 from starships.planet_obs import Observations, Planet
 import starships.petitradtrans_utils as prt
@@ -340,7 +340,7 @@ def unpack_input_parameters(input_parameters, **kwargs):
     # Make sure all the file paths are Path objects
     all_file_keys = ['base_dir', 'high_res_path', 'walker_path', 'walker_file_out',
                      'walker_file_in', 'params_path', 'params_file_out', 'star_spectrum',
-                     'custom_prior_file']
+                     'custom_prior_file', 'get_ker_file']
     for key in all_file_keys:
         if input_params[key] is not None:
             # expanduser() to make sure to replace the '~' in the paths
@@ -882,11 +882,16 @@ def load_low_res_data(pad_n_res_elem=5):
         if 'wv_range' in data_table.meta:
             infos['wv_range'] = data_table.meta['wv_range']
         else:
-            # Define a padding based on the resolution (R = lambda / d_lambda)
+            # Pad the real data extent by exactly the margin degrade_and_resample
+            # will need downstream for a full convolution kernel at this
+            # instrument's resolution (required_margin -- the same formula
+            # degrade_and_resample uses internally, not an independently
+            # maintained guess that can drift out of sync with it -- see that
+            # function's docstring; same fix as load_photometry's analogous
+            # pad_n_res_elem padding, Chantier A, 2026-09-16).
             wv = np.sort(infos['wave'])
-            dwv = wv[[0, -1]] / infos['res']
-            wv_min = wv[0] - pad_n_res_elem * dwv[0]
-            wv_max = wv[-1] + pad_n_res_elem * dwv[-1]
+            wv_min = wv[0] - required_margin(wv[0], infos['res'])
+            wv_max = wv[-1] + required_margin(wv[-1], infos['res'])
             infos['wv_range'] = [wv_min, wv_max]
 
     return spectrophotometric_data
@@ -937,7 +942,7 @@ def get_wv_band_coverage(x_rsp, y_rsp, coverage_percent=99.9):
     return band_limits
 
 
-def load_photometry(model_res=250, pad_n_res_elem=5):
+def load_photometry(model_res=250):
 
     for instru_name, infos in photometric_data.items():
         log.info(f'Loading data for instrument {instru_name}')
@@ -1000,12 +1005,22 @@ def load_photometry(model_res=250, pad_n_res_elem=5):
         if 'wv_range' in data_table.meta:
             infos['wv_range'] = data_table.meta['wv_range']
         else:
-            # Use the grid range + a padding based on a given resolution
-            wv_grids = np.concatenate(wv_grids)
-            wv = np.array([np.min(wv_grids), np.max(wv_grids)])
-            dwv = wv[[0, -1]] / infos['res']
-            wv_min = wv[0] - pad_n_res_elem * dwv[0]
-            wv_max = wv[-1] + pad_n_res_elem * dwv[-1]
+            # Pad the *actual* coverage needed (wv_coverages, the 99.9%-of-
+            # transmission bounds already computed above -- tighter and more
+            # meaningful than the raw response-function grid's own extent) by
+            # exactly the margin degrade_and_resample will need downstream for a
+            # full convolution kernel at this instrument's resolution
+            # (required_margin -- the same formula degrade_and_resample uses
+            # internally, not an independently maintained guess that can drift
+            # out of sync with it -- see that function's docstring. Found as a
+            # real bug, Chantier A, 2026-09-16: the old fixed pad_n_res_elem
+            # padding here happened to leave zero margin for
+            # prepare_photometry's own degrade_and_resample call downstream,
+            # silently NaN-ing the synthetic photometry for a Spitzer band).
+            wv_min = np.min(wv_coverages)
+            wv_max = np.max(wv_coverages)
+            wv_min -= required_margin(wv_min, infos['res'])
+            wv_max += required_margin(wv_max, infos['res'])
             infos['wv_range'] = [wv_min, wv_max]
 
     return photometric_data
@@ -1295,8 +1310,14 @@ def init_stellar_spectrum(mode: str, wl_range: Optional[Tuple[float, float]] = N
         resamp_star = degrade_and_resample(sample, star_flux[is_in_range],
                                             resolution=Raf, input_resolution=star_res,
                                             sample=sample)
-        resamp_star = np.ma.masked_invalid(resamp_star)
-        fct_star = interp1d(sample, resamp_star)
+        # degrade_and_resample returns NaN near the edges of `sample` (not enough
+        # margin for a full convolution kernel there -- see its docstring). A numpy
+        # mask does NOT protect interp1d against this: interp1d reads the raw
+        # underlying data regardless of mask, so a masked array here was silently
+        # ineffective. Actually drop the invalid points instead (Chantier A,
+        # 2026-09-16).
+        valid = np.isfinite(resamp_star)
+        fct_star = interp1d(sample[valid], resamp_star[valid])
 
     else:
         log.info('No stellar spectrum provided. A blackbody at Teff will be used.')
@@ -2053,7 +2074,7 @@ def prepare_photometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_res: floa
     model_res : float
         Native/physical resolving power of the model spectrum (`Rbf`).
     data_info : dict
-        Photometric data description, with keys 'wv_range', 'res', 'wave',
+        Photometric data description, with keys 'wv_coverages', 'res', 'wave',
         'response_fcts' (one response function per band).
     mod_sampling : float, optional
         Unused by the degradation step itself; kept for interface consistency with
@@ -2076,11 +2097,20 @@ def prepare_photometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_res: floa
         integrate_fct = getattr(scipy.integrate, integrate_fct)
 
     # Get the values needed from the data_info dictionary
-    info_keys = ['wv_range', 'res', 'wave', 'response_fcts']
-    wv_rng, instru_res, wv_band, fct_band = (data_info[key] for key in info_keys)
+    info_keys = ['wv_coverages', 'res', 'wave', 'response_fcts']
+    wv_coverages, instru_res, wv_band, fct_band = (data_info[key] for key in info_keys)
+
+    # Only query the points actually needed for the response functions (the tight,
+    # real 99.9%-transmission coverage of each band), not data_info['wv_range']
+    # (which is already padded with margin for degrade_and_resample -- querying at
+    # ITS edges would just push the same "not enough margin left" problem one level
+    # out; see load_photometry's wv_range computation and required_margin's
+    # docstring in convolution.py. Chantier A, 2026-09-16).
+    wv_min = min(cov[0] for cov in wv_coverages)
+    wv_max = max(cov[1] for cov in wv_coverages)
 
     # First downgrade to a lower resolution to make sure the spectrum is smooth
-    cond = (wv_mod >= wv_rng[0]) & (wv_mod <= wv_rng[-1])
+    cond = (wv_mod >= wv_min) & (wv_mod <= wv_max)
     wv_mod_sub, spec_mod_sub = wv_mod[cond], spec_mod[cond]
     # Pass the full wv_mod/spec_mod (not the wv_rng-cropped _sub arrays) so
     # degrade_and_resample has margin to pad internally without clipping wv_mod_sub's
@@ -2114,7 +2144,7 @@ def prepare_spectrophotometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_re
     model_res : float
         Native/physical resolving power of the model spectrum (`Rbf`).
     data_info : dict
-        Spectrophotometric data description, with keys 'wv_range', 'res', 'wave'.
+        Spectrophotometric data description, with keys 'res', 'wave'.
     mod_sampling : float, optional
         Sampling density (in resolving power) used for the box-binning step before
         the final interpolation. Defaults to `model_res`.
@@ -2130,7 +2160,7 @@ def prepare_spectrophotometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_re
         mod_sampling = model_res
 
     # Get the values needed from the data_info dictionary
-    wv_rng, instru_res, wv_grid = (data_info[key] for key in ['wv_range', 'res', 'wave'])
+    instru_res, wv_grid = data_info['res'], data_info['wave']
 
     # TODO: Add the possibility to use unequal spectral bins
     # The binning function spectrum.box_binning needs to be replaced
@@ -2138,10 +2168,26 @@ def prepare_spectrophotometry(wv_mod: np.ndarray, spec_mod: np.ndarray, model_re
     # The function that reads the spectrophotometry should also
     # be changed to be able to read bin limits.
 
-    # Downgrade to instrument resolution. Pass the full wv_mod/spec_mod (not the
-    # wv_rng-cropped array) so degrade_and_resample has margin to pad internally
-    # without clipping wv_mod[cond]'s edges (Chantier A Phase 1).
-    cond = (wv_mod >= wv_rng[0]) & (wv_mod <= wv_rng[-1])
+    # Downgrade to instrument resolution. Pass the full wv_mod/spec_mod (not a
+    # cropped array) so degrade_and_resample has margin to pad internally without
+    # clipping wv_mod[cond]'s edges (Chantier A Phase 1). `cond` must use the real,
+    # tight data extent (wv_grid's own min/max), NOT data_info['wv_range'] -- that
+    # range is already padded by required_margin (see load_low_res_data), and
+    # wv_range_low (what wv_mod actually spans) adds no further margin beyond it,
+    # so querying degrade_and_resample right at wv_range's own edge leaves zero
+    # margin for its kernel there -- same root cause as the Spitzer/prepare_photometry
+    # bug, found on real KELT-20b G395H NRS1/NRS2 data, Chantier A, 2026-09-16.
+    # A bare `>=`/`<=` at wv_grid's own edges isn't enough margin here: besides
+    # bracketing wv_grid for the interp1d call below (grid-discretization
+    # rounding could otherwise leave wv_mod[cond]'s edge strictly inside
+    # wv_grid's edge), spectrum.box_binning further down does its own boxcar
+    # averaging over `resamp_prt` and needs room for that window beyond
+    # wv_grid's edges too, or its edge bins get truncated/biased toward zero.
+    # required_margin (same formula degrade_and_resample uses internally) is
+    # comfortably larger than box_binning's window in practice -- reuse it
+    # rather than inventing a second, independently-sized margin.
+    pad = required_margin(wv_grid.min(), instru_res)
+    cond = (wv_mod >= wv_grid.min() - pad) & (wv_mod <= wv_grid.max() + pad)
     resamp_prt = degrade_and_resample(wv_mod, spec_mod, resolution=instru_res,
                                        input_resolution=model_res, sample=wv_mod[cond])
 
@@ -2503,8 +2549,19 @@ def lnprob(theta, ):
                     args = (wv_high_for_lowres, model_high_for_lowres, model_high_for_lowres_res,
                              infos, prt_res['high'])
                 # Generate the synthetic data
-                _, synt_data = prepare_fct(*args)        
-                
+                _, synt_data = prepare_fct(*args)
+
+                # Safety net: prepare_photometry/prepare_spectrophotometry can return
+                # NaN if their internal degrade_and_resample call ever runs out of
+                # margin near an edge (documented behaviour, see convolution.py).
+                # Without this check a NaN would silently propagate all the way to
+                # lnprob's return value instead of being treated as a rejected step
+                # (Chantier A, 2026-09-16 -- root cause fixed upstream via
+                # required_margin, this is a defensive backstop).
+                if np.any(np.isnan(synt_data)):
+                    log.info(f"NaN in synthetic {low_res_data_type} data for {instru_name}")
+                    return -np.inf
+
                 # Get data measured by the instrument
                 data, uncert = infos['data'], infos['err']
                 
@@ -2740,8 +2797,8 @@ def main(yaml_file=None, **kwargs):
         sampler.run_mcmc(pos, n_steps, progress=False)  # , skip_initial_state_check=True)
 
     log.info('End of retrieval. It seems to be a success!')
-    
-    
+
+
 if __name__ == '__main__':
     main()
 

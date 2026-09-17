@@ -3,7 +3,7 @@ import pytest
 from scipy.optimize import curve_fit
 
 from starships.analysis import resamp_model
-from starships.convolution import SIGMA_TO_FWHM, degrade_and_resample
+from starships.convolution import SIGMA_TO_FWHM, degrade_and_resample, required_margin
 
 
 def _gaussian_line(wv, wv0, fwhm, amp=0.5):
@@ -108,3 +108,28 @@ class TestDegradeAndResample:
         assert np.isnan(result[0]) or np.isnan(result[-1])
         # Le centre, lui, doit rester fini.
         assert np.isfinite(result[len(result) // 2])
+
+
+class TestRequiredMargin:
+    """`required_margin` factorise la formule de padding utilisée en interne par
+    `degrade_and_resample` (Chantier A, bug Spitzer -- deux calculs de marge
+    indépendants avaient fini par désynchroniser, laissant une marge nulle pour le
+    second appel downstream)."""
+
+    def test_matches_degrade_and_resample_internal_padding(self):
+        wv_min, resolution = 5.0, 700
+        margin = required_margin(wv_min, resolution)
+
+        # Un point placé exactement à `margin` du bord d'un tableau assez large doit
+        # rester fini : c'est exactement la marge que `degrade_and_resample`
+        # requiert pour un noyau de convolution complet à ce bord.
+        R_true = 2 * resolution
+        wv = np.linspace(wv_min - margin - 0.01, wv_min + 0.5, 5000)
+        flux = np.ones_like(wv)
+
+        result = degrade_and_resample(wv, flux, resolution=resolution, input_resolution=R_true,
+                                       sample=np.array([wv_min]))
+        assert np.isfinite(result[0])
+
+    def test_scales_with_n_fwhm(self):
+        assert required_margin(5.0, 700, n_fwhm=14) == pytest.approx(2 * required_margin(5.0, 700, n_fwhm=7))
