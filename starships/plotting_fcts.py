@@ -1,3 +1,5 @@
+from typing import Dict, Optional, Tuple
+
 import numpy as np
 from . import homemade as hm
 from . import analysis as a
@@ -3432,6 +3434,146 @@ def find_isolated_peak_sigma(posterior, vsys_axis, kp_axis,
         last_valid = sigma
 
     return last_valid
+
+
+def _ttest_gauss(x: np.ndarray, sigma: float, amp: float, mu: float) -> np.ndarray:
+    """Un-normalised Gaussian, same form as ``analysis.gauss`` -- local to
+    avoid depending on that module's exact signature for a one-off fit."""
+    return amp * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
+
+
+def plot_ttest_distribution(in_vals: np.ndarray, out_vals: np.ndarray,
+                             ttest_result: Optional[Dict[str, float]] = None,
+                             ax=None, n_bins: int = 20, fit_gaussian: bool = True,
+                             label_in: str = 'In-trail', label_out: str = 'Out-of-trail'):
+    """Histogram comparing in-trail and out-of-trail pixel distributions.
+
+    Modernised version of ``ttest_fcts.t_test_hist`` (Chantier C2): same
+    visual language (out-of-trail in blue behind, in-trail in green in
+    front, both normalised to % occurrence so their different sample sizes
+    are comparable, optional Gaussian fit overlay), but takes plain arrays
+    instead of a ``visit`` object and annotates the actual t-test result
+    (``logl_grid.ttest_at_point``'s output) directly on the plot.
+
+    Parameters
+    ----------
+    in_vals, out_vals : np.ndarray
+        Pooled in-trail / out-of-trail pixel values (e.g. from
+        ``logl_grid.select_in_out_trail``).
+    ttest_result : dict, optional
+        Output of ``logl_grid.ttest_at_point``. When given, its t/p/sigma
+        values are shown in the plot title.
+    ax : matplotlib Axes, optional
+    n_bins : int
+        Histogram bin count (shared between both samples).
+    fit_gaussian : bool
+        Overlay a best-fit Gaussian on each histogram.
+    label_in, label_out : str
+
+    Returns
+    -------
+    fig, ax
+    """
+    from scipy.optimize import curve_fit
+    from matplotlib.ticker import PercentFormatter
+
+    in_vals = np.ma.compressed(np.ma.masked_invalid(in_vals))
+    out_vals = np.ma.compressed(np.ma.masked_invalid(out_vals))
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(7, 5))
+    else:
+        fig = ax.figure
+
+    # Out-of-trail first (drawn behind) -- same ordering as the old t_test_hist.
+    n_out, bins, _ = ax.hist(out_vals, bins=n_bins, color='#0504aa', alpha=0.5,
+                             rwidth=0.85, weights=np.ones(out_vals.size) / out_vals.size,
+                             label=label_out)
+    n_in, _, _ = ax.hist(in_vals, bins=bins, color='limegreen', alpha=0.5,
+                         rwidth=0.85, weights=np.ones(in_vals.size) / in_vals.size,
+                         label=label_in)
+
+    if fit_gaussian:
+        mids = 0.5 * (bins[1:] + bins[:-1])
+        x = np.linspace(mids.min(), mids.max(), 101)
+        for n, color in [(n_out, 'darkblue'), (n_in, 'darkgreen')]:
+            p0 = np.array([np.nanstd(out_vals), n.max(), np.nanmean(out_vals)])
+            try:
+                param, _ = curve_fit(_ttest_gauss, ydata=n, xdata=mids, p0=p0)
+                ax.plot(x, _ttest_gauss(x, *param), color=color)
+            except RuntimeError:
+                pass  # No converged fit -- histogram alone still shows the comparison.
+
+    ax.yaxis.set_major_formatter(PercentFormatter(1))
+    ax.set_xlabel('Normalised logL value', fontsize=13)
+    ax.set_ylabel('% Occurrence', fontsize=13)
+    ax.legend(loc='upper left', fontsize=11)
+
+    if ttest_result is not None:
+        ax.set_title(
+            r't = {t:.2f}, p = {p:.1e}, {sigma:.2f}$\sigma$  '
+            r'(n_in={n_in}, n_out={n_out})'.format(**ttest_result)
+        )
+
+    return fig, ax
+
+
+def plot_ttest_kpvsys_map(t_map: np.ndarray, p_map: np.ndarray, sigma_map: np.ndarray,
+                           vsys_axis: np.ndarray, kp_array: np.ndarray,
+                           kp_expected: Optional[float] = None,
+                           vsys_expected: float = 0.,
+                           figsize: Tuple[float, float] = (6, 6)):
+    """T-value, log10(p-value) and significance maps over a Kp-vsys grid.
+
+    Three separate figures (one ``plot_2d_map`` call each -- reused as-is,
+    not reimplemented), rather than the old ``plot_ttest_map``'s single
+    hand-rolled 3-row pcolormesh figure. When ``kp_expected`` is given, a
+    dotted crosshair marks ``(vsys_expected, kp_expected)`` on each map via
+    ``plot_x_y_position``, same purpose as the old code's white/red
+    reference lines.
+
+    **Do not read this map's bare peak (e.g. its argmax) as a detection
+    statistic on its own** -- see ``logl_grid.ttest_map_quicklook``'s
+    "Warns" section for the look-elsewhere finding that motivates this
+    caution (confirmed on real KELT-20b data).
+
+    Parameters
+    ----------
+    t_map, p_map, sigma_map : np.ndarray, shape (n_kp, n_vsys)
+        Output of ``logl_grid.ttest_map_quicklook``/``ttest_map_full_grid``.
+    vsys_axis : np.ndarray, shape (n_vsys,)
+    kp_array : np.ndarray, shape (n_kp,)
+    kp_expected : float, optional
+        Known/assumed Kp (km/s) -- draws a reference crosshair when given.
+    vsys_expected : float
+        Known/assumed vsys (km/s) for the reference crosshair.
+    figsize : tuple of float
+
+    Returns
+    -------
+    dict
+        ``{'t': (fig, ax), 'p': (fig, ax), 'sigma': (fig, ax)}``.
+    """
+    # plot_2d_map expects (n_x, n_y) = (n_vsys, n_kp), so transpose the
+    # (n_kp, n_vsys) maps produced by logl_grid's t-test functions.
+    log10_p = np.log10(np.clip(p_map.T, 1e-300, None))
+
+    panels = {
+        't': (t_map.T, r'$t$-value', 'linear'),
+        'p': (log10_p, r'$\log_{10}$ p-value', 'linear'),
+        'sigma': (sigma_map.T, r'Significance ($\sigma$)', 'linear'),
+    }
+
+    results = {}
+    for key, (map_2d, cbar_label, scale) in panels.items():
+        fig, ax = plot_2d_map(map_2d, vsys_axis, kp_array, scale=scale,
+                              cbar_label=cbar_label, figsize=figsize)
+        if kp_expected is not None:
+            plot_x_y_position(vsys_expected, kp_expected, ax=ax, color='red',
+                              linestyle=':')
+        results[key] = (fig, ax)
+
+    return results
 
 
 def plot_logl_per_order(map_orders, vsys_axis, kp_axis,

@@ -55,6 +55,7 @@ import os
 import sys
 from multiprocessing import Pool
 from pathlib import Path
+from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 from astropy import units as u
@@ -1575,6 +1576,679 @@ def compute_empirical_sigma_map(map_2d, method='clip', box_vsys=None, box_kp=Non
                 noise_std=noise_std, method=method,
                 vsys_coords=vsys_coords, kp_coords=kp_coords,
                 box_vsys=box_vsys, box_kp=box_kp)
+
+
+# ---------------------------------------------------------------------------
+# In-trail / out-of-trail t-test (Chantier C2)
+# ---------------------------------------------------------------------------
+#
+# The old CCF pipeline (``starships.ttest_fcts``, called from
+# ``starships.correlation``) computes a detection significance by comparing,
+# at a candidate (Kp, vsys), the pixels *in* the planet's expected Doppler
+# trail to the pixels *out* of it, via a two-sample t-test
+# (``scipy.stats.ttest_ind``). The functions below are the equivalent for
+# this module's per-exposure trailing map (``_make_trailing_plot``,
+# ``plotting_fcts.plot_trailing_map``), which so far has only ever been
+# *displayed* (a simple median/std normalisation), never fed into an actual
+# statistical test.
+#
+# Developed and real-data-validated (KELT-20b, on Narval) outside the
+# package first, in ``starships_analysis/trailing_ttest/`` -- see that
+# folder's history / ``Notes/plan_revision_starships.md``'s Chantier C2
+# entry for the two real bugs this uncovered before landing here:
+# (1) raw ``get_logl`` values must be put on a common per-exposure scale
+# before being pooled across exposures (``normalize_per_exposure`` below),
+# or the huge per-exposure baseline swamps the real signal; (2) an
+# oversampled ``vsys_axis`` makes ``select_in_out_trail`` pool correlated
+# neighbouring points as if independent, inflating the significance
+# (``min_sample_spacing`` below is the guard against that).
+
+
+def normalize_per_exposure(logl_map_ts: np.ma.MaskedArray, vsys_axis: np.ndarray,
+                            noise_rv_limits: Tuple[float, float]) -> np.ma.MaskedArray:
+    """Put every exposure's trailing-map column on a common S/N scale.
+
+    Subtracts each exposure's own median and divides by its own standard
+    deviation, both computed over ``noise_rv_limits`` (a signal-free
+    baseline window) -- identical operation to ``_make_trailing_plot``'s
+    own ``logl_map_norm``. **Required before pooling pixels across
+    exposures for a t-test** (see ``select_in_out_trail``): a raw
+    ``get_logl(...)`` value (``-N/2 * log(chi2/N)``) carries a large
+    per-exposure baseline set by that exposure's own noise level and number
+    of valid pixels -- unlike a CCF (roughly zero-centred per exposure),
+    pooling logL directly across exposures mixes those very different
+    baselines into both the in-trail and out-of-trail samples, and that
+    between-exposure baseline variance swamps the (tiny, in absolute logL
+    terms) true signal. Confirmed concretely on a real KELT-20b grid:
+    skipping this step silently gave ~0 sigma where it should have been ~5.
+
+    Parameters
+    ----------
+    logl_map_ts : np.ma.MaskedArray, shape (n_vsys, n_exp)
+        Trailing map, e.g. ``get_logl(alpha=1., sum_axis=-1)[:, i_kp, :]``.
+    vsys_axis : np.ndarray, shape (n_vsys,)
+        vsys grid the trailing map was computed on (km/s).
+    noise_rv_limits : tuple of float
+        ``(low, high)``, km/s. vsys values *outside* this window define each
+        exposure's baseline. Should be wide enough to exclude the expected
+        signal entirely (e.g. the same ``noise_rv_limits`` passed to
+        ``plotting_fcts.plot_trailing_map``).
+
+    Returns
+    -------
+    np.ma.MaskedArray, shape (n_vsys, n_exp)
+        Normalised trailing map.
+    """
+    is_out_rv = (vsys_axis < noise_rv_limits[0]) | (noise_rv_limits[1] < vsys_axis)
+    baseline = np.ma.median(logl_map_ts[is_out_rv, :], axis=0)
+    scale = np.ma.std(logl_map_ts[is_out_rv, :], axis=0)
+    return (logl_map_ts - baseline[None, :]) / scale[None, :]
+
+
+def estimate_correlation_length(logl_map_norm: np.ma.MaskedArray, vsys_axis: np.ndarray,
+                                 noise_rv_limits: Tuple[float, float],
+                                 max_lag_bins: int = 15) -> float:
+    """Estimate a `min_sample_spacing` value from the data's own noise region.
+
+    A practical answer to "what do I pass as `min_sample_spacing`?" (see
+    `select_in_out_trail`): compute the mean autocorrelation function of the
+    per-exposure-normalised out-of-trail (noise) region, averaged over
+    exposures, and return the first lag where it drops below `1/e` -- a
+    standard, simple correlation-length estimator. Originally written
+    per-notebook in `trailing_map.ipynb`/`detection_significance.ipynb`
+    (Chantier C2) and duplicated between them; moved here once that
+    duplication became the second real use, per Antoine's request.
+
+    Parameters
+    ----------
+    logl_map_norm : np.ma.MaskedArray, shape (n_vsys, n_exp)
+        **Already per-exposure normalised** trailing map (`normalize_per_exposure`)
+        -- the autocorrelation is only meaningful on a common S/N scale.
+    vsys_axis : np.ndarray, shape (n_vsys,)
+        vsys grid the trailing map was computed on (km/s).
+    noise_rv_limits : tuple of float
+        ``(low, high)``, km/s -- same noise-region window used to build
+        ``logl_map_norm`` in the first place.
+    max_lag_bins : int
+        Largest lag (in native `vsys_axis` steps) considered. If the ACF
+        never drops below `1/e` within this range, returns the spacing at
+        `max_lag_bins` (a lower bound, not a real crossing).
+
+    Returns
+    -------
+    float
+        Estimated correlation length (km/s), directly usable as
+        `min_sample_spacing`.
+    """
+    is_out_rv = (vsys_axis < noise_rv_limits[0]) | (noise_rv_limits[1] < vsys_axis)
+    step = float(np.median(np.diff(vsys_axis)))
+    acfs = []
+    for i in range(logl_map_norm.shape[1]):
+        x = np.ma.compressed(logl_map_norm[is_out_rv, i])
+        x = x - x.mean()
+        if x.std() == 0 or len(x) < max_lag_bins * 2:
+            continue
+        acf_full = np.correlate(x, x, mode='full')
+        mid = len(acf_full) // 2
+        acf = acf_full[mid:mid + max_lag_bins + 1]
+        acf /= acf[0]
+        acfs.append(acf)
+    mean_acf = np.mean(acfs, axis=0)
+    below = np.nonzero(mean_acf < 1 / np.e)[0]
+    lag_bins = below[0] if len(below) else max_lag_bins
+    return float(lag_bins * step)
+
+
+def select_in_out_trail(logl_map_ts: np.ma.MaskedArray, vsys_axis: np.ndarray,
+                         center_per_exposure: Union[float, np.ndarray],
+                         speed_limit: float = 4., limit_out: float = 10.,
+                         both_side: bool = True,
+                         idx_exposure: Optional[np.ndarray] = None,
+                         min_sample_spacing: Optional[float] = None,
+                         vsys_offset: int = 0,
+                         ) -> Tuple[np.ma.MaskedArray, np.ma.MaskedArray]:
+    """Pool in-trail and out-of-trail pixels from a trailing map.
+
+    Generalises ``ttest_fcts.get_corr_in_out_trail`` (written for the old
+    per-order CCF array + ``visit`` object) to this module's
+    ``(n_vsys, n_exp)`` trailing map.
+
+    For each selected exposure, "in-trail" pixels are those within
+    ``speed_limit`` km/s of that exposure's assumed trail position;
+    "out-of-trail" pixels are those beyond ``limit_out`` km/s of it. The gap
+    between the two (``speed_limit`` to ``limit_out``) is deliberately
+    excluded from both samples -- it is not clearly signal or noise.
+
+    Parameters
+    ----------
+    logl_map_ts : np.ma.MaskedArray, shape (n_vsys, n_exp)
+        Trailing map, already **per-exposure normalised**
+        (``normalize_per_exposure`` -- raw ``get_logl(...)`` output must
+        not be pooled directly, see that function's docstring).
+    vsys_axis : np.ndarray, shape (n_vsys,)
+        vsys grid the trailing map was computed on (km/s).
+    center_per_exposure : float or np.ndarray, shape (n_exp,)
+        Assumed trail position (km/s) for each exposure. A scalar applies
+        the same position to every exposure (the "at the expected Kp/vsys"
+        case); an array of length ``n_exp`` lets the position vary per
+        exposure (the Kp-scan case, see ``ttest_map_quicklook``).
+    speed_limit : float
+        Half-width of the in-trail window (km/s).
+    limit_out : float
+        Distance from the trail position beyond which pixels count as
+        out-of-trail (km/s).
+    both_side : bool
+        If True, out-of-trail pixels are taken on both sides of the trail
+        (``|v - center| > limit_out``). If False, only the high-velocity
+        side (``v > center + limit_out``) -- useful when the low-velocity
+        side is contaminated (e.g. by a telluric residual).
+    idx_exposure : np.ndarray of int, optional
+        Exposure indices to include (default: all).
+    min_sample_spacing : float, optional
+        Minimum spacing (km/s) enforced between pooled ``vsys_axis`` points
+        -- **pseudo-replication guard**. A t-test assumes independent
+        samples, but neighbouring ``vsys_axis`` bins are correlated
+        whenever the grid is sampled finer than the actual resolution
+        element/line width (common, since a finely-sampled grid is also
+        needed for a smooth logL curve). Pooling those correlated
+        neighbours as if they were independent inflates ``n_in``/``n_out``
+        and therefore inflates the reported significance without adding
+        real information -- confirmed concretely on real data (see module
+        note above). When set, only every
+        ``round(min_sample_spacing / native_vsys_step)``-th grid point is
+        kept (a fixed decimation of ``vsys_axis``, applied before the
+        in/out-trail windows). Default `None` (no decimation, the
+        historical behaviour) -- **the caller must actively choose to
+        guard against this**, there is no generically-correct default: the
+        right spacing depends on the instrument/model resolution, not on
+        anything this function can infer from the values alone. **Keep
+        ``speed_limit >= min_sample_spacing / 2``** -- the kept points sit
+        at fixed absolute positions ``min_sample_spacing`` apart, and a
+        narrower in-trail window can land entirely between two of them,
+        guaranteeing zero in-trail samples for some grid points (not bad
+        luck -- a real, reproducible gap). A `UserWarning` is raised if this
+        is violated. Confirmed in practice: ``speed_limit=2`` with
+        ``min_sample_spacing=6.84`` produced visible NaN stripes in a real
+        Kp-vsys map.
+    vsys_offset : int
+        Which native ``vsys_axis`` index the decimation starts at (``keep =
+        vsys_axis[vsys_offset::stride]``), wrapped modulo ``stride``. Not to
+        be confused with orbital phase elsewhere in this module -- this is
+        purely an index offset into the ``vsys_axis`` decimation grid.
+        Ignored when ``min_sample_spacing`` is `None`. Default 0 (the
+        original, single-offset behaviour). A fixed decimation necessarily
+        throws away ``stride - 1`` out of every ``stride`` native points --
+        which exact points survive is an arbitrary choice that a smooth
+        underlying signal shouldn't be sensitive to, but the per-point
+        t-test is (confirmed concretely: two adjacent grid points can pool
+        different discrete point sets and give visibly different sigma).
+        ``ttest_at_point_averaged`` below runs this function once per
+        possible offset and combines the results instead of committing to
+        one arbitrary offset -- see that function for why.
+
+    Returns
+    -------
+    in_vals, out_vals : np.ma.MaskedArray, 1D
+        Pooled in-trail / out-of-trail pixel values across the selected
+        exposures.
+    """
+    n_exp = logl_map_ts.shape[1]
+
+    # Broadcast a scalar center to one value per exposure so the loop below
+    # is the same whether we got a fixed or a per-exposure trail position.
+    if np.ndim(center_per_exposure) == 0:
+        center = np.full(n_exp, float(center_per_exposure))
+    else:
+        center = np.asarray(center_per_exposure)
+        if center.shape != (n_exp,):
+            raise ValueError(
+                f'center_per_exposure must be a scalar or shape (n_exp,)={n_exp}, '
+                f'got shape {center.shape}'
+            )
+
+    if idx_exposure is None:
+        idx_exposure = np.arange(n_exp)
+
+    # Fixed decimation mask over vsys_axis, independent of where each
+    # exposure's window ends up -- keeps roughly one sample per correlation
+    # length instead of every native grid point.
+    if min_sample_spacing is not None:
+        native_step = float(np.median(np.diff(vsys_axis)))
+        stride = max(1, int(round(min_sample_spacing / native_step)))
+        keep = np.zeros(vsys_axis.shape, dtype=bool)
+        keep[vsys_offset % stride::stride] = True
+
+        # Kept points are spaced `min_sample_spacing` apart at fixed absolute
+        # positions; the in-trail window is `2*speed_limit` wide and can fall
+        # anywhere relative to that fixed grid. If the window is narrower
+        # than the spacing between kept points, there exist window positions
+        # that straddle none of them -- guaranteed zero in-trail samples for
+        # some (kp, vsys) grid points, not just bad luck. Confirmed in
+        # practice: speed_limit=2 with min_sample_spacing=6.84 produced
+        # visible NaN stripes in a real Kp-vsys map.
+        if 2 * speed_limit < min_sample_spacing:
+            import warnings
+            warnings.warn(
+                f'speed_limit={speed_limit} is less than half of '
+                f'min_sample_spacing={min_sample_spacing} -- some window '
+                'positions are guaranteed to contain zero kept in-trail '
+                'points (NaN gaps in a Kp-vsys map). Use '
+                'speed_limit >= min_sample_spacing / 2 to avoid this.',
+                UserWarning, stacklevel=2,
+            )
+    else:
+        keep = np.ones(vsys_axis.shape, dtype=bool)
+
+    in_chunks = []
+    out_chunks = []
+    for i in idx_exposure:
+        c = center[i]
+        is_in = keep & (vsys_axis >= c - speed_limit) & (vsys_axis <= c + speed_limit)
+        if both_side:
+            is_out = keep & ((vsys_axis > c + limit_out) | (vsys_axis < c - limit_out))
+        else:
+            is_out = keep & (vsys_axis > c + limit_out)
+        in_chunks.append(logl_map_ts[is_in, i])
+        out_chunks.append(logl_map_ts[is_out, i])
+
+    in_vals = np.ma.concatenate(in_chunks) if in_chunks else np.ma.masked_array([])
+    out_vals = np.ma.concatenate(out_chunks) if out_chunks else np.ma.masked_array([])
+    return in_vals, out_vals
+
+
+def ttest_at_point(in_vals: np.ndarray, out_vals: np.ndarray,
+                    equal_var: bool = False) -> Dict[str, float]:
+    """Two-sample t-test between in-trail and out-of-trail pixel samples.
+
+    ``equal_var`` selects Student's t-test (`True`, assumes both samples
+    share the same variance) or Welch's t-test (`False`, does not assume
+    equal variance). Both are exposed as a single parameter rather than two
+    separately-named functions, since either can be the right choice
+    depending on the data.
+
+    Parameters
+    ----------
+    in_vals, out_vals : np.ndarray
+        Pooled in-trail / out-of-trail pixel values, e.g. from
+        ``select_in_out_trail``.
+    equal_var : bool
+        See above.
+
+    Returns
+    -------
+    dict
+        ``t`` : t-statistic (positive = in-trail mean above out-of-trail
+        mean). ``p`` : two-sided p-value from ``scipy.stats.ttest_ind``.
+        ``sigma`` : signed detection significance, ``sign(t) * |sigma|``,
+        where ``|sigma|`` converts the two-sided p-value to a one-sided
+        Gaussian equivalent (``scipy.stats.norm.isf(p / 2)`` -- dividing by
+        2 turns the two-sided p-value into the one-sided one implied by
+        each tail, same convention as ``_alpha_significance_full``'s
+        ``norm.isf`` use). ``n_in``, ``n_out`` : sample sizes actually used
+        (after dropping masked/non-finite pixels).
+    """
+    from scipy import stats
+
+    in_clean = np.ma.compressed(np.ma.masked_invalid(in_vals))
+    out_clean = np.ma.compressed(np.ma.masked_invalid(out_vals))
+
+    if in_clean.size < 2 or out_clean.size < 2:
+        return {'t': np.nan, 'p': np.nan, 'sigma': np.nan,
+                'n_in': in_clean.size, 'n_out': out_clean.size}
+
+    t_val, p_val = stats.ttest_ind(in_clean, out_clean, equal_var=equal_var,
+                                    nan_policy='omit')
+    sigma = np.sign(t_val) * stats.norm.isf(p_val / 2.)
+    return {'t': float(t_val), 'p': float(p_val), 'sigma': float(sigma),
+            'n_in': in_clean.size, 'n_out': out_clean.size}
+
+
+def ttest_at_point_averaged(logl_map_ts: np.ma.MaskedArray, vsys_axis: np.ndarray,
+                             center_per_exposure: Union[float, np.ndarray],
+                             min_sample_spacing: float,
+                             speed_limit: float = 4., limit_out: float = 10.,
+                             both_side: bool = True,
+                             idx_exposure: Optional[np.ndarray] = None,
+                             equal_var: bool = False) -> Dict[str, float]:
+    """t-test at one point, combined over every decimation offset via Stouffer's method.
+
+    **NOT CALIBRATED -- confirmed miscalibrated on correlated noise, do not
+    use for a real detection claim.** Kept for anyone who wants to pick up
+    where this left off (see the calibration failure below), not because it
+    is currently safe to use. ``ttest_map_quicklook``/``ttest_map_full_grid``
+    default their ``average_offsets`` flag to `False` for exactly this
+    reason.
+
+    Raised by Antoine: the Kp-vsys map isn't really one calculation -- it's a
+    collection of independent point t-tests, one per grid cell. With
+    ``min_sample_spacing`` set, each of those point tests commits to *one*
+    arbitrary decimation offset (``select_in_out_trail``'s ``vsys_offset=0``
+    default), throwing away the other ``stride - 1`` out of every ``stride``
+    native ``vsys_axis`` points -- part of why the resulting map looks
+    grainier than the smooth logL/posterior-based maps. The natural fix
+    tried here: run the point test once per possible ``vsys_offset`` (``0``
+    to ``stride - 1``, together covering every native grid point exactly
+    once) and combine the ``stride`` sigma values via **Stouffer's method**
+    (``sum(sigma_k) / sqrt(n_offsets)``), which is the textbook-correct way
+    to combine *independent* z-scores of the same hypothesis.
+
+    **Calibration check found this combination is not safe**, and the
+    reason is mechanistic, not a detail to patch later. Monte Carlo
+    (``n_trials=200``, null hypothesis, no injected signal) on synthetic
+    ``vsys_axis``-correlated noise (`scipy.ndimage.gaussian_filter1d`,
+    correlation length matched to `min_sample_spacing` so the *single-
+    offset* version is itself properly calibrated, `std(sigma) ~ 1`):
+    the **averaged** version came out at `std(sigma) ~ 3.6-4.1` --
+    *more* overconfident than not decimating at all. Repeating the same
+    check on **pure white noise** (no correlation) gives `std(sigma) ~ 1`
+    for *both* versions -- isolating the cause: the ``stride`` offset
+    groups are internally well-spaced (by construction), but two
+    *different* groups are only staggered by one native grid step from
+    each other, so a point in group 0 can still sit within one correlation
+    length of a point in group 1. Stouffer's method assumes independent
+    inputs; feeding it ``stride`` correlated z-scores reproduces the exact
+    pseudo-replication problem ``min_sample_spacing`` exists to prevent,
+    just relabelled at the level of whole offset-groups instead of
+    individual pixels. This is not a small effect and not specific to one
+    noise realisation -- it showed up consistently across the correlation
+    lengths tried (3 and 5 native-step-equivalents).
+
+    Not attempted this session: a combination that accounts for the
+    cross-offset covariance (e.g. estimating it empirically and correcting
+    Stouffer's denominator, or a resampling/bootstrap approach instead of a
+    closed-form combination). Averaging the *sigma* values directly (a
+    plain mean, not Stouffer's sum/sqrt(K)) was not tried either -- would
+    still need the same calibration check before trusting it, and a naive
+    mean under-uses the extra information on top of that.
+
+    Parameters
+    ----------
+    logl_map_ts, vsys_axis, center_per_exposure, speed_limit, limit_out,
+    both_side, idx_exposure, equal_var
+        See ``select_in_out_trail`` / ``ttest_at_point``.
+    min_sample_spacing : float
+        Required here (unlike ``select_in_out_trail``, where it is optional)
+        -- this function's entire purpose is to average over that
+        decimation's possible offsets, so it is meaningless without it.
+
+    Returns
+    -------
+    dict
+        ``sigma`` : Stouffer-combined significance. ``n_offsets`` : number of
+        offsets averaged over (``stride``). ``sigma_per_offset`` : the raw
+        per-offset sigma values, for inspection. ``n_in``, ``n_out`` : total
+        pooled sample sizes summed across all offsets (for reference only --
+        not directly used by the combination).
+    """
+    native_step = float(np.median(np.diff(vsys_axis)))
+    stride = max(1, int(round(min_sample_spacing / native_step)))
+
+    sigma_per_offset = np.full(stride, np.nan)
+    n_in_total = 0
+    n_out_total = 0
+    for vsys_offset in range(stride):
+        in_vals, out_vals = select_in_out_trail(
+            logl_map_ts, vsys_axis, center_per_exposure, speed_limit=speed_limit,
+            limit_out=limit_out, both_side=both_side, idx_exposure=idx_exposure,
+            min_sample_spacing=min_sample_spacing, vsys_offset=vsys_offset)
+        res = ttest_at_point(in_vals, out_vals, equal_var=equal_var)
+        sigma_per_offset[vsys_offset] = res['sigma']
+        n_in_total += res['n_in']
+        n_out_total += res['n_out']
+
+    valid = np.isfinite(sigma_per_offset)
+    n_valid = int(valid.sum())
+    combined_sigma = (float(np.sum(sigma_per_offset[valid]) / np.sqrt(n_valid))
+                      if n_valid > 0 else np.nan)
+
+    return {'sigma': combined_sigma, 'n_offsets': stride,
+            'sigma_per_offset': sigma_per_offset,
+            'n_in': n_in_total, 'n_out': n_out_total}
+
+
+def ttest_map_quicklook(vsys_axis: np.ndarray, logl_map_ts: np.ma.MaskedArray,
+                         kp_expected: float, kp_array: np.ndarray,
+                         phase: np.ndarray, noise_rv_limits: Tuple[float, float],
+                         idx_exposure: Optional[np.ndarray] = None,
+                         speed_limit: float = 4., limit_out: float = 10.,
+                         both_side: bool = True, equal_var: bool = False,
+                         normalize: bool = True,
+                         min_sample_spacing: Optional[float] = None,
+                         average_offsets: bool = False,
+                         ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Kp-vsys t-test map from a *single* trailing map (no new models).
+
+    Reuses the trailing map already computed at ``kp_expected`` (e.g. from
+    ``_make_trailing_plot``) to test candidate ``(kp_i, vsys_j)`` points, by
+    algebraically shifting the assumed trail position per exposure instead
+    of regenerating the model -- the same trick as the old
+    ``ttest_fcts.ttest_map``. Valid for a Kp scan reasonably close to
+    ``kp_expected`` (the trailing map's own resolution/line-spread
+    characteristics were computed assuming ``kp_expected``, not ``kp_i`` --
+    confirmed concretely on real data that this version's peak can land
+    noticeably off from ``ttest_map_full_grid``'s when scanned far from
+    ``kp_expected``).
+
+    The per-exposure shift is ``delta_vrp(t) = kp_i * sin(2*pi*phase) -
+    kp_expected * sin(2*pi*phase)``, exactly equal to
+    ``orbite.rv_theo_t(kp_i, ...) - orbite.rv_theo_t(kp_expected, ...)`` for
+    a circular orbit (no eccentricity term -- matches the project's
+    existing convention of trusting only circular-orbit ephemeris code).
+    Using the already-saved ``phase`` instead of re-deriving it from
+    ``planet.mid_tr``/``planet.period`` avoids needing the ``planet``
+    object again, matching how the rest of this module's load-only
+    analysis workflow (``_make_trailing_plot``, etc.) already operates.
+
+    Parameters
+    ----------
+    vsys_axis : np.ndarray, shape (n_vsys,)
+        vsys grid the trailing map was computed on (km/s).
+    logl_map_ts : np.ma.MaskedArray, shape (n_vsys, n_exp)
+        Trailing map at ``kp_expected`` (e.g.
+        ``get_logl(alpha=1., sum_axis=-1)[:, i_kp, :]`` -- or
+        ``alpha=alpha_best`` from ``compute_alpha_significance``, generally
+        preferable to the arbitrary ``alpha=1``, though the resulting
+        significance is then best read as exploratory, not a rigorously
+        corrected statistic, since ``alpha_best`` is fit on this same grid.
+        Confirmed on real KELT-20b data that the choice barely moves the
+        result in practice (5.49 vs. 5.51 sigma at the expected point,
+        alpha=1 vs. alpha_best=3.24) -- ``normalize_per_exposure`` already
+        divides by each exposure's own noise-region std, which itself
+        scales with alpha, so much of alpha's effect on the standardised
+        t-test statistic cancels out even though it does change the raw
+        logL values substantially).
+    kp_expected : float
+        Kp (km/s) the trailing map's model was actually computed at.
+    kp_array : np.ndarray, shape (n_kp,)
+        Candidate Kp values (km/s) to scan.
+    phase : np.ndarray, shape (n_exp,)
+        Orbital phase per exposure, e.g. ``_loaded_extra['phase']`` (always
+        saved with the grid, see ``_save_visit_result``).
+    noise_rv_limits : tuple of float
+        Passed to ``normalize_per_exposure`` when ``normalize=True``
+        (default). Ignored if ``normalize=False`` (caller already
+        normalised ``logl_map_ts``).
+    idx_exposure : np.ndarray of int, optional
+        Exposures to include (default: all). Typically the "signal-bearing"
+        exposures (``alpha_frac > 0.5``, see ``_make_trailing_plot``).
+    speed_limit, limit_out, both_side, equal_var
+        See ``select_in_out_trail`` / ``ttest_at_point``.
+    normalize : bool
+        Apply ``normalize_per_exposure`` to ``logl_map_ts`` first (default,
+        strongly recommended -- see module note above). Set to `False`
+        only if ``logl_map_ts`` is already normalised.
+    min_sample_spacing : float, optional
+        See ``select_in_out_trail`` -- pseudo-replication guard, applied at
+        every scanned ``(kp_i, vsys_j)`` point.
+    average_offsets : bool
+        **Not calibrated -- see ``ttest_at_point_averaged``'s docstring
+        before using this.** Uses that function (Stouffer-combines every
+        decimation offset) instead of a single-offset
+        ``select_in_out_trail``/``ttest_at_point`` call at every grid point.
+        A Monte Carlo null-hypothesis check found this combination
+        *reintroduces* pseudo-replication-like overconfidence on correlated
+        noise (`std(sigma)` ~3.6-4.1 instead of ~1) -- worse than the
+        single-offset version this was meant to smooth. Left available for
+        anyone continuing this investigation, defaulted to `False`. Requires
+        ``min_sample_spacing`` to be set (raises ``ValueError`` otherwise).
+        When `True`, ``t_map`` is returned filled with NaN (Stouffer's
+        method combines sigma values directly; there is no single combined
+        t-statistic to report) and ``p_map`` is back-computed from the
+        combined sigma (``2 * norm.sf(|sigma|)``) for display purposes only.
+
+    Returns
+    -------
+    t_map, p_map, sigma_map : np.ndarray, shape (n_kp, n_vsys)
+
+    Warns
+    -----
+    Do not read this map's bare ``argmax`` as a detection statistic on its
+    own -- confirmed concretely on real KELT-20b data that, once
+    ``min_sample_spacing`` makes each point's estimate properly (less-
+    inflated) noisy, the global maximum over a large grid becomes
+    susceptible to the ordinary look-elsewhere effect (in one real case, 24
+    of 6783 grid points exceeded the true signal's own sigma purely by
+    chance, and the map's global peak was one of those, far from the real
+    signal). Evaluate at a specific, independently-motivated ``(Kp, vsys)``
+    instead (``select_in_out_trail``/``ttest_at_point`` directly), or pair
+    this map with a genuinely look-elsewhere-aware statistic
+    (``find_isolated_peak_sigma`` in ``plotting_fcts.py``). This caution
+    applies whether or not ``average_offsets`` is used -- averaging over
+    decimation offsets makes each point's estimate smoother/more stable,
+    but does not add a look-elsewhere correction.
+    """
+    from scipy import stats
+
+    if average_offsets and min_sample_spacing is None:
+        raise ValueError('average_offsets=True requires min_sample_spacing to be set.')
+
+    if normalize:
+        logl_map_ts = normalize_per_exposure(logl_map_ts, vsys_axis, noise_rv_limits)
+
+    phase = np.asarray(phase)
+    vrp_expected = kp_expected * np.sin(2 * np.pi * phase)
+
+    n_kp, n_vsys = len(kp_array), len(vsys_axis)
+    t_map = np.full((n_kp, n_vsys), np.nan)
+    p_map = np.full((n_kp, n_vsys), np.nan)
+    sigma_map = np.full((n_kp, n_vsys), np.nan)
+
+    for i_kp, kp_i in enumerate(kp_array):
+        vrp_i = kp_i * np.sin(2 * np.pi * phase)
+        delta_vrp = vrp_i - vrp_expected  # (n_exp,) -- exact for a circular orbit
+
+        for j, vsys_j in enumerate(vsys_axis):
+            center = vsys_j + delta_vrp
+            if average_offsets:
+                res = ttest_at_point_averaged(
+                    logl_map_ts, vsys_axis, center, min_sample_spacing,
+                    speed_limit=speed_limit, limit_out=limit_out, both_side=both_side,
+                    idx_exposure=idx_exposure, equal_var=equal_var)
+                sigma_map[i_kp, j] = res['sigma']
+                p_map[i_kp, j] = 2. * stats.norm.sf(np.abs(res['sigma']))
+            else:
+                in_vals, out_vals = select_in_out_trail(
+                    logl_map_ts, vsys_axis, center, speed_limit=speed_limit,
+                    limit_out=limit_out, both_side=both_side, idx_exposure=idx_exposure,
+                    min_sample_spacing=min_sample_spacing)
+                res = ttest_at_point(in_vals, out_vals, equal_var=equal_var)
+                t_map[i_kp, j] = res['t']
+                p_map[i_kp, j] = res['p']
+                sigma_map[i_kp, j] = res['sigma']
+
+    return t_map, p_map, sigma_map
+
+
+def ttest_map_full_grid(vsys_axis: np.ndarray, kp_axis: np.ndarray,
+                         logl_grid_all: np.ma.MaskedArray,
+                         noise_rv_limits: Tuple[float, float],
+                         idx_exposure: Optional[np.ndarray] = None,
+                         speed_limit: float = 4., limit_out: float = 10.,
+                         both_side: bool = True, equal_var: bool = False,
+                         normalize: bool = True,
+                         min_sample_spacing: Optional[float] = None,
+                         average_offsets: bool = False,
+                         ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Kp-vsys t-test map from a fully pre-computed logL grid.
+
+    Unlike ``ttest_map_quicklook``, every ``(kp_i, vsys_j)`` point here is
+    tested against a genuinely-computed model (the full grid already has a
+    real trailing map per Kp -- see ``_get_chi2_detailed``, which
+    recomputes ``vrp_orb`` for every grid Kp). No algebraic shift is
+    needed: for a given ``kp_i``, the model already has that Kp's orbital
+    motion baked in, so the in-trail window is simply centred on
+    ``vsys_j`` for every exposure.
+
+    Each Kp column is its own genuine trailing map, so (when
+    ``normalize=True``, the default) each is normalised separately via
+    ``normalize_per_exposure`` -- not once for the whole cube -- since a
+    real per-exposure baseline can in principle shift between Kp columns
+    just as it does for the quicklook version's single column.
+
+    Parameters
+    ----------
+    vsys_axis : np.ndarray, shape (n_vsys,)
+    kp_axis : np.ndarray, shape (n_kp,)
+    logl_grid_all : np.ma.MaskedArray, shape (n_vsys, n_kp, n_exp)
+        Full grid, e.g. ``get_logl(alpha=1., sum_axis=-1)`` (or
+        ``alpha=alpha_best``, see ``ttest_map_quicklook``'s
+        ``logl_map_ts`` parameter for the same caveat).
+    noise_rv_limits : tuple of float
+        Passed to ``normalize_per_exposure`` when ``normalize=True``
+        (default).
+    idx_exposure, speed_limit, limit_out, both_side, equal_var
+        See ``select_in_out_trail`` / ``ttest_at_point``.
+    normalize : bool
+        See ``ttest_map_quicklook``.
+    min_sample_spacing : float, optional
+        See ``select_in_out_trail`` -- pseudo-replication guard, applied at
+        every scanned ``(kp_i, vsys_j)`` point.
+    average_offsets : bool
+        See ``ttest_map_quicklook`` -- same meaning, applied here per Kp
+        column. Requires ``min_sample_spacing``.
+
+    Returns
+    -------
+    t_map, p_map, sigma_map : np.ndarray, shape (n_kp, n_vsys)
+
+    Warns
+    -----
+    See ``ttest_map_quicklook``'s "Warns" section -- the same look-elsewhere
+    caveat on this map's bare ``argmax`` applies here.
+    """
+    from scipy import stats
+
+    if average_offsets and min_sample_spacing is None:
+        raise ValueError('average_offsets=True requires min_sample_spacing to be set.')
+
+    n_kp, n_vsys = len(kp_axis), len(vsys_axis)
+    t_map = np.full((n_kp, n_vsys), np.nan)
+    p_map = np.full((n_kp, n_vsys), np.nan)
+    sigma_map = np.full((n_kp, n_vsys), np.nan)
+
+    for i_kp in range(n_kp):
+        logl_map_ts = logl_grid_all[:, i_kp, :]
+        if normalize:
+            logl_map_ts = normalize_per_exposure(logl_map_ts, vsys_axis, noise_rv_limits)
+        for j, vsys_j in enumerate(vsys_axis):
+            if average_offsets:
+                res = ttest_at_point_averaged(
+                    logl_map_ts, vsys_axis, vsys_j, min_sample_spacing,
+                    speed_limit=speed_limit, limit_out=limit_out, both_side=both_side,
+                    idx_exposure=idx_exposure, equal_var=equal_var)
+                sigma_map[i_kp, j] = res['sigma']
+                p_map[i_kp, j] = 2. * stats.norm.sf(np.abs(res['sigma']))
+            else:
+                in_vals, out_vals = select_in_out_trail(
+                    logl_map_ts, vsys_axis, vsys_j, speed_limit=speed_limit,
+                    limit_out=limit_out, both_side=both_side, idx_exposure=idx_exposure,
+                    min_sample_spacing=min_sample_spacing)
+                res = ttest_at_point(in_vals, out_vals, equal_var=equal_var)
+                t_map[i_kp, j] = res['t']
+                p_map[i_kp, j] = res['p']
+                sigma_map[i_kp, j] = res['sigma']
+
+    return t_map, p_map, sigma_map
 
 
 def _marginals_from_log(log_post, x_axis, y_axis):
