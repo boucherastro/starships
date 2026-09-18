@@ -26,7 +26,12 @@ setup(
         'console_scripts': [
             'run_starships_retrieval=starships.retrieval:main',
             'run_starships_logl_grid=starships.logl_grid:main',
-            'starships=starships.cli:main'
+            'starships=starships.cli:main',
+            # SLURM resource-estimation sweep (starships.slurm) -- see that
+            # subpackage's README for usage.
+            'run_starships_resource_test=starships.slurm.worker:main',
+            'run_starships_resource_sweep=starships.slurm.submit:main',
+            'run_starships_resource_parse=starships.slurm.parse:main',
         ]
     },
     author='Antoine Darveau-Bernier',
