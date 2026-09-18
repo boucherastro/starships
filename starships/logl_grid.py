@@ -3,6 +3,19 @@ logl_grid — Kp × v_sys logL grid computation for high-resolution spectroscopy
 
 Workflow
 --------
+0. Generate the model once, during the analysis of a retrieval (needs petitRADTRANS,
+   so on the cluster), with the *same* YAML the grid will use::
+
+    import starships.retrieval as retrieval
+    retrieval.setup_retrieval(yaml)
+    retrieval.save_planet_model(best_params, 'Spectra/day2_best.npz')
+
+   ``best_params`` is any parameter vector in ``params_prior`` order (a best-fit or
+   median sample of the chain, ``walker_init[0]``, ...) or an already-unpacked
+   ``theta_regions`` list. The saved file (``model_sequence.PlanetModel``) carries the
+   per-region native spectra *and* everything ``lnprob`` does to them before the
+   Doppler shifts -- see ``load_model`` -- so this module never runs petitRADTRANS.
+
 1. Compute::
 
     setup_logl_grid(yaml) → load_logl_grid_data() → load_model(npz)
@@ -13,13 +26,30 @@ Workflow
     load_logl_results(file_list, path)
     logl = get_logl(alpha=1., sum_axis=(-2, -1))
 
+The model preparation per visit mirrors ``retrieval.py::lnprob``'s HIGH RES block
+step by step (Chantier C harmonization -- ``_prepare_visit_model``): degradation to
+*this* visit's instrument resolution, phase-dependent multi-region kernel per exposure
+(``get_ker``), independent Fp/Fstar Doppler shifts, light-curve weighting, PCA
+truncation. What differs is only *when* things happen: since a grid evaluates the same
+model at thousands of (Kp, vsys) points per visit, everything that does not depend on
+the velocities (degradation, per-exposure kernels, cubic splines) is computed once per
+visit before the worker pool is forked, and the workers only Doppler-shift.
+
 The module uses module-level globals (same pattern as starships.retrieval) so
 that multiprocessing workers inherit large arrays without memory duplication via
 fork.
 
-Extra keys to add to the retrieval YAML
-----------------------------------------
-::
+Keys read from the retrieval YAML
+----------------------------------
+Shared with ``retrieval.py`` (same names, same meaning): ``pl_name``/``pl_params``,
+``high_res_file_stem_list``/``high_res_path``/``n_pc``, ``instrum``, ``kind_trans``,
+``orders``, ``apply_alpha``, ``use_real_stellar_rv``, and ``get_ker_file`` (the
+user-defined per-region rotation kernel, needed for a multi-region model). Note that
+``rotation_kernel`` is *not* read here: the model file records whether the default
+kernel was already applied (``retrieval.save_planet_model`` applies it) and is
+authoritative.
+
+logl_grid-specific::
 
     rv_grid:  {min: -200, max: 200,  step: 5}   # km/s
     kp_grid:  {min: 0,   max: 500,  step: 5}    # km/s
@@ -28,8 +58,7 @@ Extra keys to add to the retrieval YAML
     n_processes_per_cpu: 3
     apply_alpha: true                            # true = modulate template by alpha_frac (realistic);
                                                  # false = uniform injection (all frames equal weight)
-    use_real_stellar_rv: false                   # Chantier A Phase 2, Fp/Fstar-separated model files
-                                                 # only: true = Doppler-shift Fstar at the star's real
+    use_real_stellar_rv: false                   # true = Doppler-shift Fstar at the star's real
                                                  # per-exposure reflex velocity (needs `vr` in the high-res
                                                  # .npz); false (default) = keep the star fixed beyond its
                                                  # RV_const baseline (negligible reflex motion in practice)
@@ -39,7 +68,10 @@ same model do not overwrite each other::
 
     {model_stem}_kp{min}_{max}_{step}_rv{min}_{max}_{step}[_noalpha]_visit{i}.npz
 
-Negative values are written with a leading ``m`` (e.g., -100 → m100).
+Negative values are written with a leading ``m`` (e.g., -100 → m100). Each per-visit
+file also records the visit's ``instrument`` name (one file = one visit), so that a
+later analysis can group visits per instrument before pooling logL terms (the
+``logl_grouping`` mechanism of ``retrieval.py``, not applied at read time yet).
 
 Command-line usage (Narval)
 ---------------------------
@@ -47,7 +79,7 @@ Command-line usage (Narval)
 
     python -m starships.logl_grid \
         --config ~/scratch/.../retrieval_inputs.yaml \
-        --specfile take3_HRR_all.npz
+        --specfile Spectra/day2_best.npz
 """
 
 import logging
@@ -82,19 +114,22 @@ global rv_grid, kp_grid, logl_kind
 global logl_grid_output_path, n_processes_per_cpu
 global apply_alpha, use_real_stellar_rv
 # Derived in setup_logl_grid
-global obs, planet, Kp_scale
+global obs, planet
+# Same as retrieval.py: user-defined per-region kernel (`get_ker_file`), no-op fallback
+# otherwise; `logl_grouping` is only recorded for now (see module docstring).
+global get_ker, logl_grouping
 
 # --- From load_logl_grid_data ---
 global data_visits, data_info_list, idx_orders, axis_sum
 
 # --- From load_model ---
-global wv_high, model_high
-# Fp/Fstar kept separate (Chantier A Phase 2) -- None if the loaded model .npz uses
-# the older, combined-ratio-only format (see load_model()).
-global Fp_high, Fstar_high
+# model_sequence.PlanetModel (per-region spectra + per-region theta_dict + form metadata).
+global planet_model
 
-# --- Workers (set per-visit before Pool.map) ---
+# --- Workers (set per-visit before Pool.map, inherited by fork) ---
 global _current_data_visit, _current_alpha_frac
+# Splines of the model prepared for the current visit (model_sequence.ModelInterpolators).
+global _current_interp
 
 
 # ---------------------------------------------------------------------------
@@ -148,10 +183,9 @@ def setup_logl_grid(input_parameters, **kwargs):
     use_real_stellar_rv = bool(input_params.get('use_real_stellar_rv', False))
 
     # Build planet / obs
-    global obs, planet, Kp_scale
+    global obs, planet
     obs = Observations(name=input_params['pl_name'], pl_kwargs=input_params['pl_params'])
     planet = obs.planet
-    Kp_scale = (planet.M_pl / planet.M_star).decompose().value
     planet.all_params = None  # free unused memory
 
     # Instrument info
@@ -159,6 +193,27 @@ def setup_logl_grid(input_parameters, **kwargs):
     instrum_param_list = [load_instrum(name) for name in input_params['instrum']]
     wv_range_high = get_wv_range([p['high_res_wv_lim'] for p in instrum_param_list])
     log.info(f'Wavelength range (high res): {wv_range_high}')
+
+    # --- Rotation kernel (multi-region) -- same mechanism as retrieval.py::setup_retrieval
+    # If `get_ker_file` is given, load the user's `get_ker` function from it (path
+    # already expanded by unpack_input_parameters); otherwise a no-op fallback that
+    # returns no kernel -- fine for a single-region model, but a multi-region model
+    # then fails loudly in `_prepare_visit_model` (model_sequence.build_region_kernel).
+    global get_ker
+    get_ker_file = input_params.get('get_ker_file', None)
+    if get_ker_file is None:
+        get_ker = lambda theta_regions, phase=None, planet=None, instrum=None, \
+                          model_resolution=None: [None for _ in theta_regions]
+    else:
+        from starships.retrieval_utils import load_custom_get_ker
+        get_ker = load_custom_get_ker(get_ker_file)
+        log.info(f'Loaded get_ker from {get_ker_file}')
+
+    # Recorded only: visits are still pooled all together at read time
+    # (load_logl_results) -- grouping per instrument is a later step, but each
+    # per-visit output file already carries its instrument name for it.
+    global logl_grouping
+    logl_grouping = input_params.get('logl_grouping', 'per_instrument')
 
 
 def load_logl_grid_data():
@@ -188,73 +243,160 @@ def load_logl_grid_data():
 # ---------------------------------------------------------------------------
 
 def load_model(model_path):
-    """Load a model spectrum NPZ.
+    """Load the model (`model_sequence.PlanetModel` .npz) into the ``planet_model`` global.
 
-    Sets ``wv_high``/``model_high`` globals (combined ratio, as before). If the file
-    also has ``fp_mod``/``fstar_mod`` keys -- the format written when the model was
-    generated with Fp/Fstar kept separate (Chantier A Phase 2, see
-    `model_sequence.py::precompute_theta_model`) -- also sets ``Fp_high``/
-    ``Fstar_high``, which `_get_chi2_detailed` then uses to fix bug #2 (star's reflex
-    RV getting dragged at the planet's orbital velocity). Older model files without
-    those keys still work exactly as before, just without the fix (``Fp_high``/
-    ``Fstar_high`` stay `None`).
+    The file is written by ``retrieval.save_planet_model`` (see the module docstring)
+    and is authoritative about the model's *form*: per-region native spectra (the
+    usual case), or already convolved with the default rotation kernel (what
+    ``save_planet_model`` does for a single-region model when the YAML sets
+    ``rotation_kernel``), or already degraded to some resolution, or a multi-region
+    model frozen at one phase (``model_sequence.combine_at_phase``). What is done to
+    it per visit follows from that form -- see ``_prepare_visit_model``.
+
+    Older combined-ratio files (``wave``/``spec``, ``wave_mod``/``mod_spec``, what
+    ``pipeline/make_model.py`` and the old analysis notebooks saved) still load, as the
+    ``combined_ratio`` legacy form of ``PlanetModel``: the pre-convolved spectrum is
+    used as-is (no per-visit degradation, no region kernel -- nothing is known about
+    it beyond the spectrum itself) and shifted rigidly at the planet's velocity, i.e.
+    with Chantier A bug #2. Fine for reusing an existing library of models; new
+    models should come from ``retrieval.save_planet_model``.
     """
-    global wv_high, model_high, Fp_high, Fstar_high
-    model_file = np.load(model_path)
-    try:
-        wv_high = model_file['wave']
-    except KeyError:
-        wv_high = model_file['wave_mod']
+    global planet_model
+    planet_model = model_seq.load_planet_model(model_path, kind_trans=kind_trans)
 
-    if 'fp_mod' in model_file and 'fstar_mod' in model_file:
-        Fp_high = model_file['fp_mod']
-        Fstar_high = model_file['fstar_mod']
-        # Kept for anything downstream that still expects the combined ratio
-        # (diagnostics, plotting) -- computed here rather than saved twice.
-        model_high = Fp_high / Fstar_high
+    if planet_model.kind_trans != kind_trans:
+        raise ValueError(f"Model file is '{planet_model.kind_trans}' but the YAML's kind_trans "
+                         f"is '{kind_trans}' -- the model must be generated with the same "
+                         "configuration the grid uses.")
+    for Fp in planet_model.Fp_by_region:
+        if not np.isfinite(Fp[100:-100]).all():
+            raise ValueError(f'NaN found in model spectrum: {model_path}')
+    log.info(f'Model loaded: {Path(model_path).name} ({planet_model.describe()})')
+
+
+def _phase_per_exposure(data_visit):
+    """Orbital phase of each exposure -- same formula as `retrieval.py::lnprob`."""
+    return (data_visit['t_start'] - planet.mid_tr.value) / planet.period.to('d').value % 1
+
+
+def _prepare_visit_model(visit_i, data_visit):
+    """Prepare the loaded model for one visit, exactly as `retrieval.py::lnprob` does.
+
+    Called once per visit, *before* the worker pool is forked (`_compute_visit_grid`),
+    since nothing here depends on the (Kp, vsys) grid point -- only on the visit
+    (its instrument resolution, its exposures' orbital phases). Mirrors `lnprob`'s
+    HIGH RES per-visit block, respecting the form recorded in the model file
+    (`model_sequence.PlanetModel`):
+
+    - single-region model: degrade to *this* visit's own instrument resolution
+      (`instrum_param_list[visit_i]['resol']`, Chantier A Phase 4 -- not one shared
+      resolution for every visit) unless the file is already degraded (then used
+      as-is, with a warning if its resolution differs from the instrument's); then
+      the same extra `[20:-20]` margin as `lnprob`'s single-region branch. The
+      default rotation kernel is never applied here: the file already carries it if
+      the YAML asked for it (`retrieval.save_planet_model`).
+    - multi-region model (must be native): per-exposure phase-dependent kernel from
+      `get_ker` (`model_sequence.build_region_kernel`, one closure for the visit),
+      Fstar degraded once and the grid trimmed to the kernel's edge width
+      (`model_sequence.prepare_multi_region_visit`), exposures' phases from
+      `_phase_per_exposure` -- same as `lnprob`.
+    - legacy combined-ratio model (old-engine `.npz`, see `load_model`): used as-is,
+      only the `[20:-20]` margin applied, no stellar spline (the ratio is shifted
+      as one -- the old behaviour, bug #2 included).
+
+    Finally the cubic splines `build_model_sequence` evaluates are built here
+    (`model_sequence.build_model_interpolators`: one shared spline, or one per
+    exposure for the multi-region case) so that the workers only Doppler-shift --
+    this is what makes a grid affordable: the splines are by far the most expensive
+    part of `build_model_sequence`, and they used to be rebuilt at every grid point.
+
+    Returns
+    -------
+    model_sequence.ModelInterpolators
+        To be passed to `build_model_sequence(..., interpolators=...)` by the workers.
+    """
+    model = planet_model
+    instrum = instrum_param_list[visit_i]
+    instru_res = instrum['resol']
+    n_exp = data_visit['wave'].shape[0]
+
+    if model.is_multi_region:
+        if not model.is_native:
+            raise ValueError("A multi-region model must be saved at native sampling: its "
+                             "per-region kernels (get_ker) already degrade to the "
+                             "instrument resolution.")
+        region_kernel_fct, trim = model_seq.build_region_kernel(
+            model.theta_regions, get_ker, planet, instrum, model.native_resolution)
+        wave, Fp_by_region, Fstar = model_seq.prepare_multi_region_visit(
+            model.wave, model.Fp_by_region, model.Fstar, trim, instru_res,
+            model.native_resolution)
+        phase = _phase_per_exposure(data_visit)
+        interp = model_seq.build_model_interpolators(
+            wave, Fp_by_region, Fstar, kind_trans, region_kernel=region_kernel_fct, phase=phase)
+        log.info(f'Visit {visit_i + 1}: multi-region model, kernel edge trim {trim} points, '
+                 f'{n_exp} per-exposure splines built on {wave.size} points '
+                 f'(~{n_exp * wave.size * 8 / 1e6:.0f} MB of spectra, inherited by the workers)')
     else:
-        Fp_high = None
-        Fstar_high = None
-        try:
-            model_high = model_file['spec']
-        except KeyError:
-            model_high = model_file['mod_spec']
+        if model.combined_ratio:
+            model_v = model
+            log.warning(f'Visit {visit_i + 1}: legacy combined-ratio model used as-is '
+                        f'(assumed pre-convolved to R={instru_res:.0f}, star shifted with '
+                        'the planet -- Chantier A bug #2).')
+        elif model.is_native:
+            model_v = model_seq.degrade(model, instru_res)
+        else:
+            model_v = model
+            if not np.isclose(model.resolution, instru_res):
+                log.warning(f'Visit {visit_i + 1}: model file already degraded to '
+                            f'R={model.resolution:.0f} but the instrument '
+                            f"({instrum['name']}) has R={instru_res:.0f} -- used as-is.")
+        # Same extra [20:-20] margin as lnprob's single-region branch.
+        wave = model_v.wave[20:-20]
+        Fp = model_v.Fp_by_region[0][20:-20]
+        Fstar = model_v.Fstar[20:-20] if model_v.Fstar is not None else None
+        if not np.isfinite(Fp[100:-100]).all():
+            raise ValueError(f'NaN in the degraded model spectrum for visit {visit_i + 1}')
+        interp = model_seq.build_model_interpolators(wave, Fp, Fstar, kind_trans,
+                                                     combined_ratio=model.combined_ratio)
+        log.info(f'Visit {visit_i + 1}: single-region model at R={instru_res:.0f}, '
+                 f'splines built on {wave.size} points')
 
-    model_file.close()
-    if not np.isfinite(model_high[100:-100]).all():
-        raise ValueError(f'NaN found in model spectrum: {model_path}')
-    log.info(f'Model loaded: {Path(model_path).name}'
-            + (' (Fp/Fstar separated)' if Fp_high is not None else ' (combined ratio only)'))
+    return interp
 
 
 # ---------------------------------------------------------------------------
 # Chi2 terms (per-exposure, per-order)
 # ---------------------------------------------------------------------------
 
-def _calc_chi2_terms(model, data_visit):
-    """Compute model-dependent chi2 terms (f×g, g²) for one visit."""
+def _calc_chi2_terms(model_norm, data_visit):
+    """Compute model-dependent chi2 terms (f×g, g²) for one visit.
+
+    `model_norm` is the PCA-truncated model sequence already divided by the noise
+    (same quantity `retrieval.py::lnprob` sums per order).
+    """
     flux = data_visit['flux'][:, idx_orders]
-    noise = data_visit['noise'][:, idx_orders]
-    model_norm = model[:, idx_orders] / noise
+    model_norm = model_norm[:, idx_orders]
     f_x_g = np.ma.sum(model_norm * flux, axis=axis_sum)
     s2g = np.ma.sum(model_norm ** 2, axis=axis_sum)
     return f_x_g, s2g
 
 
-# Set per-visit in compute_logl_grid before Pool.map; inherited by workers via fork.
+# Set per-visit in _compute_visit_grid before Pool.map; inherited by workers via fork.
 _current_data_visit = None
 _current_alpha_frac = None
 _current_apply_alpha = True
+_current_interp = None
 
 
 def _get_chi2_detailed(theta):
     """Worker: compute chi2 terms for one (v_sys, kp) grid point.
 
-    Uses the Fp/Fstar-separated engine (`model_sequence.py`, Chantier A Phase 2,
-    fixes bug #2) when the loaded model has `Fp_high`/`Fstar_high` (see `load_model`);
-    falls back to the old combined-ratio path (`model_sequence.py::gen_model_sequence_noinj`,
-    moved out of `correlation.py` in Chantier C1) for older model files that only have the
-    combined ratio.
+    Same steps as `retrieval.py::lnprob`'s per-visit HIGH RES block after the model
+    preparation (`_prepare_visit_model`, done once per visit): independent Fp/Fstar
+    Doppler shifts per exposure (`model_sequence.build_model_sequence`, on the
+    precomputed splines), light-curve weighting (`apply_alpha`), PCA truncation with
+    the same number of components as the data (`apply_pca_to_model`), division by the
+    noise, then the per-order cross/squared terms.
     """
     v_sys, kp = theta
     data_visit = _current_data_visit
@@ -265,42 +407,29 @@ def _get_chi2_detailed(theta):
         kp, data_visit['t_start'] * u.d, planet.mid_tr, planet.period, plnt=True
     ).value
 
-    n_pc = int(data_visit['params'][5])
+    # Star assumed fixed beyond its RV_const baseline unless use_real_stellar_rv is
+    # set and the loaded data actually has a per-exposure `vr` (older .npz don't).
+    if use_real_stellar_rv and data_visit.get('vr') is not None:
+        vr_orb = data_visit['vr'].to(u.km / u.s).value
+    else:
+        vr_orb = 0.0
+
     alpha_arg = _current_alpha_frac if _current_apply_alpha else np.ones_like(_current_alpha_frac)
 
-    if Fp_high is not None:
-        # Chantier A Phase 2: Fp/Fstar kept separate, Doppler-shifted independently
-        # per exposure -- fixes bug #2 (star's tiny reflex RV dragged at the
-        # planet's orbital velocity by the old rigid combined-ratio shift below).
-        # Same defaults/composition as retrieval.py::lnprob: star assumed fixed
-        # beyond its RV_const baseline unless use_real_stellar_rv is set and the
-        # loaded data actually has a per-exposure `vr` (older .npz files don't).
-        if use_real_stellar_rv and data_visit.get('vr') is not None:
-            vr_orb = data_visit['vr'].to(u.km / u.s).value
-        else:
-            vr_orb = 0.0
+    # `RV_const` (BERV + stellar reflex at mid-transit + RV_sys) is the star-rest-frame
+    # -> data-grid baseline shift, applied to both Fp and Fstar by build_model_sequence.
+    # The model-side arguments (wave/Fp/Fstar) live in the precomputed splines.
+    model_seq_arr = model_seq.build_model_sequence(
+        None, None, data_visit['wave'], vrp_orb, vr_orb=vr_orb, alpha=alpha_arg,
+        kind_trans=kind_trans, RV=v_sys + data_visit['RV_const'], interpolators=_current_interp)
 
-        model_seq_arr = model_seq.build_model_sequence(
-            wv_high[20:-20], Fp_high[20:-20], data_visit['wave'], vrp_orb,
-            Fstar=Fstar_high[20:-20], vr_orb=vr_orb, alpha=alpha_arg,
-            kind_trans=kind_trans, RV=v_sys + data_visit['RV_const'])
-    else:
-        # Older model file (combined ratio only, see load_model) -- old path,
-        # unchanged, same bug as before for this particular model file.
-        velocities = v_sys + vrp_orb - vrp_orb * Kp_scale + data_visit['RV_const']
-        model_seq_arr = model_seq.gen_model_sequence_noinj(
-            velocities,
-            data_wave=data_visit['wave'],
-            data_sep=data_visit['sep'],
-            data_pca=data_visit['pca'],
-            data_npc=n_pc,
-            planet=planet,
-            model_wave=wv_high[20:-20],
-            model_spec=model_high[20:-20],
-            kind_trans=kind_trans,
-            alpha=alpha_arg,
-        )
-    return _calc_chi2_terms(model_seq_arr, data_visit)
+    # Remove the same number of PCs that were used during reduction, then divide by
+    # the noise -- same post-processing as lnprob.
+    n_pc = int(data_visit['params'][5])
+    model_norm = model_seq.apply_pca_to_model(
+        model_seq_arr, data_visit['pca'], n_pca=n_pc) / data_visit['noise']
+
+    return _calc_chi2_terms(model_norm, data_visit)
 
 
 # ---------------------------------------------------------------------------
@@ -380,15 +509,24 @@ def estimate_logl_grid_memory(n_vsys, n_kp, n_exp_per_visit, n_ord,
     print(sep)
 
 
-def compute_logl_grid(rv_array=None, kp_array=None, n_process=None):
-    """Run Pool.map over (rv, kp) grid for all loaded visits.
+def _setup_grid(rv_array=None, kp_array=None, n_process=None):
+    """Resolve the (vsys, Kp) grid and worker count, log them, set the worker globals.
+
+    Shared by `compute_logl_grid` and `compute_and_save_logl_grid`. `rv_array`/
+    `kp_array` default to the YAML `rv_grid`/`kp_grid`; `n_process` to
+    `SLURM_CPUS_PER_TASK × n_processes_per_cpu` (1 CPU outside SLURM).
 
     Returns
     -------
-    list of dict
-        One dict per visit with keys: cross_terms, squared_terms, kp, vsys.
+    rv_array, kp_array : np.ndarray
+        1-D grid axes.
+    kp_mesh, vsys_mesh : np.ndarray, shape (n_vsys, n_kp)
+        Mesh grids (saved alongside the results).
+    theta_grid : np.ndarray, shape (n_vsys * n_kp, 2)
+        `(v_sys, kp)` pairs, one per worker task.
+    n_process : int
     """
-    global _current_data_visit, _current_alpha_frac, _current_apply_alpha
+    global _current_apply_alpha
 
     if rv_array is None:
         rv_array = _make_grid(rv_grid)
@@ -401,8 +539,8 @@ def compute_logl_grid(rv_array=None, kp_array=None, n_process=None):
             n_cpu = 1
         n_process = n_cpu * n_processes_per_cpu
 
-    kp_step  = kp_array[1]  - kp_array[0]  if len(kp_array) > 1 else float('nan')
-    rv_step  = rv_array[1]  - rv_array[0]  if len(rv_array) > 1 else float('nan')
+    kp_step = kp_array[1] - kp_array[0] if len(kp_array) > 1 else float('nan')
+    rv_step = rv_array[1] - rv_array[0] if len(rv_array) > 1 else float('nan')
     log.info(
         f'Kp  grid: [{kp_array[0]:.2f}, {kp_array[-1]:.2f}] km/s  '
         f'step={kp_step:.2f}  n={len(kp_array)}'
@@ -416,29 +554,82 @@ def compute_logl_grid(rv_array=None, kp_array=None, n_process=None):
         f'({len(rv_array)} × {len(kp_array)})'
     )
     log.info(f'apply_alpha = {apply_alpha}  (template modulated by alpha_frac: {apply_alpha})')
-    log.info(f'use_real_stellar_rv = {use_real_stellar_rv} '
-            f'(Fp/Fstar engine only, ignored for older combined-ratio-only model files)')
+    log.info(f'use_real_stellar_rv = {use_real_stellar_rv}')
 
     _current_apply_alpha = apply_alpha
 
     kp_mesh, vsys_mesh = np.meshgrid(kp_array, rv_array)
     theta_grid = np.array([np.ravel(vsys_mesh), np.ravel(kp_mesh)]).T
 
-    results = []
-    for i, (data_visit, di) in enumerate(zip(data_visits, data_info_list), start=1):
-        _current_data_visit = data_visit
-        _current_alpha_frac = di['all_alpha_frac']
+    return rv_array, kp_array, kp_mesh, vsys_mesh, theta_grid, n_process
 
-        log.info(f'Computing grid for visit {i}/{len(data_visits)} with {n_process} processes ...')
+
+def _compute_visit_grid(visit_i, data_visit, di, theta_grid, grid_shape, n_process):
+    """Compute the cross/squared terms of one visit over the whole grid.
+
+    Prepares the model for this visit (`_prepare_visit_model`) and sets the worker
+    globals *before* forking the pool, so the workers inherit the prepared splines and
+    the visit's data copy-on-write (no pickling of large arrays: each task only
+    receives its `(v_sys, kp)` pair and returns its chi2 terms).
+
+    Parameters
+    ----------
+    visit_i : int
+        0-based visit index (selects `instrum_param_list[visit_i]`).
+    data_visit, di : dict
+        The visit's data and info dicts (`load_logl_grid_data`).
+    theta_grid : np.ndarray, shape (n_points, 2)
+        `(v_sys, kp)` pairs (`_setup_grid`).
+    grid_shape : tuple
+        `(n_vsys, n_kp)`, to reshape the flat worker outputs.
+    n_process : int
+
+    Returns
+    -------
+    cross_terms, squared_terms : np.ndarray, shape (n_vsys, n_kp, n_exp, n_ord)
+    """
+    global _current_data_visit, _current_alpha_frac, _current_interp
+
+    _current_data_visit = data_visit
+    _current_alpha_frac = di['all_alpha_frac']
+    _current_interp = _prepare_visit_model(visit_i, data_visit)
+
+    log.info(f'Computing grid for visit {visit_i + 1}/{len(data_visits)} '
+             f'with {n_process} processes ...')
+    if n_process == 1:
+        # In-process: no fork at all (also what makes this runnable under a 'spawn'
+        # start method, e.g. macOS, where a Pool would not inherit the globals).
+        outputs = list(map(_get_chi2_detailed, theta_grid))
+    else:
         with Pool(n_process) as pool:
             outputs = pool.map(_get_chi2_detailed, theta_grid)
 
-        outputs = np.array(outputs)
-        data_shape = outputs.shape[2:]
-        cross_terms, squared_terms = [
-            np.reshape(outputs[:, idx], (*kp_mesh.shape, *data_shape))
-            for idx in range(2)
-        ]
+    # Free the per-visit splines in the parent once the workers are done.
+    _current_interp = None
+
+    outputs = np.array(outputs)
+    data_shape = outputs.shape[2:]
+    cross_terms, squared_terms = [
+        np.reshape(outputs[:, idx], (*grid_shape, *data_shape))
+        for idx in range(2)
+    ]
+    return cross_terms, squared_terms
+
+
+def compute_logl_grid(rv_array=None, kp_array=None, n_process=None):
+    """Run Pool.map over (rv, kp) grid for all loaded visits.
+
+    Returns
+    -------
+    list of dict
+        One dict per visit with keys: cross_terms, squared_terms, kp, vsys.
+    """
+    _, _, kp_mesh, vsys_mesh, theta_grid, n_process = _setup_grid(rv_array, kp_array, n_process)
+
+    results = []
+    for visit_i, (data_visit, di) in enumerate(zip(data_visits, data_info_list)):
+        cross_terms, squared_terms = _compute_visit_grid(
+            visit_i, data_visit, di, theta_grid, kp_mesh.shape, n_process)
         results.append(dict(
             cross_terms=cross_terms,
             squared_terms=squared_terms,
@@ -555,6 +746,9 @@ def _save_visit_result(visit_result, data_visit, di, output_path,
         contact_phases=contact_phases,
         kind_trans=np.array([kind_trans]),
         apply_alpha=np.array([apply_alpha]),
+        # One file = one visit: its instrument name lets a later analysis group visits
+        # per instrument before pooling logL terms (retrieval.py's `logl_grouping`).
+        instrument=np.array([instrum_param_list[visit_idx - 1]['name']]),
     )
 
     for key, val in list(saved.items()):
@@ -616,40 +810,8 @@ def compute_and_save_logl_grid(output_path, file_stem,
     rv_array, kp_array : 1-D arrays, optional — override YAML grid definitions
     n_process : int, optional — number of worker processes (default: SLURM_CPUS_PER_TASK × n_processes_per_cpu)
     """
-    global _current_data_visit, _current_alpha_frac, _current_apply_alpha
-
-    if rv_array is None:
-        rv_array = _make_grid(rv_grid)
-    if kp_array is None:
-        kp_array = _make_grid(kp_grid)
-    if n_process is None:
-        try:
-            n_cpu = int(os.environ['SLURM_CPUS_PER_TASK'])
-        except KeyError:
-            n_cpu = 1
-        n_process = n_cpu * n_processes_per_cpu
-
-    kp_step = kp_array[1] - kp_array[0] if len(kp_array) > 1 else float('nan')
-    rv_step = rv_array[1] - rv_array[0] if len(rv_array) > 1 else float('nan')
-    log.info(
-        f'Kp  grid: [{kp_array[0]:.2f}, {kp_array[-1]:.2f}] km/s  '
-        f'step={kp_step:.2f}  n={len(kp_array)}'
-    )
-    log.info(
-        f'vsys grid: [{rv_array[0]:.2f}, {rv_array[-1]:.2f}] km/s  '
-        f'step={rv_step:.2f}  n={len(rv_array)}'
-    )
-    log.info(
-        f'Grid size: {len(rv_array) * len(kp_array)} points  '
-        f'({len(rv_array)} × {len(kp_array)})'
-    )
-    log.info(f'apply_alpha = {apply_alpha}')
-    log.info(f'use_real_stellar_rv = {use_real_stellar_rv}')
-
-    _current_apply_alpha = apply_alpha
-
-    kp_mesh, vsys_mesh = np.meshgrid(kp_array, rv_array)
-    theta_grid = np.array([np.ravel(vsys_mesh), np.ravel(kp_mesh)]).T
+    rv_array, kp_array, kp_mesh, vsys_mesh, theta_grid, n_process = _setup_grid(
+        rv_array, kp_array, n_process)
 
     output_path = Path(output_path).expanduser()
     output_path.mkdir(parents=True, exist_ok=True)
@@ -661,24 +823,10 @@ def compute_and_save_logl_grid(output_path, file_stem,
         + ', '.join(f'{p:.4f}' for p in contact_phases)
     )
 
-    for i, (data_visit, di) in enumerate(zip(data_visits, data_info_list), start=1):
-        _current_data_visit = data_visit
-        _current_alpha_frac = di['all_alpha_frac']
-
-        log.info(
-            f'Computing grid for visit {i}/{len(data_visits)} '
-            f'with {n_process} processes ...'
-        )
-        with Pool(n_process) as pool:
-            outputs = pool.map(_get_chi2_detailed, theta_grid)
-
-        outputs = np.array(outputs)
-        data_shape = outputs.shape[2:]
-        cross_terms_v, squared_terms_v = [
-            np.reshape(outputs[:, idx], (*kp_mesh.shape, *data_shape))
-            for idx in range(2)
-        ]
-        del outputs  # free raw worker output before saving
+    for visit_i, (data_visit, di) in enumerate(zip(data_visits, data_info_list)):
+        i = visit_i + 1
+        cross_terms_v, squared_terms_v = _compute_visit_grid(
+            visit_i, data_visit, di, theta_grid, kp_mesh.shape, n_process)
 
         visit_result = dict(
             cross_terms=cross_terms_v,
@@ -2935,7 +3083,8 @@ def main():
     )
     parser.add_argument(
         '--specfile', required=True, type=Path,
-        help='Path to the model spectrum NPZ (keys: wave, spec). ~ is expanded.',
+        help='Path to the model NPZ written by retrieval.save_planet_model '
+             '(model_sequence.PlanetModel). ~ is expanded.',
     )
     parser.add_argument(
         '--plot', choices=['trailing', 'kpvsys'], default=None,

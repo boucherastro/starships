@@ -612,6 +612,8 @@ special_init:
 #
 # The full or relative path to the file is the input here.
 # If set to null, only the instrumental profile will be used to convolve the model.
+# Also read by logl_grid.py (Kp-vsys grids, same YAML): a multi-region model needs
+# this kernel there too, applied per exposure exactly as in the retrieval.
 get_ker_file: null
 
 # --- Default (phase-independent) rotation kernel ---
@@ -625,6 +627,8 @@ get_ker_file: null
 # - 'transmission': geometric wind-broadening kernel (RotKerTransit, replaces the
 #   old RotKerTransitCloudy(gauss=True) path). Needs `wind` (already used above)
 #   in params_prior/fixed_params.
+# Not read by logl_grid.py: retrieval.save_planet_model() applies this kernel when
+# generating the model file, which then records it (the file is authoritative).
 rotation_kernel: null
 
 # --- LOW RES multi-region representative phases (Chantier A Phase 3f) ---

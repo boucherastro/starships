@@ -44,75 +44,37 @@ def load_regression_config(config_path: Path) -> dict:
 
 
 def compute_logl_1d(ds_config: dict, corrRV: np.ndarray):
-    """Compute the logL 1D profile using calc_logl_injred (full pipeline).
+    """Compute the logL 1D profile with the `logl_grid` engine (Chantier C).
 
-    Uses load_single_sequences to get the transit object (orbital parameters,
-    PCA, noise, etc.), then runs calc_logl_injred with the correct Kp and
-    applies Correlations.calc_logl normalization (MAD/0.6745, in-transit sum).
-
-    This matches exactly what is done in Correlations.ipynb / plot_ccflogl.
-
-    Parameters
-    ----------
-    ds_config : dataset section from regression_config.yaml
-        Required keys: npz_path, model_path, pl_name
-        Optional keys: kind_trans (default 'emission')
-    corrRV    : RV grid (km/s)
+    Same function the regression test uses (`test_regression_logl.compute_logl_1d`):
+    one visit, at `kp_ref`, through `logl_grid`'s full compute/save/load chain --
+    the harmonized model engine shared with `retrieval.py::lnprob`. Before Chantier
+    C this ran the old classic-CCF engine (`correlation.calc_logl_injred`), whose
+    golden encoded Chantier A bug #2 and was deliberately dropped.
 
     Returns
     -------
-    visit        : loaded Observations object
+    planet    : starships.planet_obs.Planet
     logl_1d   : 1D logL profile, shape (n_rv,)
     """
-    import starships.planet_obs as pl_obs
-    import starships.correlation as corr
-    from starships.correlation_class import Correlations
+    # Run as a script (`python tests/regression/generate_golden.py`), so the repo root
+    # is not on sys.path -- import the sibling test module by its own directory.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from test_regression_logl import compute_logl_1d as _compute
+    return _compute(ds_config, corrRV)
 
-    from pipeline.reduction import pl_param_units
 
-    npz_path   = Path(ds_config['npz_path']).expanduser()
-    pl_name    = ds_config['pl_name']
-    kind_trans = ds_config.get('kind_trans', 'emission')
-
-    pl_kwargs = {}
-    ret_cfg_key = ds_config.get('retrieval_config')
-    if ret_cfg_key:
-        ret_cfg_path = Path(ret_cfg_key).expanduser()
-        if ret_cfg_path.exists():
-            with open(ret_cfg_path) as f:
-                ret_cfg = yaml.safe_load(f)
-            if ret_cfg.get('pl_params'):
-                pl_kwargs = pl_param_units(ret_cfg)
-        else:
-            print(f"  Warning: retrieval_config not found: {ret_cfg_path}")
-
-    # B3: n_pc is now a read-time argument (no longer baked into the saved file) — must come
-    # from the regression config explicitly instead of being read back from `visit.params[5]`.
-    n_pc     = ds_config['n_pc']
-    visit       = pl_obs.load_reduced_sequence(npz_path, n_pc, name=pl_name, plot=False,
-                                            pl_kwargs=pl_kwargs or None)
-    model    = np.load(Path(ds_config['model_path']).expanduser())
-    Kp_array = np.array([visit.Kp.value])
-
-    _, logl_map = corr.calc_logl_injred(
-        visit, 'seq', visit.planet, Kp_array, corrRV, [n_pc],
-        model['wave'], model['spec'], kind_trans,
-        counting=False,
-    )
-
-    logl_obj = Correlations(logl_map, kind='logl', rv_grid=corrRV,
-                            n_pcas=[n_pc], kp_array=Kp_array)
-    logl_obj.calc_logl(visit, orders=np.arange(visit.nord),
-                       N=visit.N, nolog=True, icorr=visit.icorr, std_robust=True)
-
-    return visit, np.array(logl_obj.logl).squeeze()  # (n_rv,)
+def _planet_kp(planet):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from test_regression_logl import planet_kp
+    return planet_kp(planet)
 
 
 # ---------------------------------------------------------------------------
 # Diagnostic plots
 # ---------------------------------------------------------------------------
 
-def _plot_logl(ds_name, corrRV, logl_1d, visit, plots_dir):
+def _plot_logl(ds_name, corrRV, logl_1d, planet, kp_ref, n_pc, plots_dir):
     """Save logL(RV) profile (1D) as a PNG file."""
     try:
         import matplotlib
@@ -129,11 +91,11 @@ def _plot_logl(ds_name, corrRV, logl_1d, visit, plots_dir):
     fig, ax = plt.subplots(figsize=(9, 4))
     ax.plot(corrRV, logl_1d, lw=1.5)
     ax.axvline(peak_rv, color='r', ls='--', label=f'Pic = {peak_rv:+.1f} km/s')
-    ax.axvline(float(visit.RV_const), color='gray', ls=':', lw=1,
-               label=f'V_sys config = {float(visit.RV_const):.1f} km/s')
+    ax.axvline(float(planet.RV_sys.value), color='gray', ls=':', lw=1,
+               label=f'V_sys config = {float(planet.RV_sys.value):.1f} km/s')
     ax.set_xlabel('RV (km/s)')
     ax.set_ylabel('logL  [in-transit, Σ ordres]')
-    ax.set_title(f'{ds_name} — logL 1D  (Kp={visit.Kp:.1f}, n_pc={int(visit.params[5])})')
+    ax.set_title(f'{ds_name} — logL 1D  (Kp={kp_ref:.1f}, n_pc={n_pc})')
     ax.legend()
     fig.tight_layout()
     out = plots_dir / f'{ds_name}_logl_profile.png'
@@ -221,8 +183,8 @@ def _plot_reduction(ds_name, transit, plots_dir):
 def generate_logl_goldens(cfg, output_dir, plots_dir=None):
     """Generate golden NPZ files for logL regression tests.
 
-    Uses calc_logl_injred (full pipeline with orbital correction) instead of
-    quick_correl.  Requires pl_name and kind_trans in each dataset config.
+    Uses the `logl_grid` engine (Chantier C, shared with `retrieval.py::lnprob`).
+    Requires pl_name, kind_trans, kp_ref and n_pc in each dataset config.
     """
     corrRV = np.arange(
         cfg['rv_grid']['min'],
@@ -243,7 +205,7 @@ def generate_logl_goldens(cfg, output_dir, plots_dir=None):
 
         print(f"  Loading transit ({ds_cfg['pl_name']}) and running "
               f"calc_logl_injred ...")
-        visit, logl_1d = compute_logl_1d(ds_cfg, corrRV)
+        planet, logl_1d = compute_logl_1d(ds_cfg, corrRV)
 
         peak_rv = corrRV[np.nanargmax(logl_1d)]
 
@@ -252,16 +214,21 @@ def generate_logl_goldens(cfg, output_dir, plots_dir=None):
             out_path,
             corrRV  = corrRV,
             logl_1d = logl_1d,
+            # Tag the engine so the test can refuse a pre-Chantier-C (classic-CCF) golden.
+            engine  = np.array('logl_grid'),
         )
 
-        print(f"  Pic   : RV = {peak_rv:+.1f} km/s  (V_sys config = {float(visit.RV_const):.1f} km/s)")
+        print(f"  Pic   : RV = {peak_rv:+.1f} km/s  (V_sys config = {float(planet.RV_sys.value):.1f} km/s)")
         print(f"  Max logL : {float(np.nanmax(logl_1d)):.6f}")
         print(f"  Saved : {out_path}")
         summary[ds_name] = {'peak_rv': float(peak_rv),
                             'max_logl': float(np.nanmax(logl_1d))}
 
         if plots_dir is not None:
-            _plot_logl(ds_name, corrRV, logl_1d, visit, plots_dir)
+            kp_ref = ds_cfg.get('kp_ref')
+            _plot_logl(ds_name, corrRV, logl_1d, planet,
+                       float(_planet_kp(planet) if kp_ref is None else kp_ref),
+                       int(ds_cfg['n_pc']), plots_dir)
 
     return summary
 

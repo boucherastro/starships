@@ -60,8 +60,27 @@ different cost tiers depending on whether the kernel varies with orbital phase:
   for that part of the computation. Confirmed acceptable with Antoine (2026-08-27):
   this only affects the opt-in multi-region case, never the default
   (``region_kernel=None``) path used by the rest of the pipeline.
+
+Chantier C (harmonizing ``logl_grid.py`` with ``retrieval.py``) adds the pieces that let
+both consumers run the *same* per-visit model preparation without sharing globals:
+
+- ``PlanetModel`` -- a saved/loaded model for one set of atmospheric parameters, in any
+  of several "forms" (native per region; default rotation kernel applied; degraded to
+  an instrument resolution; multi-region frozen at one phase). ``retrieval.py``
+  generates it (``generate_planet_model``/``save_planet_model``, during the analysis of
+  a retrieval, with petitRADTRANS) and ``logl_grid.py`` consumes it
+  (``load_planet_model``), so a Kp-vsys grid never has to run petitRADTRANS itself.
+- ``build_region_kernel()``/``prepare_multi_region_visit()`` -- the multi-region,
+  per-visit preparation that used to live only in ``retrieval.py`` on its module
+  globals, now taking everything explicitly so ``logl_grid.py`` can call it too.
+- ``build_model_interpolators()`` -- the spline-building half of
+  ``build_model_sequence()``, exposed so a caller evaluating the same model at many
+  velocities (``logl_grid.py``: thousands of (Kp, vsys) grid points per visit) builds
+  the splines once per visit instead of once per grid point.
 """
-from typing import List, Optional, Sequence, Tuple, Union
+import json
+from dataclasses import dataclass, replace
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import astropy.units as u
@@ -527,30 +546,639 @@ def degrade_fp_fstar(
     # Degrade the raw (petitRADTRANS-native-resolution) Fp down to `resolution`, evaluated
     # back on its own (trimmed) wavelength grid -- this is the "pre-convolution, once per
     # theta" step, done here rather than in the per-exposure loop of build_model_sequence().
-    Fp_pre = degrade_and_resample(wave_native, Fp_native, resolution=resolution,
-                                  input_resolution=native_resolution, sample=wave_native)
-    Fp_pre = np.ma.masked_invalid(Fp_pre)
-
-    if Fstar_native is not None:
-        # Degrade Fstar with the exact same target resolution/grid as Fp. This matters:
-        # Fp and Fstar must end up at the *same* resolution before build_model_sequence()
-        # divides one by the other, otherwise the ratio would mix a smooth (still-native)
-        # stellar spectrum with a properly-degraded planet spectrum.
-        Fstar_pre = degrade_and_resample(wave_native, Fstar_native, resolution=resolution,
-                                         input_resolution=native_resolution, sample=wave_native)
-        Fstar_pre = np.ma.masked_invalid(Fstar_pre)
-    else:
-        # Transmission: no separate stellar flux to degrade.
-        Fstar_pre = None
-
-    # Drop the convolution boundary (same 15-point edge trim as prepare_model()) --
-    # gauss_convolve()'s 'valid' mode already trims some of it, this removes what's left
-    # of the edge region where the kernel didn't have a full window to work with.
-    wave_out = wave_native[15:-15]
-    Fp_out = Fp_pre[15:-15]
-    Fstar_out = Fstar_pre[15:-15] if Fstar_pre is not None else None
+    # Fstar (emission only) is degraded with the exact same target resolution/grid as Fp.
+    # This matters: Fp and Fstar must end up at the *same* resolution before
+    # build_model_sequence() divides one by the other, otherwise the ratio would mix a
+    # smooth (still-native) stellar spectrum with a properly-degraded planet spectrum.
+    wave_out, (Fp_out, Fstar_out) = _degrade_on_native_grid(
+        wave_native, [Fp_native, Fstar_native], resolution, native_resolution)
 
     return wave_out, Fp_out, Fstar_out
+
+
+# Number of points dropped at each edge after a resolution degradation (same 15-point
+# edge trim as the old petitradtrans_utils.prepare_model()): gauss_convolve()'s 'valid'
+# mode already trims some of the convolution boundary, this removes what's left of the
+# edge region where the kernel didn't have a full window to work with.
+DEGRADE_EDGE_TRIM = 15
+
+
+def _degrade_on_native_grid(
+        wave_native: np.ndarray,
+        arrays: Sequence[Optional[np.ndarray]],
+        resolution: float,
+        native_resolution: float,
+) -> Tuple[np.ndarray, List[Optional[np.ndarray]]]:
+    """Degrade several spectra sharing `wave_native` to `resolution`, on that same grid.
+
+    Shared core of `degrade_fp_fstar` and `degrade` (PlanetModel form) -- one
+    `convolution.degrade_and_resample` call per array, evaluated back onto the native
+    grid, masked where invalid, then edge-trimmed by `DEGRADE_EDGE_TRIM` points on each
+    side (wave included). `None` entries pass through untouched (e.g. `Fstar` in
+    transmission), so callers can hand over `[Fp, Fstar]` without special-casing.
+
+    Returns
+    -------
+    wave_out : np.ndarray
+        `wave_native` edge-trimmed.
+    degraded : list of np.ma.MaskedArray or None
+        One entry per input array, same order, each edge-trimmed to match `wave_out`.
+    """
+    edge = slice(DEGRADE_EDGE_TRIM, -DEGRADE_EDGE_TRIM)
+    degraded = []
+    for arr in arrays:
+        if arr is None:
+            degraded.append(None)
+            continue
+        arr_pre = degrade_and_resample(wave_native, arr, resolution=resolution,
+                                       input_resolution=native_resolution, sample=wave_native)
+        degraded.append(np.ma.masked_invalid(arr_pre)[edge])
+    return wave_native[edge], degraded
+
+
+# ---------------------------------------------------------------------------
+# Multi-region, per-visit preparation (shared by retrieval.py and logl_grid.py)
+# ---------------------------------------------------------------------------
+
+def build_region_kernel(theta_regions: Sequence[dict], get_ker: Callable, planet, instrum: dict,
+                        model_resolution: float) -> Tuple[Callable, int]:
+    """Build the per-exposure `region_kernel` closure for multi-region combination (Phase 3).
+
+    Generic across whatever region geometry `get_ker` implements (a citrus/
+    longitude-slice split is the documented example, but nothing here assumes it).
+    The returned closure matches `build_model_sequence`'s `region_kernel` contract:
+    called once per exposure as `region_kernel(wave, Fp_by_region, phase_i)`, it fetches
+    this phase's per-region kernels from `get_ker` and combines them with
+    `combine_regions_with_kernel`, weighted by each region's `spec_scale` (same
+    weighting convention as the old combined-ratio multi-region path,
+    `retrieval.py::prepare_model_multi_reg`).
+
+    Moved here from `retrieval.py::_build_multi_region_kernel` (Chantier C): that
+    version resolved `get_ker`/`planet`/`instrum`/`prt_res` from `retrieval.py`'s
+    module globals, which `logl_grid.py` does not share -- this one takes them all
+    explicitly, and `retrieval.py` keeps a thin wrapper with the old name/signature.
+
+    Parameters
+    ----------
+    theta_regions : list of dict
+        One dict per region, as produced by `retrieval.py::unpack_theta`.
+    get_ker : callable
+        `get_ker(theta_regions, phase=..., planet=..., instrum=..., model_resolution=...)`
+        -> list of one kernel array per region (the user function loaded from
+        `get_ker_file`, see `retrieval_utils.load_custom_get_ker`), or a list of `None`
+        for the no-op fallback.
+    planet : starships.planet_obs.Planet
+        Forwarded to `get_ker`.
+    instrum : dict
+        Instrument parameter dict (`instruments.load_instrum`), forwarded to `get_ker`
+        (its `'resol'` key is what the documented example reads).
+    model_resolution : float
+        Sampling resolution of the native model grid the kernel is resampled onto
+        (`prt_res['high']` in `retrieval.py`, `native_resolution` of a `PlanetModel`).
+
+    Returns
+    -------
+    region_kernel : callable
+        `region_kernel(wave, Fp_by_region, phase_i)` -> combined spectrum for that
+        phase, ready for `build_model_sequence`.
+    trim : int
+        `kernel_edge_trim`'s return value for this theta/instrument -- the caller must
+        trim its own `wave_native`/`Fstar_native` by this exact amount *before* calling
+        `build_model_sequence` (see `prepare_multi_region_visit`), to end up the same
+        length `region_kernel`'s own trim (inside `combine_regions_with_kernel`)
+        produces. Obtained here via one extra "probe" call to `get_ker`, at an
+        arbitrary phase (0.0): every kernel class in `spectrum.py` sizes its velocity
+        grid from the theta/instrument alone, never from `phase` (only the *weights*
+        within that grid are phase-dependent) -- and `build_model_sequence` already
+        assumes a phase-independent kernel length itself (`wave_out`/`data_wave` are
+        fixed once, outside the per-exposure loop), so this is not a new assumption,
+        just the first place that needs the length explicitly, ahead of time.
+    """
+    weights = [theta_dict['spec_scale'] for theta_dict in theta_regions]
+
+    probe_ker_list = get_ker(theta_regions, phase=0.0, planet=planet,
+                             instrum=instrum, model_resolution=model_resolution)
+    if probe_ker_list[0] is None:
+        raise ValueError(
+            "Multi-region model (n_regions > 1) needs a real per-region kernel to "
+            "combine regions -- 'get_ker_file' is not set (get_ker is the no-op "
+            "fallback, see retrieval.py::setup_retrieval's 'Rotation kernel' block).")
+    trim = kernel_edge_trim(probe_ker_list)
+
+    def region_kernel(wave, Fp_by_region, phase_i):
+        rot_ker_list = get_ker(theta_regions, phase=phase_i, planet=planet,
+                               instrum=instrum, model_resolution=model_resolution)
+        return combine_regions_with_kernel(wave, Fp_by_region, rot_ker_list, weights)
+
+    return region_kernel, trim
+
+
+def prepare_multi_region_visit(
+        wave_native: np.ndarray,
+        Fp_by_region: Sequence[np.ndarray],
+        Fstar_native: Optional[np.ndarray],
+        trim: int,
+        resolution: float,
+        native_resolution: float,
+) -> Tuple[np.ndarray, Sequence[np.ndarray], Optional[np.ndarray]]:
+    """Prepare what a multi-region visit needs *before* its per-exposure loop (Phase 3).
+
+    Counterpart to the single-region `degrade_fp_fstar` for `len(Fp_by_region) > 1`:
+    since the per-region rotation kernel is phase-*dependent* in general (regions
+    rotate into/out of view across a visit), the per-region combination cannot happen
+    once per theta -- it happens once *per exposure*, inside `build_model_sequence`'s
+    `region_kernel` hook (see `build_region_kernel`). So the per-region Fp stay native
+    and un-combined here; only the region-independent Fstar is degraded, once, and the
+    wavelength grid is trimmed by the kernel's edge width so it matches what
+    `region_kernel` returns per exposure.
+
+    Moved here from `retrieval.py::prepare_model_multi_reg_high_per_exposure` (Chantier
+    C) so `logl_grid.py` can run the exact same preparation; `retrieval.py` keeps a thin
+    wrapper with the old name/signature.
+
+    Parameters
+    ----------
+    wave_native, Fp_by_region, Fstar_native
+        Native (undegraded, un-trimmed) grid / one Fp per region / stellar flux
+        (`None` in transmission), as returned by `generate_native_fp_fstar` per region
+        (`retrieval.py::_prepare_fp_native_by_region`) or held by a native `PlanetModel`.
+    trim : int
+        Kernel edge trim from `build_region_kernel` (must come from the same
+        `get_ker`/theta/instrument the per-exposure kernel will use).
+    resolution : float
+        Target (instrument) resolving power, used to degrade the shared Fstar.
+    native_resolution : float
+        Native/physical resolving power of `wave_native` (`prt_res['high']`).
+
+    Returns
+    -------
+    wave : np.ndarray
+        `wave_native` edge-trimmed by `trim` on each side -- shared by `Fstar` and by
+        the spectra `region_kernel` returns.
+    Fp_by_region : sequence of np.ndarray
+        Passed through untouched (native, un-trimmed) -- see
+        `combine_regions_with_kernel` for why they are not degraded here.
+    Fstar : np.ma.MaskedArray or None
+        Degraded stellar flux, on `wave`. `None` in transmission.
+    """
+    edge = slice(trim, -trim) if trim > 0 else slice(None)
+
+    if Fstar_native is not None:
+        # Fstar is region-independent -- degrade the shared native spectrum the
+        # normal way (same convention as degrade_fp_fstar), once.
+        Fstar_pre = degrade_and_resample(wave_native, Fstar_native, resolution=resolution,
+                                         input_resolution=native_resolution, sample=wave_native)
+        Fstar_out = np.ma.masked_invalid(Fstar_pre)[edge]
+    else:
+        Fstar_out = None
+
+    return wave_native[edge], Fp_by_region, Fstar_out
+
+
+# ---------------------------------------------------------------------------
+# PlanetModel: one theta's model spectrum, in any of several "forms", saved to / loaded
+# from disk so logl_grid.py never has to run petitRADTRANS itself (Chantier C)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PlanetModel:
+    """Model spectrum for one set of atmospheric parameters (one theta), with its "form".
+
+    Produced by `retrieval.py::generate_planet_model` (real petitRADTRANS, during the
+    analysis of a retrieval -- typically at the best-fit or median parameters) and
+    consumed by `logl_grid.py::load_model`. Everything `logl_grid.py` needs to redo
+    *exactly* what `retrieval.py::lnprob` does to the model per visit travels with it:
+    the per-region spectra, the per-region `theta_dict` (a user-supplied `get_ker` may
+    read any key of it), the native resolution, and which transformations were already
+    applied. The instrument-side choices (which visit, its resolution, `get_ker`)
+    still come from the YAML/data at `logl_grid` time.
+
+    Forms (see the transformation functions right below this class):
+
+    - *native*: `resolution is None`, `rotation_kernel_applied is None`, `phase is None`
+      -- one undegraded Fp per region + native Fstar, exactly `generate_native_fp_fstar`'s
+      output. The most general form: every other one derives from it.
+    - *default rotation kernel applied* (`apply_default_rotation_kernel`): still native
+      sampling, but Fp convolved with the phase-independent kernel of
+      `_build_default_rotation_kernel`. This is the recommended saved form for a
+      single-region model -- `logl_grid.py` then never has to know about
+      `rotation_kernel`, the file is authoritative.
+    - *degraded* (`degrade`): resolution-degraded to `resolution`. Ready to compare
+      with data of that instrument; `logl_grid.py` warns if a visit's instrument
+      resolution differs.
+    - *frozen at a phase* (`combine_at_phase`): a multi-region model combined into one
+      spectrum at one orbital phase and one instrument resolution (its regions'
+      kernels applied) -- the modern equivalent of the old "citrus model at the mean
+      phase" files, mostly for visualisation. Usable by `logl_grid.py` as a single-region
+      model (explicit approximation: no per-exposure kernel any more).
+
+    Attributes
+    ----------
+    wave : np.ndarray
+        Wavelength grid (um), shared by every array below.
+    Fp_by_region : list of np.ndarray
+        One planet-flux array per region (transmission depth in transmission mode).
+    Fstar : np.ndarray or None
+        Stellar flux on `wave` (region-independent). `None` in transmission.
+    theta_regions : list of dict
+        One parameter dict per region, as produced by `retrieval.py::unpack_theta`
+        (kept even for a frozen/combined model, for provenance and for `get_ker`).
+    native_resolution : float
+        Resolving power of the native petitRADTRANS grid (`prt_res['high']`).
+    kind_trans : {'emission', 'transmission'}
+    region_id : list, optional
+        `retrieval.py`'s `region_id` (region labels), for provenance.
+    resolution : float, optional
+        `None` while at native sampling/resolution; the target resolving power once
+        degraded.
+    rotation_kernel_applied : str, optional
+        `None`, `'emission'`/`'transmission'` (default kernel, see
+        `_build_default_rotation_kernel`) or `'multi_region'` (regions combined with
+        their own `get_ker` kernels, see `combine_at_phase`).
+    phase : float, optional
+        Orbital phase a multi-region model was frozen at (`combine_at_phase`), else `None`.
+    combined_ratio : bool, default False
+        *Legacy form*: `Fp_by_region[0]` is the already-combined, already-degraded
+        `Fp/Fstar` ratio (emission) or transmission depth that the old model engine
+        produced (`petitradtrans_utils.prepare_model`, `pipeline/make_model.py`, the
+        `wave`/`spec` or `wave_mod`/`mod_spec` `.npz` files) -- `Fstar` is `None`,
+        `resolution`/`native_resolution` are unknown (`None`), and the spectrum is
+        used as-is, pre-convolved. Kept so that `logl_grid.py` can still run on those
+        files (`load_planet_model` builds this form from them); the cost is Chantier A
+        bug #2 (the ratio is shifted rigidly at the planet's velocity, star included),
+        which only the Fp/Fstar-separated forms above fix.
+    """
+    wave: np.ndarray
+    Fp_by_region: List[np.ndarray]
+    Fstar: Optional[np.ndarray]
+    theta_regions: List[dict]
+    native_resolution: Optional[float]
+    kind_trans: str
+    region_id: Optional[list] = None
+    resolution: Optional[float] = None
+    rotation_kernel_applied: Optional[str] = None
+    phase: Optional[float] = None
+    combined_ratio: bool = False
+
+    @property
+    def n_regions(self) -> int:
+        return len(self.Fp_by_region)
+
+    @property
+    def is_multi_region(self) -> bool:
+        return self.n_regions > 1
+
+    @property
+    def is_native(self) -> bool:
+        """True while no resolution degradation has been applied (kernel or not).
+        A legacy combined ratio is pre-convolved by construction, so never native."""
+        return self.resolution is None and not self.combined_ratio
+
+    def describe(self) -> str:
+        """One-line, human-readable summary of the model's form (for logging)."""
+        if self.combined_ratio:
+            return (f'legacy combined ratio ({self.kind_trans}), pre-convolved by the old '
+                    'model engine -- resolution unknown, used as-is, star shifted with the '
+                    'planet (Chantier A bug #2)')
+        parts = [f'{self.n_regions} region(s)', self.kind_trans,
+                 f'native R={self.native_resolution:.0f}']
+        parts.append('native sampling' if self.resolution is None
+                     else f'degraded to R={self.resolution:.0f}')
+        if self.rotation_kernel_applied is not None:
+            parts.append(f'rotation kernel applied ({self.rotation_kernel_applied})')
+        if self.phase is not None:
+            parts.append(f'frozen at phase {self.phase:.4f}')
+        return ', '.join(parts)
+
+
+def apply_default_rotation_kernel(model: PlanetModel, rotation_kernel: Optional[str],
+                                  planet) -> PlanetModel:
+    """Return `model` with the phase-independent default rotation kernel applied to Fp.
+
+    Same kernel and same composition order as `degrade_fp_fstar`'s `rotation_kernel`
+    argument (`_build_default_rotation_kernel`, convolved at native sampling, *before*
+    any resolution degradation; Fstar never convolved -- rotation broadening is a
+    property of the planet's own spectrum). Single-region models only: a multi-region
+    model gets its (phase-dependent) kernels from `get_ker` instead, per exposure (see
+    `build_region_kernel`) -- applying a default kernel on top would broaden twice.
+
+    `rotation_kernel=None` returns `model` unchanged (same convention as
+    `degrade_fp_fstar`).
+    """
+    if rotation_kernel is None:
+        return model
+    if model.is_multi_region:
+        raise ValueError("The default rotation kernel only applies to a single-region model "
+                         "-- a multi-region model gets its kernels from get_ker per exposure.")
+    if not model.is_native:
+        raise ValueError("The default rotation kernel must be applied at native sampling, "
+                         "before any resolution degradation (model.resolution is not None).")
+    if model.rotation_kernel_applied is not None:
+        raise ValueError(f"A rotation kernel was already applied to this model "
+                         f"({model.rotation_kernel_applied!r}).")
+
+    kernel = _build_default_rotation_kernel(rotation_kernel, model.theta_regions[0], planet,
+                                            sampling_resolution=model.native_resolution)
+    Fp_out = [np.convolve(model.Fp_by_region[0], kernel, mode='same')]
+    return replace(model, Fp_by_region=Fp_out, rotation_kernel_applied=rotation_kernel)
+
+
+def degrade(model: PlanetModel, resolution: float) -> PlanetModel:
+    """Return `model` degraded to `resolution` (every region's Fp and Fstar alike).
+
+    Same operation as `degrade_fp_fstar`'s degradation step (`_degrade_on_native_grid`:
+    `convolution.degrade_and_resample` back onto the native grid, `DEGRADE_EDGE_TRIM`
+    points dropped at each edge). Requires a native-sampling model -- degrading twice
+    is exactly the class of bug Chantier A Phase 1 fixed.
+    """
+    if not model.is_native:
+        raise ValueError(f"Model is already degraded (resolution={model.resolution}, "
+                         f"combined_ratio={model.combined_ratio}) -- degrading twice would "
+                         "blur it further than the instrument does.")
+    wave_out, degraded = _degrade_on_native_grid(
+        model.wave, [*model.Fp_by_region, model.Fstar], resolution, model.native_resolution)
+    return replace(model, wave=wave_out, Fp_by_region=degraded[:-1], Fstar=degraded[-1],
+                   resolution=resolution)
+
+
+def combine_at_phase(model: PlanetModel, get_ker: Callable, planet, instrum: dict,
+                     phase: float) -> PlanetModel:
+    """Freeze a multi-region model into one spectrum at a single orbital phase.
+
+    Runs the same machinery `build_model_sequence`'s `region_kernel` hook runs per
+    exposure (`build_region_kernel` + `prepare_multi_region_visit`), but once, at
+    `phase`: each region's native Fp is convolved with its own `get_ker` kernel at that
+    phase (which bakes in the degradation to `instrum['resol']`), the regions are
+    weighted and summed, and Fstar is degraded to the same resolution. The result is a
+    single-region `PlanetModel` at `instrum['resol']` -- the modern equivalent of the
+    old "citrus model at the mean phase" files, meant for visualisation (e.g. how the
+    combined spectrum evolves across a visit) or as an explicitly-approximate 1D input
+    to `logl_grid.py`.
+    """
+    if not model.is_multi_region:
+        raise ValueError("combine_at_phase needs a multi-region model.")
+    if not model.is_native:
+        raise ValueError("combine_at_phase needs a native-sampling model: the per-region "
+                         "kernels from get_ker already degrade to instrum['resol'].")
+
+    region_kernel, trim = build_region_kernel(model.theta_regions, get_ker, planet, instrum,
+                                              model.native_resolution)
+    wave_out, Fp_by_region, Fstar_out = prepare_multi_region_visit(
+        model.wave, model.Fp_by_region, model.Fstar, trim, instrum['resol'],
+        model.native_resolution)
+    Fp_combined = region_kernel(wave_out, Fp_by_region, phase)
+
+    return replace(model, wave=wave_out, Fp_by_region=[Fp_combined], Fstar=Fstar_out,
+                   resolution=instrum['resol'], rotation_kernel_applied='multi_region',
+                   phase=phase)
+
+
+# --- Save / load ---
+
+PLANET_MODEL_FORMAT_VERSION = 1
+_NDARRAY_TAG = '__ndarray__'
+
+
+def _theta_to_jsonable(obj: Any) -> Any:
+    """Recursively convert a `theta_dict` value into something `json.dumps` accepts.
+
+    numpy arrays are tagged (`{"__ndarray__": [...]}`) so `_theta_from_jsonable` can
+    restore them as arrays rather than plain lists; numpy scalars become Python
+    scalars. Anything else unknown (e.g. an astropy Quantity) raises a clear error
+    rather than being silently mangled -- `theta_dict` is expected to hold plain
+    numbers/arrays (`retrieval.py::unpack_theta` strips units before this point).
+    """
+    if isinstance(obj, dict):
+        return {str(key): _theta_to_jsonable(val) for key, val in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_theta_to_jsonable(val) for val in obj]
+    if hasattr(obj, 'unit'):
+        # An astropy Quantity *is* an ndarray subclass -- catch it before the array
+        # branch, which would fail on `.tolist()` with a much less helpful message.
+        raise TypeError(f"Cannot serialize theta_dict value with units: {obj!r} -- "
+                        "store plain floats/arrays (unpack_theta strips units).")
+    if isinstance(obj, np.ndarray):
+        return {_NDARRAY_TAG: obj.tolist()}
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    raise TypeError(f"Cannot serialize theta_dict value of type {type(obj).__name__}: {obj!r}")
+
+
+def _theta_from_jsonable(obj: Any) -> Any:
+    """Inverse of `_theta_to_jsonable`."""
+    if isinstance(obj, dict):
+        if set(obj.keys()) == {_NDARRAY_TAG}:
+            return np.asarray(obj[_NDARRAY_TAG])
+        return {key: _theta_from_jsonable(val) for key, val in obj.items()}
+    if isinstance(obj, list):
+        return [_theta_from_jsonable(val) for val in obj]
+    return obj
+
+
+def save_planet_model(path, model: PlanetModel) -> None:
+    """Save a `PlanetModel` to a `.npz` file (readable by `load_planet_model`).
+
+    Arrays are stored filled with NaN where masked (a degraded model is a masked array
+    from `degrade_and_resample`; the mask is exactly the invalid points, so nothing is
+    lost). Metadata are stored as 0-d/1-element arrays; the per-region `theta_dict`
+    list as one JSON string (`_theta_to_jsonable`).
+    """
+    fstar = (np.ma.filled(np.ma.asarray(model.Fstar), np.nan)
+             if model.Fstar is not None else np.empty(0))
+    fp_by_region = np.array([np.ma.filled(np.ma.asarray(Fp), np.nan)
+                             for Fp in model.Fp_by_region])
+    region_id = [] if model.region_id is None else list(model.region_id)
+
+    np.savez(
+        path,
+        format_version=np.array(PLANET_MODEL_FORMAT_VERSION),
+        wave=np.asarray(model.wave),
+        fp_by_region=fp_by_region,
+        fstar=fstar,
+        theta_regions_json=np.array(json.dumps(_theta_to_jsonable(model.theta_regions))),
+        native_resolution=np.array(np.nan if model.native_resolution is None
+                                   else float(model.native_resolution)),
+        combined_ratio=np.array(bool(model.combined_ratio)),
+        kind_trans=np.array(model.kind_trans),
+        region_id=np.array(region_id),
+        resolution=np.array(np.nan if model.resolution is None else float(model.resolution)),
+        rotation_kernel_applied=np.array('' if model.rotation_kernel_applied is None
+                                         else model.rotation_kernel_applied),
+        phase=np.array(np.nan if model.phase is None else float(model.phase)),
+    )
+
+
+_LEGACY_KEYS = (('wave', 'spec'), ('wave_mod', 'mod_spec'), ('wave_mod', 'model'))
+
+
+def _load_legacy_combined_ratio(f, path, kind_trans: str) -> PlanetModel:
+    """Build a `combined_ratio` `PlanetModel` from an old-engine model `.npz`.
+
+    Old files carry only the pre-convolved combined spectrum under one of the
+    `_LEGACY_KEYS` pairs (`spec`/`mod_spec`/`model`, the latter possibly 2-D with one
+    row per candidate model -- the first row is taken, as the old analysis scripts
+    did). Nothing else is known about them (no theta, no resolution), hence
+    `kind_trans` must be given by the caller (`logl_grid.py` takes it from the YAML).
+    """
+    for wave_key, spec_key in _LEGACY_KEYS:
+        if wave_key in f.files and spec_key in f.files:
+            spec = np.asarray(f[spec_key])
+            if spec.ndim == 2:
+                spec = spec[0]
+            return PlanetModel(
+                wave=np.asarray(f[wave_key]), Fp_by_region=[spec], Fstar=None,
+                theta_regions=[{}], native_resolution=None, kind_trans=kind_trans,
+                combined_ratio=True)
+    raise ValueError(
+        f"{path} is neither a PlanetModel file (no 'format_version' key) nor an old "
+        f"combined-ratio model file (expected one of the key pairs {_LEGACY_KEYS}). "
+        "Generate the model with retrieval.save_planet_model() (see logl_grid.py's "
+        "module docstring).")
+
+
+def load_planet_model(path, kind_trans: Optional[str] = None) -> PlanetModel:
+    """Load a `PlanetModel` saved by `save_planet_model` -- or an old-engine model file.
+
+    A degraded model (`resolution` set) comes back as masked arrays (invalid points
+    masked, as `degrade` produces them); a native model as plain arrays.
+
+    Old combined-ratio files (`wave`/`spec`, `wave_mod`/`mod_spec`, `wave_mod`/`model`
+    -- what `pipeline/make_model.py` and the old analysis notebooks saved) are loaded
+    as the `combined_ratio` legacy form (see `PlanetModel`), which needs `kind_trans`
+    (not stored in those files): pass it explicitly, it is an error to omit it for
+    such a file.
+    """
+    with np.load(path) as f:
+        if 'format_version' not in f.files:
+            if kind_trans is None:
+                raise ValueError(f"{path} is an old combined-ratio model file: `kind_trans` "
+                                 "must be given to load it.")
+            return _load_legacy_combined_ratio(f, path, kind_trans)
+        version = int(f['format_version'])
+        if version != PLANET_MODEL_FORMAT_VERSION:
+            raise ValueError(f"Unsupported PlanetModel format version {version} "
+                             f"(this code reads version {PLANET_MODEL_FORMAT_VERSION}).")
+
+        resolution = float(f['resolution'])
+        resolution = None if np.isnan(resolution) else resolution
+        phase = float(f['phase'])
+        phase = None if np.isnan(phase) else phase
+        rot_ker = str(f['rotation_kernel_applied'])
+        rot_ker = None if rot_ker == '' else rot_ker
+        region_id = f['region_id'].tolist()
+        region_id = None if len(region_id) == 0 else region_id
+        native_resolution = float(f['native_resolution'])
+        native_resolution = None if np.isnan(native_resolution) else native_resolution
+        combined_ratio = bool(f['combined_ratio']) if 'combined_ratio' in f.files else False
+
+        # Degraded arrays carry NaN where degrade_and_resample had no valid window --
+        # restore the mask degrade() left there. Native arrays are plain.
+        as_array = np.ma.masked_invalid if resolution is not None else np.asarray
+        Fp_by_region = [as_array(Fp) for Fp in f['fp_by_region']]
+        fstar = f['fstar']
+        Fstar = None if fstar.size == 0 else as_array(fstar)
+
+        return PlanetModel(
+            wave=f['wave'],
+            Fp_by_region=Fp_by_region,
+            Fstar=Fstar,
+            theta_regions=_theta_from_jsonable(json.loads(str(f['theta_regions_json']))),
+            native_resolution=native_resolution,
+            kind_trans=str(f['kind_trans']),
+            region_id=region_id,
+            resolution=resolution,
+            rotation_kernel_applied=rot_ker,
+            phase=phase,
+            combined_ratio=combined_ratio,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Per-exposure model sequence (the "2D" step)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ModelInterpolators:
+    """Cubic splines of one model, ready to be evaluated at Doppler-shifted grids.
+
+    The spline-building half of `build_model_sequence`, split out so a caller that
+    evaluates the *same* model at many velocities (`logl_grid.py`: thousands of
+    (Kp, vsys) points per visit, each a separate `build_model_sequence` call in a
+    worker process) builds them once per visit -- before forking its worker pool, so
+    they are inherited copy-on-write -- instead of once per grid point. Building a
+    cubic `interp1d_masked` over a full high-resolution model is by far the most
+    expensive part of `build_model_sequence` when nothing but the velocities change.
+
+    Exactly one of `fct_p` (single shared spline, phase-independent model) or
+    `fct_p_per_exp` (one spline per exposure, phase-dependent `region_kernel`) is set.
+    `fct_star` is set only in emission with a real `Fstar` -- or deliberately absent
+    when `combined_ratio` (legacy pre-combined Fp/Fstar, see `PlanetModel`).
+    """
+    fct_p: Optional[Callable] = None
+    fct_p_per_exp: Optional[List[Callable]] = None
+    fct_star: Optional[Callable] = None
+    combined_ratio: bool = False
+
+    @property
+    def per_exposure(self) -> bool:
+        return self.fct_p_per_exp is not None
+
+
+def build_model_interpolators(
+        wave: np.ndarray,
+        Fp,
+        Fstar: Optional[np.ndarray] = None,
+        kind_trans: str = 'emission',
+        region_kernel: Optional[Callable] = None,
+        phase: Optional[ArrayOrScalar] = None,
+        n_exp: Optional[int] = None,
+        combined_ratio: bool = False,
+) -> ModelInterpolators:
+    """Build the splines `build_model_sequence` evaluates (see `ModelInterpolators`).
+
+    Parameters are the model-side subset of `build_model_sequence`'s (same meaning,
+    see there): `wave`/`Fp`/`Fstar`/`kind_trans`, and the optional phase-dependent
+    `region_kernel` hook with its per-exposure `phase`. `n_exp` is only needed to
+    broadcast a scalar `phase` (a per-exposure `phase` array defines it).
+    `combined_ratio` marks `Fp` as a legacy pre-combined `Fp/Fstar` ratio: no stellar
+    spline is built even in emission (the ratio is shifted as one, old behaviour).
+    """
+    if region_kernel is not None:
+        if phase is None:
+            raise ValueError("`phase` is required when `region_kernel` is given.")
+        phase_arr = np.atleast_1d(np.asarray(phase, dtype=float))
+        if phase_arr.size == 1:
+            if n_exp is None:
+                raise ValueError("`n_exp` is required to broadcast a scalar `phase`.")
+            phase_arr = np.full(n_exp, phase_arr[0])
+        # One spline *per exposure*: the kernel's shape genuinely changes with phase
+        # (e.g. regions rotating into/out of view), so a single shared spline
+        # would be wrong here -- unlike the fast path below, this cannot be
+        # vectorized across exposures (see build_model_sequence's docstring for the
+        # resulting ~n_exp cost).
+        fct_p = None
+        fct_p_per_exp = [
+            interp1d_masked(wave, region_kernel(wave, Fp, phase_i),
+                            kind='cubic', fill_value='extrapolate')
+            for phase_i in phase_arr
+        ]
+    else:
+        # Single spline built once (not per exposure) -- interp1d_masked lets it be
+        # evaluated at every exposure's (Doppler-shifted) wavelength grid in one
+        # vectorized call. Fast path used whenever no phase-dependent kernel is
+        # requested (the vast majority of calls).
+        fct_p = interp1d_masked(wave, Fp, kind='cubic', fill_value='extrapolate')
+        fct_p_per_exp = None
+
+    if Fstar is not None and kind_trans == 'emission' and not combined_ratio:
+        fct_star = interp1d_masked(wave, Fstar, kind='cubic', fill_value='extrapolate')
+    else:
+        fct_star = None
+
+    return ModelInterpolators(fct_p=fct_p, fct_p_per_exp=fct_p_per_exp, fct_star=fct_star,
+                              combined_ratio=combined_ratio)
 
 
 def build_model_sequence(
@@ -565,6 +1193,8 @@ def build_model_sequence(
         RV: float = 0.0,
         region_kernel=None,
         phase: Optional[ArrayOrScalar] = None,
+        interpolators: Optional[ModelInterpolators] = None,
+        combined_ratio: bool = False,
 ) -> np.ma.MaskedArray:
     """Build the per-exposure model sequence, Doppler-shifting Fp and Fstar independently.
 
@@ -635,6 +1265,20 @@ def build_model_sequence(
     phase : float or np.ndarray, shape (n_exp,), optional
         Orbital phase of each exposure, forwarded to `region_kernel`. Required if
         `region_kernel` is given (ignored otherwise).
+    interpolators : ModelInterpolators, optional
+        Splines already built by `build_model_interpolators` for this exact
+        `wave`/`Fp`/`Fstar`/`region_kernel`/`phase` (Chantier C, `logl_grid.py`: built
+        once per visit, then reused for every (Kp, vsys) grid point). When given, the
+        model-side arguments above are not read again (only the velocities, `alpha`,
+        `kind_trans` and `data_wave` matter) -- the output is identical to building
+        the splines here. Default `None`: built internally, as before.
+    combined_ratio : bool, default False
+        `Fp` is a legacy, already-combined `Fp/Fstar` ratio (or transmission depth)
+        from the old model engine (`PlanetModel.combined_ratio`): no `Fstar` is
+        required or used even in emission, and the ratio is Doppler-shifted as one
+        rigid object at the planet's velocity -- exactly the old
+        `quick_inject_clean` behaviour, Chantier A bug #2 included. Only for
+        running old model files; new models keep Fp/Fstar separate.
 
     Returns
     -------
@@ -644,16 +1288,29 @@ def build_model_sequence(
         baseline; PCA removal, needed to compare with real reduced data, is the caller's
         job, exactly as with the function this replaces).
     """
-    # Emission needs a real Fstar to divide by -- without it there is nothing to fix
-    # (the whole point of this function, vs. the old gen_model_sequence_noinj, is to keep
-    # Fp and Fstar apart), so fail loudly instead of silently falling back to Fp alone.
-    if kind_trans == 'emission' and Fstar is None:
-        raise ValueError("`Fstar` is required when kind_trans='emission' -- pass the "
-                          "`Fstar` returned by `precompute_theta_model` (or omit it and "
-                          "use kind_trans='transmission' if there truly is no stellar "
-                          "contribution to separate).")
-
     n_exp, n_ord, n_pix = data_wave.shape
+
+    if interpolators is None:
+        # Emission needs a real Fstar to divide by -- without it there is nothing to fix
+        # (the whole point of this function, vs. the old combined-ratio injection, is to
+        # keep Fp and Fstar apart), so fail loudly instead of silently falling back to
+        # Fp alone.
+        if kind_trans == 'emission' and Fstar is None and not combined_ratio:
+            raise ValueError("`Fstar` is required when kind_trans='emission' -- pass the "
+                              "`Fstar` returned by `precompute_theta_model` (or omit it and "
+                              "use kind_trans='transmission' if there truly is no stellar "
+                              "contribution to separate, or set combined_ratio=True for a "
+                              "legacy pre-combined Fp/Fstar ratio).")
+        interpolators = build_model_interpolators(wave, Fp, Fstar, kind_trans,
+                                                  region_kernel=region_kernel, phase=phase,
+                                                  n_exp=n_exp, combined_ratio=combined_ratio)
+    elif (kind_trans == 'emission' and interpolators.fct_star is None
+          and not interpolators.combined_ratio):
+        raise ValueError("`interpolators` has no stellar spline (`fct_star`) but "
+                         "kind_trans='emission' needs one -- build them with a real `Fstar`.")
+    if interpolators.per_exposure and len(interpolators.fct_p_per_exp) != n_exp:
+        raise ValueError(f"`interpolators` holds {len(interpolators.fct_p_per_exp)} per-exposure "
+                         f"splines but `data_wave` has {n_exp} exposures.")
 
     # --- Planet velocity: one value per exposure (vrp_orb + the fitted residual RV) ---
     # A scalar vrp_orb (e.g. a single representative velocity) is broadcast to every
@@ -665,30 +1322,8 @@ def build_model_sequence(
         vrp_orb = np.full(n_exp, vrp_orb[0])
     shifts_p = hm.calc_shift(vrp_orb, kind='rel')
 
-    # --- Optional Chantier A Phase 3 hook: phase-dependent rotation kernel ---
-    if region_kernel is not None:
-        if phase is None:
-            raise ValueError("`phase` is required when `region_kernel` is given.")
-        phase_arr = np.atleast_1d(np.asarray(phase, dtype=float))
-        if phase_arr.size == 1:
-            phase_arr = np.full(n_exp, phase_arr[0])
-        # One spline *per exposure*: the kernel's shape genuinely changes with phase
-        # (e.g. regions rotating into/out of view), so a single shared spline
-        # would be wrong here -- unlike the fast path below, this cannot be
-        # vectorized across exposures (see docstring for the resulting ~n_exp cost).
-        fct_p_per_exp = [
-            interp1d_masked(wave, region_kernel(wave, Fp, phase_arr[i_exp]),
-                            kind='cubic', fill_value='extrapolate')
-            for i_exp in range(n_exp)
-        ]
-    else:
-        # Single spline built once (not per exposure) -- interp1d_masked lets it be
-        # evaluated at every exposure's (Doppler-shifted) wavelength grid below in
-        # one vectorized call. Fast path used whenever no phase-dependent kernel is
-        # requested (the vast majority of calls).
-        fct_p = interp1d_masked(wave, Fp, kind='cubic', fill_value='extrapolate')
-
-    if Fstar is not None and kind_trans == 'emission':
+    use_star = interpolators.fct_star is not None
+    if use_star:
         # --- Stellar velocity: independent from the planet's (this is the actual bug fix) ---
         # Default vr_orb=0.0 -> shifts_star is (numerically) 1 for every exposure, i.e. the
         # star is not shifted at all (Antoine-approved approximation, see docstring). Passing
@@ -698,7 +1333,6 @@ def build_model_sequence(
         if vr_orb_arr.size == 1:
             vr_orb_arr = np.full(n_exp, vr_orb_arr[0])
         shifts_star = hm.calc_shift(vr_orb_arr, kind='rel')
-        fct_star = interp1d_masked(wave, Fstar, kind='cubic', fill_value='extrapolate')
 
     # --- Occultation fraction (alpha_frac): per-exposure light-curve weight ---
     # Default 1.0 (full visibility, no eclipse/transit modulation) if the caller doesn't
@@ -716,21 +1350,21 @@ def build_model_sequence(
         # Evaluate the (fixed) planet spectrum at each exposure's own, Doppler-shifted
         # wavelength grid: dividing the instrument grid by the shift factor is equivalent
         # to shifting the model spectrum by `-vrp_orb` (same convention as calc_shift).
-        if region_kernel is not None:
+        if interpolators.per_exposure:
             # No vectorized shortcut here: each exposure has its own spline (built
-            # above from its own phase-dependent kernel), so it must be evaluated
+            # from its own phase-dependent kernel), so it must be evaluated
             # separately at its own shifted grid.
             fp_shifted = np.ma.array([
-                fct_p_per_exp[i_exp](data_wave[i_exp, i_ord] / shifts_p[i_exp])
+                interpolators.fct_p_per_exp[i_exp](data_wave[i_exp, i_ord] / shifts_p[i_exp])
                 for i_exp in range(n_exp)
             ])
         else:
-            fp_shifted = fct_p(data_wave[:, i_ord] / shifts_p[:, None])
-        if Fstar is not None and kind_trans == 'emission':
+            fp_shifted = interpolators.fct_p(data_wave[:, i_ord] / shifts_p[:, None])
+        if use_star:
             # Star evaluated at *its own* shift (possibly all-1, i.e. unshifted) --
             # independent from the planet's shift above. This is the actual fix: the old
             # code shifted a single already-combined Fp/Fstar ratio by one rigid velocity.
-            fstar_shifted = fct_star(data_wave[:, i_ord] / shifts_star[:, None])
+            fstar_shifted = interpolators.fct_star(data_wave[:, i_ord] / shifts_star[:, None])
             depth = np.ma.masked_invalid(fp_shifted) / np.ma.masked_invalid(fstar_shifted)
         else:
             # Transmission (or no Fstar at all): nothing to divide, `depth` is just the
@@ -825,92 +1459,6 @@ def apply_pca_to_model(
         final_ts = full_ts / np.ma.mean(full_ts, axis=-1)[:, :, None]
 
     return final_ts
-
-
-def gen_model_sequence_noinj(
-    velocities: np.ndarray,
-    data_wave: Optional[np.ndarray] = None,
-    data_sep: Optional[np.ndarray] = None,
-    data_pca=None,
-    data_npc: Optional[int] = None,
-    planet=None,
-    model_wave: Optional[np.ndarray] = None,
-    model_spec: Optional[np.ndarray] = None,
-    alpha: Optional[np.ndarray] = None,
-    data_visit: Optional[dict] = None,
-    data_recon: Optional[np.ndarray] = None,
-    **kwargs,
-) -> np.ma.MaskedArray:
-    """Old combined-ratio model sequence: inject one model spectrum at a single rigid velocity.
-
-    Moved here from ``correlation.py`` (Chantier C1) -- it belongs with model generation,
-    not correlation. Kept only as a fallback path in ``logl_grid.py::_get_chi2_detailed``
-    for older saved model files that don't have ``Fp_high``/``Fstar_high`` split apart yet
-    (see ``load_model``). New code should use ``build_model_sequence`` instead, which
-    fixes Chantier A bug #2 (Fp/Fstar Doppler-shifted independently per exposure) -- this
-    function still has that bug for any model file that actually falls back to it.
-
-    Parameters
-    ----------
-    velocities : np.ndarray
-        Per-exposure velocities (km/s) at which to inject the model.
-    data_wave, data_sep, data_pca, data_npc : optional
-        Data-side quantities needed by the injection/PCA-removal step. Any left as
-        `None` are read from `data_visit` instead (see below).
-    planet : Planet
-        Used for `R_star`/`A_star`/`R_pl`.
-    model_wave, model_spec : np.ndarray
-        Native-resolution model wavelength/spectrum to inject.
-    alpha : np.ndarray of shape (n_spec,), optional
-        Fraction of planetary signal actually visible. Depends on `kind_trans`:
-        - transmission: fraction of the stellar disk hidden by the planet.
-        - emission: fraction of the planetary disk not hidden by the star.
-    data_visit : dict, optional
-        Fallback source for `data_wave`/`data_sep`/`data_pca`/`data_npc` when those
-        aren't passed directly (see `planet_obs.py::_visit_to_data_dict`).
-    data_recon : np.ndarray, optional
-        Reconstructed data sequence to inject the model into. Defaults to an array of
-        ones (inject into an otherwise-flat sequence), which is what every real caller
-        uses today.
-    **kwargs
-        Passed through to `spectrum.quick_inject_clean`.
-
-    Returns
-    -------
-    np.ma.MaskedArray
-        Model sequence, PCA-truncated the same way the data was.
-    """
-    if data_wave is None:
-        data_wave = data_visit['wave']
-
-    if data_sep is None:
-        data_sep = data_visit['sep']
-
-    if data_pca is None:
-        data_pca = data_visit['pca']
-    if data_npc is None:
-        data_npc = int(data_visit['params'][5])
-    if data_recon is None:
-        # -- Uncomment the other 2 lines if you want the full reconstructed data to inject the model in
-        data_recon = np.ones_like(data_wave)
-        # data_recon = data_visit['reconstructed']
-        # data_recon = data_recon/np.ma.median(data_recon,axis=-1)[:,:,None]/data_visit['ratio']/data_visit['reference_spec']
-
-    for arg in (planet, model_wave, model_spec):
-        if arg is None:
-            raise ValueError('`planet`, `model_wave` and `model_spec` need to be specified.')
-
-    # --- inject model in an empty sequence of ones
-    flux_inj, _ = spectrum.quick_inject_clean(data_wave, data_recon,
-                                               model_wave, model_spec,
-                                               velocities, data_sep, planet.R_star, planet.A_star,
-                                               RV=0.0, dv_star=0.,
-                                               R0=planet.R_pl, alpha=alpha, **kwargs)
-
-    # -- Remove the same number of pcas that were used to inject
-    model_seq = apply_pca_to_model(flux_inj, data_pca, n_pca=data_npc)
-
-    return model_seq
 
 
 def group_visit_indices(keys: Sequence, grouping: str) -> List[List[int]]:

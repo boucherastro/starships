@@ -1691,15 +1691,12 @@ def _prepare_fp_native_by_region(theta_regions, atmo_obj_list, fct_star, mode='h
 def _build_multi_region_kernel(theta_regions, visit_i, mode='high', instrum=None):
     """Build the per-exposure `region_kernel` closure for multi-region combination (Phase 3).
 
-    Generic across whatever region geometry `get_ker` implements (a citrus/
-    longitude-slice split is the documented example, but nothing here assumes it).
-    Returned closure matches `model_sequence.build_model_sequence`'s `region_kernel`
-    contract: called once per exposure as `region_kernel(wave, Fp_by_region, phase_i)`,
-    it fetches this phase's per-region kernels from `get_ker` (`retrieval.py`'s own
-    global, loaded from `get_ker_file` -- see `setup_retrieval`'s "Rotation kernel"
-    block) and combines them with `model_sequence.combine_regions_with_kernel`,
-    weighted by each region's `spec_scale` (same weighting convention as the old
-    combined-ratio multi-region path, `prepare_model_multi_reg`).
+    Thin wrapper around `model_sequence.build_region_kernel` (where the logic moved in
+    Chantier C so `logl_grid.py` can run the exact same thing): this one only resolves
+    the module globals -- `get_ker` (loaded from `get_ker_file`, see `setup_retrieval`'s
+    "Rotation kernel" block), `planet`, `instrum_param_list[visit_i]`, `prt_res[mode]` --
+    and delegates. See that function for the contract of the returned closure and of
+    `trim`.
 
     Parameters
     ----------
@@ -1725,39 +1722,11 @@ def _build_multi_region_kernel(theta_regions, visit_i, mode='high', instrum=None
         `region_kernel(wave, Fp_by_region, phase_i)` -> combined spectrum for that
         phase, ready for `build_model_sequence`.
     trim : int
-        `model_sequence.kernel_edge_trim`'s return value for this theta/mode --
-        the caller must trim its own `wave_native`/`Fstar_native` by this exact
-        amount *before* calling `build_model_sequence`, to end up the same
-        length `region_kernel`'s own trim (inside `combine_regions_with_kernel`)
-        produces. Obtained here via one extra "probe" call to `get_ker`, at an
-        arbitrary phase (0.0): every kernel class in `spectrum.py` sizes its
-        velocity grid from the theta/instrument alone, never from `phase` (only
-        the *weights* within that grid are phase-dependent) -- and
-        `build_model_sequence` already assumes a phase-independent kernel
-        length itself (`wave_out`/`data_wave` are fixed once, outside the
-        per-exposure loop), so this is not a new assumption, just the first
-        place that needs the length explicitly, ahead of time.
+        Kernel edge trim, see `model_sequence.build_region_kernel`.
     """
-    weights = [theta_dict['spec_scale'] for theta_dict in theta_regions]
     if instrum is None:
         instrum = instrum_param_list[visit_i]
-
-    probe_ker_list = get_ker(theta_regions, phase=0.0, planet=planet,
-                             instrum=instrum, model_resolution=prt_res[mode])
-    if probe_ker_list[0] is None:
-        raise ValueError(
-            "Multi-region retrieval (n_regions > 1) needs a real per-region "
-            "kernel to combine regions -- 'get_ker_file' is not set (get_ker "
-            "is the no-op fallback, see setup_retrieval's 'Rotation kernel' "
-            "block).")
-    trim = model_seq.kernel_edge_trim(probe_ker_list)
-
-    def region_kernel(wave, Fp_by_region, phase_i):
-        rot_ker_list = get_ker(theta_regions, phase=phase_i, planet=planet,
-                               instrum=instrum, model_resolution=prt_res[mode])
-        return model_seq.combine_regions_with_kernel(wave, Fp_by_region, rot_ker_list, weights)
-
-    return region_kernel, trim
+    return model_seq.build_region_kernel(theta_regions, get_ker, planet, instrum, prt_res[mode])
 
 
 def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf, native=None):
@@ -1820,22 +1789,89 @@ def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf, nativ
 
     # Build the kernel (and learn its edge trim) before trimming anything --
     # `region_kernel`'s own trim (inside `combine_regions_with_kernel`) must land
-    # on the exact same amount, see `_build_multi_region_kernel`'s `trim` return.
+    # on the exact same amount, see `model_sequence.build_region_kernel`'s `trim` return.
+    # Both steps live in model_sequence.py since Chantier C (shared with logl_grid.py).
     region_kernel_fct, trim = _build_multi_region_kernel(theta_regions, visit_i)
-    edge = slice(trim, -trim) if trim > 0 else slice(None)
-
-    if Fstar_native is not None:
-        # Fstar is region-independent -- degrade the shared native spectrum the
-        # normal way (same convention as precompute_theta_model's Step 2), once.
-        Fstar_pre = degrade_and_resample(wave_native, Fstar_native, resolution=Raf,
-                                         input_resolution=native_res, sample=wave_native)
-        Fstar_out = np.ma.masked_invalid(Fstar_pre)[edge]
-    else:
-        Fstar_out = None
-
-    wave_out = wave_native[edge]
+    wave_out, Fp_by_region, Fstar_out = model_seq.prepare_multi_region_visit(
+        wave_native, Fp_by_region, Fstar_native, trim, Raf, native_res)
 
     return wave_out, Fp_by_region, Fstar_out, region_kernel_fct
+
+
+def generate_planet_model(theta, apply_rotation_kernel: bool = True) -> model_seq.PlanetModel:
+    """Generate the HIGH RES model for one theta as a `model_sequence.PlanetModel`.
+
+    This is the retrieval-side half of the `logl_grid.py` harmonization (Chantier C):
+    run once, by hand, during the analysis of a retrieval (typically at the best-fit
+    or median parameters, after `setup_retrieval(yaml)`), then saved with
+    `save_planet_model` so that a Kp-vsys grid (`logl_grid.py`) can reproduce
+    everything `lnprob` does to the model per visit without running petitRADTRANS.
+
+    The native spectrum is generated exactly as `lnprob`'s HIGH RES block does
+    (`_prepare_fp_native_by_region`, once per theta, all regions). For a
+    single-region model, the phase-independent default rotation kernel
+    (`rotation_kernel` YAML key, `model_sequence.apply_default_rotation_kernel`) is
+    applied here too, so the saved file is self-contained -- `logl_grid.py` then only
+    degrades it to each visit's own instrument resolution. A multi-region model stays
+    fully native: its (phase-dependent) kernels come from `get_ker` per exposure at
+    `logl_grid` time, same as in `lnprob`.
+
+    Parameters
+    ----------
+    theta : array-like or list of dict
+        Either a parameter vector in `params_prior` order (e.g. one row of the walker
+        chain, `walker_init[0]`, a best-fit sample -- unpacked with `unpack_theta`),
+        or an already-unpacked `theta_regions` list (one dict per region).
+    apply_rotation_kernel : bool, default True
+        Apply the default rotation kernel (if `rotation_kernel` is set in the YAML)
+        to a single-region model. `False` keeps the raw native spectrum (e.g. to
+        visualise the kernel's effect with `model_sequence.apply_default_rotation_kernel`
+        afterwards).
+
+    Returns
+    -------
+    model_sequence.PlanetModel
+        Native-sampling model (see that class for the other forms it can be turned
+        into: `degrade`, `combine_at_phase`).
+    """
+    is_theta_regions = (isinstance(theta, (list, tuple)) and len(theta) > 0
+                        and isinstance(theta[0], dict))
+    theta_regions = list(theta) if is_theta_regions else unpack_theta(theta)
+
+    init_atmo_if_not_done('high')
+    atmo_obj_list = [globals()[f'atmo_high_{i_rng}'] for i_rng in range(len(wv_range_high))]
+    init_stellar_spectrum_if_not_done('high')
+    fct_star = globals()['fct_star_high']
+
+    wave_native, Fp_by_region, Fstar_native = _prepare_fp_native_by_region(
+        theta_regions, atmo_obj_list, fct_star)
+
+    model = model_seq.PlanetModel(
+        wave=wave_native, Fp_by_region=list(Fp_by_region), Fstar=Fstar_native,
+        theta_regions=theta_regions, native_resolution=prt_res['high'],
+        kind_trans=kind_trans, region_id=list(region_id))
+
+    if apply_rotation_kernel and rotation_kernel is not None and not model.is_multi_region:
+        model = model_seq.apply_default_rotation_kernel(model, rotation_kernel, planet)
+
+    return model
+
+
+def save_planet_model(theta, path, apply_rotation_kernel: bool = True) -> model_seq.PlanetModel:
+    """`generate_planet_model` + `model_sequence.save_planet_model`, in one call.
+
+    Typical use in an analysis notebook, after `setup_retrieval(yaml)`::
+
+        best_params = ord_pos[-1]        # e.g. best logL sample of the chain
+        model = retrieval.save_planet_model(best_params, 'Spectra/day2_best.npz')
+
+    then ``run_starships_logl_grid --config <same yaml> --specfile Spectra/day2_best.npz``.
+    Returns the model that was saved (for immediate plotting).
+    """
+    model = generate_planet_model(theta, apply_rotation_kernel=apply_rotation_kernel)
+    model_seq.save_planet_model(path, model)
+    log.info(f'Planet model saved: {path} ({model.describe()})')
+    return model
 
 
 def prepare_model_multi_reg(theta_regions, mode, rot_ker_list=None, atmo_obj=None, visit_i=0, Raf=None):
