@@ -6,7 +6,7 @@ from starships.convolution import SIGMA_TO_FWHM
 from starships.mask_tools import interp1d_masked
 from starships.model_sequence import (
     _build_default_rotation_kernel, apply_pca_to_model, build_model_sequence, combine_regions,
-    combine_regions_with_kernel, generate_native_fp_fstar, precompute_theta_model,
+    combine_regions_with_kernel, generate_native_fp_fstar, kernel_edge_trim, precompute_theta_model,
 )
 from starships.spectrum import quick_inject_clean
 from starships import homemade as hm
@@ -577,22 +577,44 @@ class TestGenerateNativeFpFstar:
         np.testing.assert_allclose(depth_out, depth_native[:-1])
 
 
+class TestKernelEdgeTrim:
+    """`kernel_edge_trim` (Chantier A, 2026-09-17) -- the real-kernel-length trim
+    that replaced a fixed 15-point constant inherited from the old
+    `petitradtrans_utils.py::prepare_model` (found wrong for
+    `spectrum.HotspotWindRotationKernel`, whose native kernel length is not close
+    to 15/30 points -- see this function's docstring for the full story)."""
+
+    def test_half_of_kernel_length(self):
+        assert kernel_edge_trim([np.zeros(7)]) == 3
+
+    def test_uses_first_kernel_in_the_list(self):
+        # Every region's kernel shares one length (BaseKerMulti.resample builds
+        # them on a common velocity grid) -- only the first entry is consulted.
+        assert kernel_edge_trim([np.zeros(21), np.zeros(21)]) == 10
+
+
 class TestCombineRegionsWithKernel:
     """`combine_regions_with_kernel` (Chantier A Phase 3) -- the per-exposure
     convolve-then-weighted-sum step for the true multi-region case (any user-defined
     region split, e.g. citrus/longitude slices -- nothing here assumes that specific
     geometry), meant to be called from inside a `region_kernel` closure passed to
-    `build_model_sequence` (see `TestBuildModelSequenceRegionKernel`)."""
+    `build_model_sequence` (see `TestBuildModelSequenceRegionKernel`).
+
+    Edge trim is `kernel_edge_trim(rot_ker_list)` (real kernel half-length), not a
+    fixed constant -- each test below derives its own expected trim from the
+    kernel it uses, rather than hardcoding a number, so a regression back to a
+    fixed trim would show up as a shape mismatch here."""
 
     def test_single_region_reproduces_plain_kernel_convolution(self):
         wave = np.arange(50, dtype=float)
         Fp = np.zeros(50)
         Fp[25] = 1.0
         kernel = np.array([0.25, 0.5, 0.25])
+        trim = kernel_edge_trim([kernel])
 
-        out = combine_regions_with_kernel(wave[15:-15], [Fp], [kernel], [1.0])
+        out = combine_regions_with_kernel(wave[trim:-trim], [Fp], [kernel], [1.0])
 
-        expected = np.convolve(Fp, kernel, mode='same')[15:-15]
+        expected = np.convolve(Fp, kernel, mode='same')[trim:-trim]
         np.testing.assert_allclose(out, expected)
 
     def test_two_regions_are_weighted_and_summed(self):
@@ -602,17 +624,34 @@ class TestCombineRegionsWithKernel:
         Fp1 = np.full(60, 2.0)
         Fp2 = np.full(60, 5.0)
         kernel = np.array([1.0])
+        trim = kernel_edge_trim([kernel])
+        assert trim == 0  # length-1 kernel: nothing to trim
 
-        out = combine_regions_with_kernel(wave[15:-15], [Fp1, Fp2], [kernel, kernel], [0.3, 0.7])
+        out = combine_regions_with_kernel(wave, [Fp1, Fp2], [kernel, kernel], [0.3, 0.7])
 
-        expected = 0.3 * Fp1[15:-15] + 0.7 * Fp2[15:-15]
+        expected = 0.3 * Fp1 + 0.7 * Fp2
         np.testing.assert_allclose(out, expected)
 
     def test_output_length_matches_wave_after_edge_trim(self):
         wave_native = np.arange(100, dtype=float)
         Fp = np.random.default_rng(0).normal(size=100)
         kernel = np.array([0.2, 0.6, 0.2])
+        trim = kernel_edge_trim([kernel])
 
-        out = combine_regions_with_kernel(wave_native[15:-15], [Fp], [kernel], [1.0])
+        out = combine_regions_with_kernel(wave_native[trim:-trim], [Fp], [kernel], [1.0])
 
-        assert out.shape == wave_native[15:-15].shape
+        assert out.shape == wave_native[trim:-trim].shape
+
+    def test_trim_scales_with_kernel_length_not_a_fixed_constant(self):
+        # Regression test for the bug itself (Chantier A, 2026-09-16): a wide
+        # kernel (as spectrum.HotspotWindRotationKernel's native, un-degraded
+        # kernel can be) must not be silently over- or under-trimmed by a
+        # constant unrelated to its actual length.
+        wave_native = np.arange(200, dtype=float)
+        Fp = np.random.default_rng(1).normal(size=200)
+        wide_kernel = np.ones(41) / 41  # trim = 20, not 15
+
+        out = combine_regions_with_kernel(wave_native[20:-20], [Fp], [wide_kernel], [1.0])
+
+        expected = np.convolve(Fp, wide_kernel, mode='same')[20:-20]
+        np.testing.assert_allclose(out, expected)

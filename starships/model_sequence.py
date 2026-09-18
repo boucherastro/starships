@@ -171,6 +171,51 @@ def generate_native_fp_fstar(
     return wave_trim, Fp_trim, Fstar_trim
 
 
+def kernel_edge_trim(rot_ker_list: Sequence[np.ndarray]) -> int:
+    """Half-width (in points) of a `get_ker`-style region kernel list.
+
+    `np.convolve(Fp_i, ker_i, mode='same')` returns an array the same length
+    as `Fp_i`, but the points within about `len(ker_i) // 2` of each edge did
+    not see a full convolution window (the tail of the kernel ran off the end
+    of `Fp_i`, `mode='same'`'s implicit zero-padding) -- this returns the
+    symmetric trim that discards that boundary region, the same convention
+    `combine_regions_with_kernel` below uses on its own output.
+
+    Found 2026-09-16 (Chantier A): a *fixed* trim of 15 points, inherited from
+    the old `petitradtrans_utils.py::prepare_model` this whole multi-region
+    engine was modelled on, was never actually tied to the real kernel length
+    -- it happened to be roughly right for `CitrusRotationKernel` at typical
+    settings, but is very wrong for a wide, physically-motivated kernel like
+    `spectrum.HotspotWindRotationKernel` (its native, un-degraded kernel can
+    be dominated by `get_ker`'s own `pad * res_elem` margin, not by the
+    planet's rotation/wind speed -- tens of points instead of ~15, see that
+    class's `get_ker` docstring). A trim that is too small leaves convolution
+    edge artifacts in the output; one that is too large (as here) silently
+    drops real wavelength coverage a caller may have sized `wave_out` to
+    include (`retrieval.py::prepare_model_multi_reg_low`/
+    `_high_per_exposure`, which must trim `wave_native` by this exact same
+    amount *before* calling `build_model_sequence`, to match the length this
+    function's caller returns).
+
+    Every kernel in `rot_ker_list` is assumed to share the same length --
+    guaranteed by `spectrum.BaseKerMulti.resample`, which builds every
+    region's kernel on one common velocity grid before splitting the weight
+    between regions.
+
+    Parameters
+    ----------
+    rot_ker_list : sequence of np.ndarray
+        As returned by a `get_ker`-style function (`retrieval.py`'s `get_ker`
+        global, loaded from `get_ker_file`) -- one kernel array per region.
+
+    Returns
+    -------
+    int
+        Number of points to trim from each end.
+    """
+    return len(rot_ker_list[0]) // 2
+
+
 def combine_regions_with_kernel(wave: np.ndarray, Fp_list: Sequence[np.ndarray],
                                 rot_ker_list: Sequence[np.ndarray],
                                 weights: Sequence[ArrayOrScalar]) -> np.ndarray:
@@ -206,10 +251,13 @@ def combine_regions_with_kernel(wave: np.ndarray, Fp_list: Sequence[np.ndarray],
     Parameters
     ----------
     wave : np.ndarray
-        Wavelength grid the combined spectrum is returned on. Its length must be
-        `len(Fp_list[i]) - 30` (see `Returns` below) -- i.e. the native grid
-        produced by `generate_native_fp_fstar`, edge-trimmed by 15 points on each
-        side the same way `precompute_theta_model` trims its own output.
+        Wavelength grid the combined spectrum is returned on. Its length must
+        match `len(Fp_list[i]) - 2 * kernel_edge_trim(rot_ker_list)` (see
+        `Returns` below) -- i.e. the native grid produced by
+        `generate_native_fp_fstar`, edge-trimmed by `kernel_edge_trim`'s
+        return value on each side, the same way this function trims its own
+        output (see `kernel_edge_trim`'s docstring for why this must be
+        computed from the real kernel length, not a fixed constant).
     Fp_list : sequence of np.ndarray
         One native-resolution planet-flux array per region (un-trimmed --
         `generate_native_fp_fstar`'s direct output), all on the same native grid.
@@ -225,11 +273,17 @@ def combine_regions_with_kernel(wave: np.ndarray, Fp_list: Sequence[np.ndarray],
     Returns
     -------
     np.ndarray
-        Combined planet-flux spectrum for this phase, trimmed by 15 points on each
-        side (same convolution-boundary convention as `precompute_theta_model`) so
-        its length matches `wave`.
+        Combined planet-flux spectrum for this phase, trimmed by
+        `kernel_edge_trim(rot_ker_list)` points on each side so its length
+        matches `wave`.
     """
-    convolved = [np.convolve(Fp_i, ker_i, mode='same')[15:-15]
+    trim = kernel_edge_trim(rot_ker_list)
+    # `arr[trim:-trim]` with trim == 0 slices to `arr[0:0]` (an empty array, not
+    # "no trim") -- `-0 == 0` in Python, so the negative-index shortcut silently
+    # breaks for the untrimmed case. A length-1 kernel (trim == 0) is a real,
+    # valid input (see TestCombineRegionsWithKernel.test_two_regions_are_weighted_and_summed).
+    edge = slice(trim, -trim) if trim > 0 else slice(None)
+    convolved = [np.convolve(Fp_i, ker_i, mode='same')[edge]
                 for Fp_i, ker_i in zip(Fp_list, rot_ker_list)]
     return combine_regions(convolved, weights)
 

@@ -2079,11 +2079,25 @@ def los_velocity_from_day_night(speed, phi, lam, lam_obs):
 def make_velocity_grid(v_max, res_elem, n_os=None, pad=7.0):
     """Build the centered velocity grid a kernel is sampled on.
 
+    Two regimes, picked by whichever extent is larger (found 2026-09-17,
+    together with the `combine_regions_with_kernel` edge-trim fix -- see
+    `model_sequence.kernel_edge_trim`'s docstring): a kernel that is narrow
+    compared to `res_elem` (e.g. near-zero rotation/wind) still needs a grid
+    at least `pad` resolution elements wide, or it would be sampled by too
+    few points to resolve at all; a kernel that is wide compared to
+    `res_elem` (dominated by real physics -- fast rotation, a strong jet or
+    day-to-night flow) should size the grid from that physical extent
+    instead, not from an unrelated resolution-element count added on top of
+    it (the previous `v_max + pad * res_elem` convention did exactly that --
+    for `HotspotWindRotationKernel` at `prt_res['low']` (a coarse ~1000, not
+    a real instrumental resolution), `pad * res_elem` alone came out to
+    ~2100 km/s, two orders of magnitude past any physically reachable wind
+    speed, so it silently swamped `v_max` regardless of theta).
+
     Mirrors the convention already used throughout this module
-    (`SolidRotationKernel.get_ker`, `CitrusRotationKernel.get_ker`, ...): pad
-    the grid by a few resolution elements beyond the kernel's physical
-    extent, and center it exactly on v=0 (`np.arange` does not guarantee
-    that on its own).
+    (`SolidRotationKernel.get_ker`, `CitrusRotationKernel.get_ker`, ...) for
+    the padding itself: `pad` resolution elements, centered exactly on v=0
+    (`np.arange` does not guarantee that on its own).
 
     Parameters
     ----------
@@ -2096,14 +2110,15 @@ def make_velocity_grid(v_max, res_elem, n_os=None, pad=7.0):
         Oversampling factor relative to `res_elem`. If None, a default
         sampling of `res_elem / 10` is used.
     pad : float
-        Extra padding around the kernel, in units of `res_elem`.
+        Resolution-element floor on the grid extent, in units of `res_elem`
+        -- only binding when the kernel is narrower than that (see above).
 
     Returns
     -------
     np.ndarray
         Centered velocity grid (m/s).
     """
-    v_edge = v_max + pad * res_elem
+    v_edge = max(v_max, pad * res_elem)
     delta_v = res_elem / 10 if n_os is None else res_elem / n_os
     v_grid = np.arange(-v_edge, v_edge, delta_v)
     v_grid -= np.mean(v_grid)

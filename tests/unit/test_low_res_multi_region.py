@@ -172,10 +172,15 @@ class TestBuildMultiRegionKernelModeAndInstrum:
                             lambda wave, Fp_list, rot_ker_list, weights: 'combined', raising=False)
 
         theta_regions = [{'spec_scale': 1.0}]
-        region_kernel = retrieval._build_multi_region_kernel(
+        region_kernel, trim = retrieval._build_multi_region_kernel(
             theta_regions, visit_i=0, mode='low', instrum={'resol': 1000})
         region_kernel(wave=np.array([1.0]), Fp_by_region=[np.array([1.0])], phase_i=0.3)
 
+        # fake_get_ker returns a length-1 kernel -> trim = 1 // 2 = 0.
+        assert trim == 0
+        # calls[0] is the probe call this function now makes upfront (to learn
+        # `trim` before the exposure loop) -- same instrum/model_resolution as
+        # the real per-exposure call, since both come from the same closure state.
         assert calls[0]['instrum'] == {'resol': 1000}
         assert calls[0]['model_resolution'] == 1000
 
@@ -196,11 +201,83 @@ class TestBuildMultiRegionKernelModeAndInstrum:
 
         theta_regions = [{'spec_scale': 1.0}]
         # mode defaults to 'high', instrum defaults to None -> instrum_param_list[visit_i].
-        region_kernel = retrieval._build_multi_region_kernel(theta_regions, visit_i=0)
+        region_kernel, trim = retrieval._build_multi_region_kernel(theta_regions, visit_i=0)
         region_kernel(wave=np.array([1.0]), Fp_by_region=[np.array([1.0])], phase_i=0.3)
 
+        assert trim == 0
         assert calls[0]['instrum'] == {'resol': 70_000}
         assert calls[0]['model_resolution'] == 250_000
+
+
+class TestPadWvRangeForMultiRegionKernel:
+    """`_pad_wv_range_for_multi_region_kernel` (Chantier A, 2026-09-17) -- widens
+    `wv_range_{mode}` in place to absorb the multi-region kernel's own edge trim
+    (`model_sequence.kernel_edge_trim`), probed across every `walker_init` draw
+    since the needed margin is theta-dependent (see that function's docstring
+    and `spectrum.make_velocity_grid`'s). `unpack_theta` is mocked out (already
+    covered elsewhere) so these tests only check the margin arithmetic and the
+    high-res-with-no-instrument skip."""
+
+    def test_widens_low_res_range_by_kernel_trim_in_wavelength(self, monkeypatch):
+        # Kernel length 7 -> trim = 3 points, at prt_res['low']=1000: margin at a
+        # given wavelength wv is 3 * wv / 1000.
+        monkeypatch.setattr(retrieval, 'get_ker',
+                            lambda theta_regions, phase=None, planet=None, instrum=None,
+                                   model_resolution=None: [np.zeros(7)], raising=False)
+        monkeypatch.setattr(retrieval, 'unpack_theta', lambda theta: ['dummy_region'], raising=False)
+        monkeypatch.setattr(retrieval, 'walker_init', np.zeros((3, 1)), raising=False)
+        monkeypatch.setattr(retrieval, 'planet', None, raising=False)
+        monkeypatch.setattr(retrieval, 'instrum_param_list', [], raising=False)
+        monkeypatch.setattr(retrieval, 'prt_res', {'high': 250_000, 'low': 1000}, raising=False)
+        monkeypatch.setattr(retrieval, 'wv_range_high', [], raising=False)
+        monkeypatch.setattr(retrieval, 'wv_range_low', [[2.0, 5.0]], raising=False)
+
+        retrieval._pad_wv_range_for_multi_region_kernel()
+
+        margin_lo = 3 * 2.0 / 1000
+        margin_hi = 3 * 5.0 / 1000
+        np.testing.assert_allclose(retrieval.wv_range_low, [[2.0 - margin_lo, 5.0 + margin_hi]])
+
+    def test_skips_high_res_when_no_real_instrument(self, monkeypatch):
+        # A pure LRR/lbl-only run (instrum_param_list empty) never runs
+        # prepare_model_multi_reg_high_per_exposure -- nothing to budget for.
+        calls = []
+        monkeypatch.setattr(
+            retrieval, 'get_ker',
+            lambda theta_regions, phase=None, planet=None, instrum=None,
+                   model_resolution=None: calls.append(model_resolution) or [np.zeros(7)],
+            raising=False)
+        monkeypatch.setattr(retrieval, 'unpack_theta', lambda theta: ['dummy_region'], raising=False)
+        monkeypatch.setattr(retrieval, 'walker_init', np.zeros((3, 1)), raising=False)
+        monkeypatch.setattr(retrieval, 'planet', None, raising=False)
+        monkeypatch.setattr(retrieval, 'instrum_param_list', [], raising=False)
+        monkeypatch.setattr(retrieval, 'prt_res', {'high': 250_000, 'low': 1000}, raising=False)
+        monkeypatch.setattr(retrieval, 'wv_range_high', [[1.0, 2.0]], raising=False)
+        monkeypatch.setattr(retrieval, 'wv_range_low', [], raising=False)
+
+        retrieval._pad_wv_range_for_multi_region_kernel()
+
+        assert retrieval.wv_range_high == [[1.0, 2.0]]  # untouched
+        assert 250_000 not in calls  # get_ker never probed at the high-res resolution
+
+    def test_no_op_get_ker_leaves_range_untouched(self, monkeypatch):
+        # get_ker_file not set -> get_ker is the [None, ...] no-op fallback
+        # (setup_retrieval's "Rotation kernel" block) -- nothing to trim.
+        monkeypatch.setattr(retrieval, 'get_ker',
+                            lambda theta_regions, phase=None, planet=None, instrum=None,
+                                   model_resolution=None: [None for _ in theta_regions],
+                            raising=False)
+        monkeypatch.setattr(retrieval, 'unpack_theta', lambda theta: ['dummy_region'], raising=False)
+        monkeypatch.setattr(retrieval, 'walker_init', np.zeros((3, 1)), raising=False)
+        monkeypatch.setattr(retrieval, 'planet', None, raising=False)
+        monkeypatch.setattr(retrieval, 'instrum_param_list', [], raising=False)
+        monkeypatch.setattr(retrieval, 'prt_res', {'high': 250_000, 'low': 1000}, raising=False)
+        monkeypatch.setattr(retrieval, 'wv_range_high', [], raising=False)
+        monkeypatch.setattr(retrieval, 'wv_range_low', [[2.0, 5.0]], raising=False)
+
+        retrieval._pad_wv_range_for_multi_region_kernel()
+
+        assert retrieval.wv_range_low == [[2.0, 5.0]]
 
 
 class TestPrepareModelMultiRegLow:
@@ -227,11 +304,12 @@ class TestPrepareModelMultiRegLow:
 
             def region_kernel(wave, Fp_by_region, phase_i):
                 # Region 0 fully "visible" before phase 0.25, region 1 after --
-                # matches combine_regions_with_kernel's own [15:-15] trim convention.
+                # matches combine_regions_with_kernel's own edge-trim convention
+                # (here a fixed 15, matching the `trim` this fake returns below).
                 w0 = 1.0 if phase_i < 0.25 else 0.0
                 return w0 * Fp_by_region[0][15:-15] + (1 - w0) * Fp_by_region[1][15:-15]
 
-            return region_kernel
+            return region_kernel, 15
 
         monkeypatch.setattr(retrieval, '_prepare_fp_native_by_region',
                             fake_prepare_fp_native_by_region, raising=False)
@@ -289,7 +367,7 @@ class TestPrepareModelMultiRegLow:
         def fake_build_multi_region_kernel(theta_regions, visit_i=0, mode='high', instrum=None):
             assert mode == 'high'
             assert instrum == {'resol': 250_000}
-            return lambda wave, Fp_by_region, phase_i: Fp_by_region[0][15:-15]
+            return (lambda wave, Fp_by_region, phase_i: Fp_by_region[0][15:-15]), 15
 
         monkeypatch.setattr(retrieval, '_prepare_fp_native_by_region',
                             fake_prepare_fp_native_by_region, raising=False)
@@ -334,7 +412,7 @@ class TestPrepareModelMultiRegLow:
                 w0 = 1.0 if phase_i < 0.25 else 0.0
                 return w0 * Fp_by_region[0][15:-15] + (1 - w0) * Fp_by_region[1][15:-15]
 
-            return region_kernel
+            return region_kernel, 15
 
         monkeypatch.setattr(retrieval, '_prepare_fp_native_by_region',
                             fake_prepare_fp_native_by_region, raising=False)

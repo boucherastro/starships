@@ -709,7 +709,81 @@ def setup_retrieval(input_parameters, **kwargs):
     else:
         get_ker = ru.load_custom_get_ker(get_ker_file)
 
+    # Chantier A, 2026-09-17: budget wv_range_{high,low} for the multi-region
+    # kernel's own edge trim -- see `_pad_wv_range_for_multi_region_kernel`'s
+    # docstring for why this is needed on top of the dynamic trim itself.
+    if n_regions > 1:
+        _pad_wv_range_for_multi_region_kernel()
+
     return input_params
+
+
+def _pad_wv_range_for_multi_region_kernel():
+    """Widen `wv_range_high`/`wv_range_low` for the multi-region kernel's edge trim.
+
+    `prepare_model_multi_reg_low`/`_high_per_exposure` trim `wave_native` by the
+    *real* kernel half-width (`model_sequence.kernel_edge_trim`) instead of a
+    fixed constant (see that function's docstring for why the old fixed
+    15-point trim was wrong) -- but that alone only fixes how much of the
+    *generated* model is kept, not how far the model is generated in the first
+    place. If `wv_range_{mode}` was sized without this trim in mind, the
+    trimmed model can still fall short of the wavelength range a low-res
+    instrument (e.g. a spectrophotometric band near the edge of
+    `wv_range_low`) actually needs -- the same silent-NaN failure mode
+    `required_margin` was added to fix for `degrade_and_resample`'s own
+    margin (see that function's docstring). This is the analogous fix for the
+    kernel-convolution margin, which `required_margin` does not cover (it has
+    no notion of a rotation/wind kernel at all).
+
+    The needed margin is theta-dependent (see `spectrum.make_velocity_grid`'s
+    docstring: a wide kernel, e.g. fast rotation or a strong day-to-night
+    flow, is sized from the physics, not just from a fixed pad) and `get_ker`
+    is a fully generic, user-supplied function (`get_ker_file`) -- so rather
+    than guessing which theta draw is "worst case", this probes every walker
+    in `walker_init` (already a representative sample of the full prior, from
+    `ru.init_from_prior`) and keeps the largest kernel found. One-time cost at
+    setup, not inside the per-step `lnprob` hot loop.
+
+    Reads/writes module globals (`wv_range_high`, `wv_range_low`, in place) --
+    called once from `setup_retrieval`, after `walker_init`/`get_ker` are set,
+    only when `n_regions > 1` (single-region retrievals don't use the
+    multi-region kernel machinery this trim belongs to).
+    """
+    for mode in ['high', 'low']:
+        wv_rng = globals()[f'wv_range_{mode}']
+        if not wv_rng:
+            continue
+        if mode == 'high' and not instrum_param_list:
+            # No real high-res instrument in this run -- prepare_model_multi_reg_
+            # high_per_exposure (and its instrum_param_list[visit_i] lookup) never
+            # runs, so there is nothing to budget margin for here.
+            continue
+        instrums_to_probe = instrum_param_list if mode == 'high' else [{'resol': prt_res['low']}]
+
+        max_trim = 0
+        for theta in walker_init:
+            theta_regions = unpack_theta(theta)
+            for probe_instrum in instrums_to_probe:
+                rot_ker_list = get_ker(theta_regions, phase=0.0, planet=planet,
+                                       instrum=probe_instrum, model_resolution=prt_res[mode])
+                if rot_ker_list[0] is None:
+                    continue
+                max_trim = max(max_trim, model_seq.kernel_edge_trim(rot_ker_list))
+        if max_trim == 0:
+            continue
+
+        # Native sampling near wavelength `wv` is `wv / prt_res[mode]` (constant
+        # resolving power) -- same formula `required_margin` uses, just driven by
+        # the kernel's own trim (in points) instead of `n_fwhm` resolution
+        # elements. Each edge of each (possibly disjoint) range is padded by its
+        # own margin, same convention as `load_photometry`'s `required_margin`
+        # calls (margin scales with wavelength, so the low and high edge of a
+        # range need different amounts).
+        for rng in wv_rng:
+            rng[0] -= max_trim * rng[0] / prt_res[mode]
+            rng[1] += max_trim * rng[1] / prt_res[mode]
+        log.info(f"Padded wv_range_{mode} by the multi-region kernel's own edge "
+                f"trim ({max_trim} points at prt_res[{mode!r}]={prt_res[mode]}): {wv_rng}")
 
 # Once the setup_retrieval function is run, all the parameters will be accessible in the global variables.
 
@@ -1647,20 +1721,43 @@ def _build_multi_region_kernel(theta_regions, visit_i, mode='high', instrum=None
 
     Returns
     -------
-    callable
+    region_kernel : callable
         `region_kernel(wave, Fp_by_region, phase_i)` -> combined spectrum for that
         phase, ready for `build_model_sequence`.
+    trim : int
+        `model_sequence.kernel_edge_trim`'s return value for this theta/mode --
+        the caller must trim its own `wave_native`/`Fstar_native` by this exact
+        amount *before* calling `build_model_sequence`, to end up the same
+        length `region_kernel`'s own trim (inside `combine_regions_with_kernel`)
+        produces. Obtained here via one extra "probe" call to `get_ker`, at an
+        arbitrary phase (0.0): every kernel class in `spectrum.py` sizes its
+        velocity grid from the theta/instrument alone, never from `phase` (only
+        the *weights* within that grid are phase-dependent) -- and
+        `build_model_sequence` already assumes a phase-independent kernel
+        length itself (`wave_out`/`data_wave` are fixed once, outside the
+        per-exposure loop), so this is not a new assumption, just the first
+        place that needs the length explicitly, ahead of time.
     """
     weights = [theta_dict['spec_scale'] for theta_dict in theta_regions]
     if instrum is None:
         instrum = instrum_param_list[visit_i]
+
+    probe_ker_list = get_ker(theta_regions, phase=0.0, planet=planet,
+                             instrum=instrum, model_resolution=prt_res[mode])
+    if probe_ker_list[0] is None:
+        raise ValueError(
+            "Multi-region retrieval (n_regions > 1) needs a real per-region "
+            "kernel to combine regions -- 'get_ker_file' is not set (get_ker "
+            "is the no-op fallback, see setup_retrieval's 'Rotation kernel' "
+            "block).")
+    trim = model_seq.kernel_edge_trim(probe_ker_list)
 
     def region_kernel(wave, Fp_by_region, phase_i):
         rot_ker_list = get_ker(theta_regions, phase=phase_i, planet=planet,
                                instrum=instrum, model_resolution=prt_res[mode])
         return model_seq.combine_regions_with_kernel(wave, Fp_by_region, rot_ker_list, weights)
 
-    return region_kernel
+    return region_kernel, trim
 
 
 def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf, native=None):
@@ -1696,8 +1793,9 @@ def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf, nativ
     Returns
     -------
     wave : np.ndarray
-        Wavelength grid (native, edge-trimmed by 15 points), shared by `Fstar` and
-        by the spectra `region_kernel` returns.
+        Wavelength grid (native, edge-trimmed by `model_sequence.kernel_edge_trim`'s
+        return value on each side), shared by `Fstar` and by the spectra
+        `region_kernel` returns.
     Fp_by_region : list of np.ndarray
         Native (undegraded, un-trimmed), per-region Fp -- see
         `model_sequence.combine_regions_with_kernel` for why they are not degraded here.
@@ -1720,17 +1818,22 @@ def prepare_model_multi_reg_high_per_exposure(theta_regions, visit_i, Raf, nativ
     else:
         wave_native, Fp_by_region, Fstar_native = native
 
+    # Build the kernel (and learn its edge trim) before trimming anything --
+    # `region_kernel`'s own trim (inside `combine_regions_with_kernel`) must land
+    # on the exact same amount, see `_build_multi_region_kernel`'s `trim` return.
+    region_kernel_fct, trim = _build_multi_region_kernel(theta_regions, visit_i)
+    edge = slice(trim, -trim) if trim > 0 else slice(None)
+
     if Fstar_native is not None:
         # Fstar is region-independent -- degrade the shared native spectrum the
         # normal way (same convention as precompute_theta_model's Step 2), once.
         Fstar_pre = degrade_and_resample(wave_native, Fstar_native, resolution=Raf,
                                          input_resolution=native_res, sample=wave_native)
-        Fstar_out = np.ma.masked_invalid(Fstar_pre)[15:-15]
+        Fstar_out = np.ma.masked_invalid(Fstar_pre)[edge]
     else:
         Fstar_out = None
 
-    wave_out = wave_native[15:-15]
-    region_kernel_fct = _build_multi_region_kernel(theta_regions, visit_i)
+    wave_out = wave_native[edge]
 
     return wave_out, Fp_by_region, Fstar_out, region_kernel_fct
 
@@ -1959,15 +2062,18 @@ def prepare_model_multi_reg_low(theta_regions, mode: str = 'low'):
     # (`instrum_param_list[visit_i]`) -- `prt_res[mode]`, the model's own native
     # sampling resolution, is the only resolution genuinely defined at this stage.
     instrum_for_ker = {'resol': prt_res[mode]}
-    region_kernel_fct = _build_multi_region_kernel(theta_regions, visit_i=0, mode=mode,
-                                                    instrum=instrum_for_ker)
+    region_kernel_fct, trim = _build_multi_region_kernel(theta_regions, visit_i=0, mode=mode,
+                                                          instrum=instrum_for_ker)
 
     # Edge-trim to match combine_regions_with_kernel's convolution-boundary
-    # convention (same 15-point trim as prepare_model_multi_reg_high_per_exposure's
-    # `wave_out`) -- Fp_by_region itself stays native/untrimmed, as
+    # convention (same trim as prepare_model_multi_reg_high_per_exposure's
+    # `wave_out`, both derived from the real kernel length via
+    # `model_sequence.kernel_edge_trim` -- see `_build_multi_region_kernel`'s
+    # `trim` return) -- Fp_by_region itself stays native/untrimmed, as
     # combine_regions_with_kernel expects.
-    wave_out = wave_native[15:-15]
-    Fstar_out = Fstar_native[15:-15] if Fstar_native is not None else None
+    edge = slice(trim, -trim) if trim > 0 else slice(None)
+    wave_out = wave_native[edge]
+    Fstar_out = Fstar_native[edge] if Fstar_native is not None else None
 
     n_phases = len(representative_phases_low)
     data_wave = np.tile(wave_out[np.newaxis, np.newaxis, :], (n_phases, 1, 1))

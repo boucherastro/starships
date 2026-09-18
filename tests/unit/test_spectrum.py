@@ -91,10 +91,17 @@ class TestHotspotWindRotationKernel:
             n_lat=241, n_lon=481,
         )
         solid = SolidRotationKernel(self.R_PL, self.OMEGA, self.RESOLUTION)
-        v_grid_solid, ker_solid = solid.get_ker(n_os=5)
+        # n_os=10 (not the usual 5): `make_velocity_grid` (2026-09-17) no longer
+        # adds a fixed resolution-element pad on top of the kernel's physical
+        # extent when that extent already dominates (see its docstring) -- so
+        # there is no more "free" extra margin cushioning the edge-discretization
+        # noise this test's comment already anticipates, and n_os=5 sits right at
+        # the tolerance boundary. n_os=10 brings the residual comfortably under it
+        # (verified: max diff 0.0058 at n_os=5 vs 0.0036 at n_os=10, for atol=5e-3).
+        v_grid_solid, ker_solid = solid.get_ker(n_os=10)
 
         for phase in [0.0, 0.3, 0.5, 0.7]:
-            v_grid, (ker_hot, ker_cold) = trivial.get_ker(phase=phase, n_os=5)
+            v_grid, (ker_hot, ker_cold) = trivial.get_ker(phase=phase, n_os=10)
             combined = ker_hot + ker_cold
             ker_solid_interp = np.interp(v_grid, v_grid_solid, ker_solid, left=0, right=0)
             ker_solid_interp /= ker_solid_interp.sum()
@@ -134,20 +141,27 @@ class TestHotspotWindRotationKernel:
     def test_day_night_flow_is_redshifted_at_eclipse(self):
         # Gas flowing from the visible dayside into the hidden nightside must be
         # net redshifted (receding) when viewed face-on at secondary eclipse.
+        # n_lat/n_lon=241/481 and n_os=20 (finer than this file's usual defaults):
+        # same reason as `test_matches_solid_rotation_in_trivial_limit` above --
+        # `make_velocity_grid` (2026-09-17) no longer pads the grid past the
+        # kernel's physical extent once that extent dominates, so this symmetric,
+        # zero-mean-velocity check needs a finer surface/velocity grid to bring
+        # discretization noise back under the `abs=1.0` tolerance (verified:
+        # ~6.7 m/s residual at the old 101/201/5 grid vs ~0.7 m/s here).
         no_flow = HotspotWindRotationKernel(
             self.R_PL, self.OMEGA, self.RESOLUTION,
             hotspot_lon=20 * u.deg, hotspot_half_lon=35 * u.deg, hotspot_half_lat=25 * u.deg,
-            n_lat=101, n_lon=201,
+            n_lat=241, n_lon=481,
         )
         with_flow = HotspotWindRotationKernel(
             self.R_PL, self.OMEGA, self.RESOLUTION,
             hotspot_lon=20 * u.deg, hotspot_half_lon=35 * u.deg, hotspot_half_lat=25 * u.deg,
             day_night_speed=3000 * u.m / u.s, day_night_lat_onset=30 * u.deg,
-            n_lat=101, n_lon=201,
+            n_lat=241, n_lon=481,
         )
 
         def mean_velocity(ker_obj):
-            v_grid, (ker_hot, ker_cold) = ker_obj.get_ker(phase=0.5, n_os=5)
+            v_grid, (ker_hot, ker_cold) = ker_obj.get_ker(phase=0.5, n_os=20)
             combined = ker_hot + ker_cold
             return np.sum(combined * v_grid)
 
