@@ -85,27 +85,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-
-def _console_script_executable(name: str) -> Path:
-    """Absolute path to a console script installed in the currently-active
-    Python environment (e.g. ``run_starships_resource_test``,
-    ``run_starships_retrieval``) -- see module docstring for why this
-    replaces activating a venv by name.
-
-    Uses ``sys.prefix`` (the active environment's root), not
-    ``sys.executable``'s own directory -- some Python installs (e.g. certain
-    macOS venvs wrapping a Framework build) have ``sys.executable`` be a
-    symlink whose *resolved* target lives outside the venv's ``bin/``
-    entirely, which would silently look in the wrong place. ``sys.prefix`` is
-    exactly what pip itself used to decide where to install console scripts,
-    so it is the robust way to find them again.
-    """
-    candidate = Path(sys.prefix) / 'bin' / name
-    if not candidate.exists():
-        raise FileNotFoundError(
-            f'Could not find {name} in {Path(sys.prefix) / "bin"} -- is starships installed '
-            f'in this environment (pip install -e . or pip install starships)?')
-    return candidate
+# Shared with the submit_starships_* tools (see starships.slurm.common); kept
+# under its historical private name here so nothing else in this module moves.
+from starships.slurm.common import console_script_executable as _console_script_executable
 
 
 def _parse_sweep_point(token: str) -> Tuple[int, int]:

@@ -255,11 +255,110 @@ Not recommended based on this one data point; the `lnprob` workload's
 `n_cpu > available_cpus` region on its plots, for the same kind of check on
 raw compute scaling.
 
+## Job launchers: `submit_starships_*`
+
+The second family of tools in `starships.slurm` (added 2026-09-18). They
+replace the bash `sbatch` launchers that used to live in `retrievals/` and in
+per-project `scripts/` folders on Narval (`send_job_retrieval.sh` +
+`run_retrieval.sh`, `run_sbatch_fit_stellar_spectrum.sh`,
+`run_sbatch_logl_grid.sh`) — scripts that had to be copied, then edited by
+hand (the `#SBATCH` header / `sbatch_args=(...)` "EDIT THIS SECTION" block,
+a hard-coded venv path, a hard-coded list of model files) for every project.
+With `starships` installed, there is nothing to copy any more:
+
+| Command | Replaces | Runs in the job |
+|---|---|---|
+| `submit_starships_retrieval` | `send_job_retrieval.sh` + `run_retrieval.sh` | `run_starships_retrieval` |
+| `submit_starships_stellar_fit` | `run_sbatch_fit_stellar_spectrum.sh` | `run_starships_stellar_fit` (new console script for `python -m starships.stellar_fit`) |
+| `submit_starships_logl_grid` | `run_sbatch_logl_grid.sh` | `run_starships_logl_grid` |
+
+**Which Python environment?** The one you activated before running the
+command -- nothing else. The job calls the console script of that environment
+by absolute path, so no `module load` and no `activate` are needed inside the
+job (verified on Narval, 2026-09-18: a venv's Python runs self-contained,
+under the default `StdEnv/2023` as well as with an empty environment; the
+only external requirement is petitRADTRANS's `pRT_input_data_path` variable,
+normally set once in `~/.bashrc`). For a student, the minimum-effort setup is
+therefore: activate a shared environment installed under `projects/`, then
+run the command -- see "Running on a cluster (SLURM / Narval)" in the
+[main README](../../README.md#running-on-a-cluster-slurm--narval), the
+user-facing entry point for all of this.
+
+All three share `starships/slurm/common.py` and the same conventions:
+
+- **SLURM resources are command-line options** — `--account`,
+  `--cpus-per-task`, `--mem`, `--time` are *required* (no silent fallback on
+  the cluster's defaults, e.g. a 1 h limit for a 3-day retrieval);
+  `--job-name`, `--mail-type` (default `FAIL`), `--sbatch-arg=--anything`
+  (repeatable pass-through), `--pre-cmd "module load ..."` are optional.
+  `--nodes=1` is always set. Same venv-agnostic mechanism as the sweep (see
+  "Why no venv activation anywhere" above): the job calls the installed
+  console script of the environment you submit from.
+- **The YAML is copied before submission, and the job reads the copy.** A
+  job can wait in the queue for hours; editing the YAML to prepare the next
+  run must not change what the queued run does. Copies go to
+  `<scratch>/temp_yaml_files/<stem>_<YYYYmmdd_HHMMSS>.yaml` with a comment
+  header saying where they came from. This was `send_job_retrieval.sh`'s
+  behaviour; it now applies to the stellar fit and logl grid launchers too.
+- **`<scratch>`** is `--scratch-dir`, else `scratch_dir` from
+  `~/.starships/config.yaml`, else `$SCRATCH` (always set on Narval). SLURM
+  logs go to `<scratch>/sbatch_outputs/out_sbatch_%j.txt` (`_%A_%a` for an
+  array) — named by job ID, not job name, since only the ID is guaranteed
+  unique and it is what `squeue`/`sacct` show — and every submission appends
+  one line (date, job ID, YAML copy,
+  full `sbatch` command) to `<scratch>/sbatch_outputs/submissions.log` —
+  so a job ID can always be traced back to exactly what it ran.
+- **`--dry-run`** does everything (including the YAML copy) except calling
+  `sbatch`, and prints the exact command. Works anywhere, cluster or not.
+
+```bash
+# --- Retrieval: burnin as 8 independent burnin retrievals (SLURM array), then sampling ---
+submit_starships_retrieval burnin retrieval_inputs_kelt20.yaml --n-burnin-runs 8 \
+    --account def-dlafre --cpus-per-task 24 --mem 100G --time 1-12:00:00 --job-name K20_burnin
+submit_starships_retrieval sampling retrieval_inputs_kelt20.yaml \
+    walker_file_in=K20_burnin_3.h5 init_mode=from_burnin \
+    --account def-dlafre --cpus-per-task 24 --mem 100G --time 3-00:00:00 --job-name K20_sampling
+
+# --- Stellar fit: PHOENIX download on the login node (default, idempotent), then the fit ---
+submit_starships_stellar_fit stellar_fit_inputs_kelt20.yaml \
+    --account def-dlafre --cpus-per-task 8 --mem 20G --time 08:00:00 --job-name fit_star
+
+# --- logL grids: one job per model file, options after "--" go to run_starships_logl_grid ---
+submit_starships_logl_grid retrieval_inputs_kelt20_dayside.yaml \
+    --specfile model_spectra/kelt20b_D2_H2O_only.npz model_spectra/kelt20b_D2_all.npz \
+    --account def-dlafre --cpus-per-task 4 --mem 20G --time 07:00:00 --job-name logl_K20 \
+    -- --plot trailing --kp 227
+```
+
+Per-tool specifics (full detail in each module's docstring / `--help`):
+
+- `submit_starships_retrieval MODE CONFIG [key=value ...]`: `MODE` is
+  `burnin` or `sampling`. `key=value` tokens are forwarded verbatim to
+  `run_starships_retrieval` (which overrides those YAML keys itself).
+  `retrieval.py` decides the phase from `walker_file_in` (null = burnin), so
+  the tool checks **at submission time** that YAML + overrides match the
+  requested mode — and that `--n-burnin-runs N > 1` (a SLURM array of N
+  independent burnin *retrievals*, each with its own full set of walkers,
+  acting together as one very large burnin) comes with
+  `slurm_array_behaviour: 'burnin'`,
+  without which `retrieval.py` raises on startup. Catching these before the
+  queue wait is the whole point of having a `MODE` argument at all.
+- `submit_starships_stellar_fit CONFIG`: runs
+  `stellar_fit.download_phoenix_files` on the login node first (compute nodes
+  have no internet; the download skips files already present) —
+  `--no-download` / `--download-only` to split the two steps. Warns when the
+  YAML's `n_workers` (what `stellar_fit` actually uses for its pool) differs
+  from `--cpus-per-task`.
+- `submit_starships_logl_grid CONFIG --specfile A.npz B.npz ...`: one job per
+  model file (not an array — each job has an explicit `--specfile`, its own
+  name/log, and can be re-run alone), all sharing one YAML copy.
+
+Not migrated: `run_sbatch_profile_memory.sh` — it wrapped
+`retrievals/profile_memory_scaling.py`, the ad hoc predecessor of the
+resource sweep above, which no longer exists in the repo.
+
 ## Possible future extension: more of `starships.slurm`
 
-This resource-estimation sweep is the first tool in `starships.slurm`, not
-the only one intended to live here (Antoine, 2026-09-17) — other
-SLURM/cluster-specific operational tooling (e.g. launching retrievals, today
-split across `retrievals/run_retrieval_sbatch.sh`/`send_job_retrieval.sh` as
-copy-and-edit templates) could move here too, as a separate, later chantier.
-Not started.
+The resource sweep and the three job launchers above are what lives here as
+of 2026-09-18. Other SLURM/cluster-specific operational tooling belongs here
+too, kept separate from the science code.

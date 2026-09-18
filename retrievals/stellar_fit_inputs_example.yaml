@@ -6,13 +6,19 @@
 #
 # Usage:
 #
+#   On a SLURM cluster (Narval), both steps below in one command -- downloads
+#   the PHOENIX files on the login node, then submits the fit
+#   (see starships/slurm/README.md, "Job launchers"):
+#       submit_starships_stellar_fit this_file.yaml --account <acct> \
+#           --cpus-per-task 8 --mem 20G --time 08:00:00
+#
+#   Or by hand:
 #   Step 1 — Download PHOENIX files (login node only, requires internet):
-#       python -m starships.stellar_fit download this_file.yaml
+#       run_starships_stellar_fit download this_file.yaml
 #
 #   Step 2 — Run the fit (compute node, no internet needed):
-#       python -m starships.stellar_fit this_file.yaml
-#   or via sbatch:
-#       sbatch run_stellar_fit.sh   (which calls the line above)
+#       run_starships_stellar_fit this_file.yaml
+#   (python -m starships.stellar_fit ... works the same way)
 #
 #   In Python (e.g. for testing or post-processing):
 #       import starships.stellar_fit as sf

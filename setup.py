@@ -32,6 +32,12 @@ setup(
             'run_starships_resource_test=starships.slurm.worker:main',
             'run_starships_resource_sweep=starships.slurm.submit:main',
             'run_starships_resource_parse=starships.slurm.parse:main',
+            # Job launchers (starships.slurm) -- replace the old bash sbatch
+            # scripts; see that subpackage's README for usage.
+            'run_starships_stellar_fit=starships.stellar_fit:cli',
+            'submit_starships_retrieval=starships.slurm.submit_retrieval:main',
+            'submit_starships_stellar_fit=starships.slurm.submit_stellar_fit:main',
+            'submit_starships_logl_grid=starships.slurm.submit_logl_grid:main',
         ]
     },
     author='Antoine Darveau-Bernier',

@@ -1764,13 +1764,19 @@ def download_phoenix_files(input_parameters):
     internet, so running the fit directly without this step will fail if the
     required files are not already cached locally.
 
-    Typical workflow on Narval::
+    Typical workflow on Narval -- both steps in one command (downloads on the
+    login node, then submits the fit to SLURM; see ``starships.slurm``)::
+
+        submit_starships_stellar_fit my_config.yaml --account <acct> \
+            --cpus-per-task 8 --mem 20G --time 08:00:00
+
+    Or by hand::
 
         # On the login node (internet access):
-        python -m starships.stellar_fit download my_config.yaml
+        run_starships_stellar_fit download my_config.yaml
 
-        # Then submit the fit to the scheduler:
-        sbatch run_stellar_fit.sh
+        # Then submit the fit (run_starships_stellar_fit my_config.yaml) to
+        # the scheduler yourself.
 
     The files are saved in DEFAULT_MODEL_DIR, which defaults to
     ``$SCRATCH/Models/PHOENIX_HiRes/``.
@@ -1929,8 +1935,9 @@ def _save_run_config(input_parameters, slurm_id=None):
 def main(yaml_file):
     """Run the full stellar fit pipeline from a YAML config file.
 
-    Intended for use in an sbatch script on Narval:
-        python -m starships.stellar_fit my_config.yaml
+    Intended to run inside a SLURM job on Narval, normally submitted with
+    ``submit_starships_stellar_fit`` (see ``starships.slurm``), which wraps:
+        run_starships_stellar_fit my_config.yaml
 
     Steps:
       1. Load config and data.
@@ -1980,23 +1987,49 @@ def main(yaml_file):
     return results
 
 
-if __name__ == '__main__':
+def cli(argv=None):
+    """Command-line entry point (console script ``run_starships_stellar_fit``,
+    also what ``python -m starships.stellar_fit`` runs).
+
+    Two forms::
+
+        run_starships_stellar_fit <config.yaml>            # run the fit
+        run_starships_stellar_fit download <config.yaml>   # download PHOENIX files first
+
+    The ``download`` form must be run from a node with internet access (a
+    login node on Narval); the fit itself runs on a compute node. Both steps
+    are wrapped by ``submit_starships_stellar_fit`` (:mod:`starships.slurm`),
+    which downloads on the login node and then submits the fit to SLURM.
+
+    Parameters
+    ----------
+    argv : list of str, optional
+        Arguments (without the program name). Defaults to ``sys.argv[1:]``.
+    """
     import sys
+
+    if argv is None:
+        argv = sys.argv[1:]
 
     usage = (
         "Usage:\n"
-        "  python -m starships.stellar_fit <config.yaml>           # run the fit\n"
-        "  python -m starships.stellar_fit download <config.yaml>  # download PHOENIX files first\n"
+        "  run_starships_stellar_fit <config.yaml>            # run the fit\n"
+        "  run_starships_stellar_fit download <config.yaml>   # download PHOENIX files first\n"
+        "  (python -m starships.stellar_fit ... works the same way)\n"
     )
 
-    if len(sys.argv) < 2:
+    if len(argv) < 1:
         print(usage)
         sys.exit(1)
 
-    if sys.argv[1] == 'download':
-        if len(sys.argv) < 3:
+    if argv[0] == 'download':
+        if len(argv) < 2:
             print(usage)
             sys.exit(1)
-        download_phoenix_files(sys.argv[2])
+        download_phoenix_files(argv[1])
     else:
-        main(sys.argv[1])
+        main(argv[0])
+
+
+if __name__ == '__main__':
+    cli()

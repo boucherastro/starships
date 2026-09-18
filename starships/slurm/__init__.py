@@ -32,6 +32,20 @@ functions, usable standalone if needed.
 
 This subpackage (``starships.slurm``) is the home for SLURM/cluster-specific
 operational tooling in general, kept deliberately separate from the science
-code (``retrieval.py``, ``logl_grid.py``, ...) -- this resource-estimation
-sweep is its first tool, not its only planned one.
+code (``retrieval.py``, ``logl_grid.py``, ...). Besides the resource sweep
+above, it holds the **job launchers** that replace the old copy-and-edit bash
+``sbatch`` scripts (``send_job_retrieval.sh``, ``run_sbatch_*.sh``) -- three
+more console scripts, one per workload, sharing :mod:`starships.slurm.common`:
+
+- ``submit_starships_retrieval`` (:mod:`starships.slurm.submit_retrieval`) --
+  burnin (optionally N chains as a SLURM array) or sampling retrieval.
+- ``submit_starships_stellar_fit`` (:mod:`starships.slurm.submit_stellar_fit`)
+  -- PHOENIX download on the login node, then the fit.
+- ``submit_starships_logl_grid`` (:mod:`starships.slurm.submit_logl_grid`) --
+  one Kp x v_sys grid job per model file.
+
+All take the SLURM resources as command-line options (no ``#SBATCH`` header
+anywhere), copy the input YAML to scratch before submitting (so the original
+can be edited without touching the queued job), and run the installed console
+scripts of the current Python environment. See ``README.md`` here.
 """
