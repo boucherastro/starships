@@ -240,10 +240,20 @@ hard-coded — this is what makes the tool work out of the box for anyone with
 
 `--real-cpu` (`--workload retrieval --n-walkers`, see "Usage" above) tests
 requesting more *logical* `Pool`/`EnsembleSampler` workers than *real*
-allocated cores — still exploratory, no general recommendation either way
-yet. The `lnprob` workload's `plot_resource_scaling` separately accepts
-`available_cpus` to shade an `n_cpu > available_cpus` region on its plots,
-for the same kind of check on raw compute scaling.
+allocated cores. **First real test (2026-09-18, KELT-20b `day2_2regions`,
+256 walkers, real 16 cores): it hurts, not helps** — logical `n_cpu=32` (2x
+oversubscription) vs logical `n_cpu=16` (no oversubscription) on the same 16
+real cores was both slower (1080 vs 983 s/step) and used more memory (92 vs
+61 GB), not less — each extra logical worker still carries its own working
+memory even though it's sharing real cores, and the added contention costs
+more than the smaller per-worker walker share saves. Consistent with the
+unrelated `logl_grid.py` oversubscription finding
+(`Notes/plan_revision_starships.md`, chantier C): CPU/memory-bound workloads
+like this one don't benefit from oversubscription the way I/O-bound ones can.
+Not recommended based on this one data point; the `lnprob` workload's
+`plot_resource_scaling` separately accepts `available_cpus` to shade an
+`n_cpu > available_cpus` region on its plots, for the same kind of check on
+raw compute scaling.
 
 ## Possible future extension: more of `starships.slurm`
 
