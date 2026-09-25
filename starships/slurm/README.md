@@ -271,6 +271,7 @@ With `starships` installed, there is nothing to copy any more:
 | `submit_starships_retrieval` | `send_job_retrieval.sh` + `run_retrieval.sh` | `run_starships_retrieval` |
 | `submit_starships_stellar_fit` | `run_sbatch_fit_stellar_spectrum.sh` | `run_starships_stellar_fit` (new console script for `python -m starships.stellar_fit`) |
 | `submit_starships_logl_grid` | `run_sbatch_logl_grid.sh` | `run_starships_logl_grid` |
+| `submit_starships_optimize` | *(new, no bash predecessor)* | `run_starships_optimize` (best-fit from a burn-in) |
 
 **Which Python environment?** The one you activated before running the
 command -- nothing else. The job calls the console script of that environment
@@ -284,7 +285,7 @@ run the command -- see "Running on a cluster (SLURM / Narval)" in the
 [main README](../../README.md#running-on-a-cluster-slurm--narval), the
 user-facing entry point for all of this.
 
-All three share `starships/slurm/common.py` and the same conventions:
+All four share `starships/slurm/common.py` and the same conventions:
 
 - **SLURM resources are command-line options** — `--account`,
   `--cpus-per-task`, `--mem`, `--time` are *required* (no silent fallback on
@@ -328,6 +329,12 @@ submit_starships_logl_grid retrieval_inputs_kelt20_dayside.yaml \
     --specfile model_spectra/kelt20b_D2_H2O_only.npz model_spectra/kelt20b_D2_all.npz \
     --account def-dlafre --cpus-per-task 4 --mem 20G --time 07:00:00 --job-name logl_K20 \
     -- --plot trailing --kp 227
+
+# --- Best-fit (max of lnprob) from a burn-in: 3 independent optimizations (SLURM array) ---
+submit_starships_optimize retrieval_inputs_kelt20.yaml --walker-file K20_burnin.h5 --n-starts 3 \
+    --account def-dlafre --cpus-per-task 2 --mem 23750M --time 2-00:00:00 --job-name K20_optimize \
+    -- --max-hours 44
+run_starships_optimize --compare optimum_K20_burnin_start*.npz   # do the starts agree?
 ```
 
 Per-tool specifics (full detail in each module's docstring / `--help`):
@@ -352,6 +359,20 @@ Per-tool specifics (full detail in each module's docstring / `--help`):
 - `submit_starships_logl_grid CONFIG --specfile A.npz B.npz ...`: one job per
   model file (not an array — each job has an explicit `--specfile`, its own
   name/log, and can be re-run alone), all sharing one YAML copy.
+
+- `submit_starships_optimize CONFIG --walker-file BURNIN.h5 [--n-starts N]`:
+  finds the maximum of `lnprob` (log-prior + log-likelihood) starting from a
+  burn-in, with CMA-ES (`starships.retrieval_optimize`, needs `pip install cma`).
+  It gives a proper best-fit (samples of an MCMC sit ~ n_dim/2 below the
+  maximum in logL), it does not improve the sampling. `--n-starts N > 1` is a
+  SLURM array of N independent optimizations, each from a different, well
+  separated, good burn-in sample: if they reach the same `lnprob` the maximum
+  is reliable (`run_starships_optimize --compare`). Each call to `lnprob`
+  costs as much as an MCMC step, and the candidates of a generation are
+  evaluated in parallel over `$SLURM_CPUS_PER_TASK` (model initialized once,
+  shared by the workers like in `retrieval.main`). Options after `--` go to
+  `run_starships_optimize`; give it `--max-hours` a little below `--time` so
+  it stops cleanly (a job killed anyway can be continued with `-- --resume`).
 
 Not migrated: `run_sbatch_profile_memory.sh` — it wrapped
 `retrievals/profile_memory_scaling.py`, the ad hoc predecessor of the

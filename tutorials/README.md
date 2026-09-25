@@ -34,7 +34,11 @@ table of contents once these tutorials get built into a Sphinx/ReadTheDocs site 
    input for emission retrievals; independent of retrieval/logl-map machinery otherwise.
 4. *(planned)* `retrieval/` — run and inspect a retrieval (`starships.retrieval`). Not created yet
    — Chantier A/C API still moving.
-5. `logl_grid_examples/` — log-likelihood / Kp-Vsys detection maps (`starships.logl_grid`),
+5. `retrieval_optimize_examples/` — find the best-fit (max of `lnprob`) from a burn-in with CMA-ES
+   (`starships.retrieval_optimize`). Narrower scope than the retrieval API above (only reads
+   `lnprob`/the priors, does not touch the still-moving parts), so documented here first even
+   though `retrieval/` itself is not.
+6. `logl_grid_examples/` — log-likelihood / Kp-Vsys detection maps (`starships.logl_grid`),
    typically run as a lighter-weight alternative or complement to a full retrieval.
 
 More folders (correlation/ttest, ...) will be added as their respective chantiers stabilize the

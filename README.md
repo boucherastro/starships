@@ -216,6 +216,10 @@ submit_starships_stellar_fit my_stellar_fit.yaml \
 # logL / Kp-vsys grids, one job per model file
 submit_starships_logl_grid my_retrieval.yaml --specfile model_A.npz model_B.npz \
     --account def-dlafre --cpus-per-task 4 --mem 20G --time 07:00:00
+
+# Best-fit (max of lnprob) from a burnin, 3 independent optimizations (SLURM array)
+submit_starships_optimize my_retrieval.yaml --walker-file my_burnin.h5 --n-starts 3 \
+    --account def-dlafre --cpus-per-task 2 --mem 20G --time 2-00:00:00 -- --max-hours 44
 ```
 
 - `--account`, `--cpus-per-task`, `--mem` and `--time` are required (no

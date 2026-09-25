@@ -8,6 +8,7 @@ setup(
     install_requires=[
         'astropy==5.1',
         'batman-package==2.4.8',
+        'cma>=3.3',
         'corner<=2.2.1',
         'emcee<=3.1.3',
         'exo-k<=1.2.0',
@@ -38,6 +39,10 @@ setup(
             'submit_starships_retrieval=starships.slurm.submit_retrieval:main',
             'submit_starships_stellar_fit=starships.slurm.submit_stellar_fit:main',
             'submit_starships_logl_grid=starships.slurm.submit_logl_grid:main',
+            # Best-fit (max of lnprob) from a burn-in with CMA-ES -- see
+            # starships/retrieval_optimize.py.
+            'run_starships_optimize=starships.retrieval_optimize:main',
+            'submit_starships_optimize=starships.slurm.submit_optimize:main',
         ]
     },
     author='Antoine Darveau-Bernier',

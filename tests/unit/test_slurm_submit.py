@@ -15,6 +15,7 @@ import yaml
 
 import starships.slurm.common as common
 import starships.slurm.submit_logl_grid as submit_logl_grid
+import starships.slurm.submit_optimize as submit_optimize
 import starships.slurm.submit_retrieval as submit_retrieval
 import starships.slurm.submit_stellar_fit as submit_stellar_fit
 
@@ -42,7 +43,7 @@ def fake_exe(monkeypatch):
     monkeypatch.setattr(common, 'console_script_executable',
                         lambda name: Path('/fake/venv/bin') / name)
     # The submit_* modules imported the name directly; patch there too.
-    for mod in (submit_retrieval, submit_stellar_fit, submit_logl_grid):
+    for mod in (submit_retrieval, submit_stellar_fit, submit_logl_grid, submit_optimize):
         monkeypatch.setattr(mod, 'console_script_executable',
                             lambda name: Path('/fake/venv/bin') / name)
 
@@ -359,4 +360,52 @@ class TestSubmitLoglGridCli:
             self._run(monkeypatch, [str(retrieval_yaml), '--specfile', str(tmp_path / 'no.npz'),
                                     '--account', 'def-x', '--cpus-per-task', '4', '--mem', '20G',
                                     '--time', '07:00:00', '--scratch-dir', str(scratch)])
+        assert fake_sbatch == []
+
+
+# ---------------------------------------------------------------------------
+# submit_optimize.py
+# ---------------------------------------------------------------------------
+
+class TestSubmitOptimizeCli:
+    def _run(self, monkeypatch, argv):
+        monkeypatch.setattr('sys.argv', ['submit_starships_optimize'] + argv)
+        submit_optimize.main()
+
+    def _resources(self, scratch):
+        return ['--account', 'def-x', '--cpus-per-task', '2', '--mem', '23750M',
+                '--time', '2-00:00:00', '--scratch-dir', str(scratch)]
+
+    def test_multi_start_is_a_slurm_array(self, monkeypatch, fake_sbatch, fake_exe, retrieval_yaml,
+                                          scratch, tmp_path):
+        burnin = tmp_path / 'burnin.h5'
+        burnin.write_bytes(b'')
+        self._run(monkeypatch, [str(retrieval_yaml), '--walker-file', str(burnin), '--n-starts', '3',
+                                *self._resources(scratch), '--', '--max-hours', '44'])
+        assert len(fake_sbatch) == 1
+        cmd = fake_sbatch[0]
+        assert _opt(cmd, 'array') == '1-3'
+        assert _opt(cmd, 'output').endswith('out_sbatch_%A_%a.txt')
+        wrap = _wrap_of(cmd)
+        assert wrap.startswith('/fake/venv/bin/run_starships_optimize ')
+        # The job reads the YAML copy and the absolute burn-in path (it does not run from here)
+        assert str(scratch / common.TEMP_YAML_SUBDIR) in wrap
+        assert f'--walker-file {burnin.resolve()}' in wrap
+        assert wrap.endswith(' --max-hours 44')
+
+    def test_single_start_is_a_plain_job_and_bare_walker_name_is_kept(self, monkeypatch, fake_sbatch,
+                                                                     fake_exe, retrieval_yaml, scratch):
+        self._run(monkeypatch, [str(retrieval_yaml), '--walker-file', 'walker_in_yaml_path.h5',
+                                *self._resources(scratch)])
+        cmd = fake_sbatch[0]
+        assert not any(a.startswith('--array') for a in cmd)
+        assert _opt(cmd, 'output').endswith('out_sbatch_%j.txt')
+        # Not found from here: left as a bare name for the job to look for in the YAML walker_path
+        assert _wrap_of(cmd).endswith(' --walker-file walker_in_yaml_path.h5')
+
+    def test_start_index_cannot_be_forwarded(self, monkeypatch, fake_sbatch, fake_exe, retrieval_yaml,
+                                             scratch):
+        with pytest.raises(SystemExit):
+            self._run(monkeypatch, [str(retrieval_yaml), '--walker-file', 'w.h5', *self._resources(scratch),
+                                    '--', '--start-index', '2'])
         assert fake_sbatch == []
