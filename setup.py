@@ -43,6 +43,10 @@ setup(
             # starships/retrieval_optimize.py.
             'run_starships_optimize=starships.retrieval_optimize:main',
             'submit_starships_optimize=starships.slurm.submit_optimize:main',
+            # Automatic retrieval-analysis figures (no walker manipulation) -- see
+            # starships/retrieval_figures.py and tutorials/retrieval_analysis/ for the
+            # interactive notebook equivalent.
+            'run_starships_retrieval_figures=starships.retrieval_figures:main',
         ]
     },
     author='Antoine Darveau-Bernier',

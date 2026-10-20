@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -150,25 +151,56 @@ solar_asplund2009 = {
 # Functions for abundance ratios
 # ==================================
 
+def count_atoms(species: str) -> dict:
+    """Number of atoms of each element in the formula of a species.
+
+    Parameters
+    ----------
+    species : str
+        Species name as used in the retrievals. Anything after the first underscore (the
+        line list name, e.g. 'CO_all_iso_HITEMP') and the charge signs ('H-', 'Na+') are ignored.
+        The electron 'e-' has no atom.
+
+    Returns
+    -------
+    dict
+        `{element: number of atoms}`, e.g. 'H2O' -> {'H': 2, 'O': 1}, 'TiO' -> {'Ti': 1, 'O': 1},
+        'He' -> {'He': 1} (so it is not counted as hydrogen), 'e-' -> {}.
+    """
+    formula = species.split('_')[0]
+    counts: dict = {}
+    # An element is a capital letter, maybe followed by a lower-case one, then an optional count
+    for element, number in re.findall(r'([A-Z][a-z]?)(\d*)', formula):
+        counts[element] = counts.get(element, 0) + (int(number) if number else 1)
+    return counts
+
+
 def get_atom_abundance(atom, abundances, list_species, abund0=0):
-    
-    atom_abund = np.zeros_like(abundances[0]) + abund0
+    """Total abundance of an element, summed over all the species that contain it.
+
+    Each species contributes its abundance times the number of atoms of the element in its
+    formula (see `count_atoms`): 2 for hydrogen in H2O or H2, 0 in He.
+
+    Parameters
+    ----------
+    atom : str
+        Element symbol, e.g. 'C', 'Fe'.
+    abundances : sequence of np.ndarray
+        Abundance (volume mixing ratio) of each species, all with the same shape.
+    list_species : sequence of str
+        Names of the species, in the same order as `abundances`.
+    abund0 : float, default 0
+        Abundance of the element that is not in the species list (added to the result).
+
+    Returns
+    -------
+    np.ndarray
+        Abundance of the element, same shape as one element of `abundances`.
+    """
+    atom_abund = np.zeros_like(abundances[0], dtype=float) + abund0
 
     for idx_specie, specie in enumerate(list_species):
-        if atom in specie:
-            idx = specie.index(atom) + len(specie) + 1
-            if idx < len(specie):
-                num = specie[idx]
-                try:
-                    num = float(num)
-                except ValueError:
-                    if num.islower():
-                        num = 0.
-                    else:
-                        num = 1.
-            else:
-                num = 1.
-            atom_abund += num * abundances[idx_specie]
+        atom_abund += count_atoms(specie).get(atom, 0) * abundances[idx_specie]
 
     return atom_abund
 
@@ -1872,156 +1904,34 @@ def gen_ret_dict(ret_params, ret_name, files, labels, discard=0, tol=8, plot=Tru
 #     print(maxs)
 #     return
 
-def plot_TP_profile_samples(ret_params, ret_names,  # nb_mols,
-                            title='', labels=None, colors=None, dark_colors=None, kind=['best'], xlim=None, slim=False,
-                            n_samp=100, samples=None, confid_interv=False, show_2sig=True, linestyle=['-', '--', ':'],
-                            params=None, counting = True, **kwargs):
-    if slim:
-        fig = plt.figure(figsize=(3, 5))
-    else:
-        fig, ax = plt.subplots(1, 1)
-
-    if colors is None:
-        colors = [(200 / 255, 30 / 255, 0 / 255), (100 / 255, 190 / 255, 240 / 255), 'gold']
-    if dark_colors is None:
-        dark_colors = ['darkred', 'royalblue', 'darkgoldenrod']
-    if labels is None:
-        labels = ['1', '2', '3']
-    if xlim is None:
-        xlim = [500, 10000]
-
-    for ret_i, ret_name_i in enumerate(ret_names):
-        temp_sample = []
-
-        if slim is False:
-            if samples is None:
-                sample = ret_params[ret_name_i]['flat_sample']
-            else:
-                if samples[ret_i] is None:
-                    sample = ret_params[ret_name_i]['flat_sample']
-                else:
-                    sample = samples[ret_i]
-
-            for i in range(n_samp):
-                if counting: 
-                    hm.print_static(i)
-                params_i = sample[random.randint(0, sample.shape[0] - 1)]  # [random.randint(0, sample.shape[1] - 1)]
-                #                 print(params_i)
-                #                 print(ret_params[ret_name_i]['nb_mols'])
-                #                 print(ret_params[ret_name_i]['temp_params'])
-                profile_i = calc_tp_profile(params_i, ret_params[ret_name_i]['temp_params'],
-                                            nb_mols=ret_params[ret_name_i]['nb_mols'],
-                                            kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp'],
-                                            params_id=ret_params[ret_name_i]['params_id'])
-                if confid_interv is False:
-                    plt.plot(profile_i, ret_params[ret_name_i]['temp_params']['pressures'], color=colors[ret_i],
-                             alpha=0.1)
-                temp_sample.append(profile_i)
-
-        temp_sample = np.array(temp_sample)
-        if confid_interv:
-            temp_stats = {'1-sig': [], '2-sig': []}
-            for temp_sample_p in temp_sample.T:
-                temp_stats['1-sig'].append(az.hdi(temp_sample_p, hdi_prob=.68))
-                temp_stats['2-sig'].append(az.hdi(temp_sample_p, hdi_prob=.954))
-            for key, val in temp_stats.items():
-                temp_stats[key] = np.array(val).T
-
-            temp_stats['median'] = np.median(temp_sample, axis=0)
-            fig, ax = plot_tp_sample(ret_params[ret_name_i]['temp_params']['pressures'], temp_stats,
-                                     line_color=dark_colors[ret_i], region_color=colors[ret_i], fig=fig, ax=ax,
-                                     show_2sig=show_2sig, label=labels[ret_i], **kwargs)
-
-        if kind is not None:
-            for i, kind_i in enumerate(kind):
-                if len(kind) > 1:
-                    label_kind = kind_i
-                else:
-                    label_kind = ''
-                plt.plot(calc_tp_profile(ret_params[ret_name_i][kind_i], ret_params[ret_name_i]['temp_params'],
-                                         nb_mols=ret_params[ret_name_i]['nb_mols'],
-                                         kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp'],
-                                         params_id=ret_params[ret_name_i]['params_id']),
-                         ret_params[ret_name_i]['temp_params']['pressures'], label=labels[ret_i] + ' ' + label_kind,
-                         color=dark_colors[ret_i], zorder=50, linestyle=linestyle[i])
-        if params is not None:
-            for i, params_i in enumerate(params):
-                plt.plot(calc_tp_profile(params_i, ret_params[ret_name_i]['temp_params'],
-                                         nb_mols=ret_params[ret_name_i]['nb_mols'],
-                                         kind_temp=ret_params[ret_name_i]['kwargs']['kind_temp'],
-                                         params_id=ret_params[ret_name_i]['params_id']),
-                         ret_params[ret_name_i]['temp_params']['pressures'], label=labels[ret_i] + ' ' + label_kind,
-                         color=(1.0, 0, i * 0.2), zorder=50, linestyle=linestyle[i])
-
-    plt.ylim(1e1, 1e-6)
-    plt.yscale('log')
-    plt.legend(fontsize=13, loc="upper left", bbox_to_anchor=(1.1, 1.0))
-    plt.xlabel(r'Temperature [K]', fontsize=16)
-    plt.ylabel(r'Pressure [bar]', fontsize=16)
-    plt.title(title, fontsize=16)
-    plt.xlim(*xlim)
-    return fig
-
-
-def plot_tp_sample(pressures, temp_stats, line_color='forestgreen', region_color='limegreen', p_range=(1e-6, 1e1),
-                   tight_range=True, fig=None, ax=None, alpha=0.5, **kwargs):
-    fkwargs = dict(line_color=line_color, region_color=region_color, p_range=p_range, fig=fig, ax=ax, alpha=alpha,
-                   tight_range=tight_range, **kwargs)
-    fig, ax = plot_p_profile_sample(pressures, temp_stats, **fkwargs)
-
-    ax.set_xlabel('Temperature [K]', fontsize=16)
-    ax.set_ylabel('Pressure [bar]', fontsize=16)
-
-    return fig, ax
-
-
-def _get_fig_and_ax_inputs(fig, ax, nrows=1, ncols=1, **kwargs):
-    if ax is None:
-        if fig is None:
-            fig, ax = plt.subplots(nrows, ncols, **kwargs)
-        else:
-            ax = fig.gca()
-
-    return fig, ax
-
-
 def _get_idx_in_range(x_array, x_range):
+    """Indices of `x_array` that fall within `x_range` (inclusive on both ends).
+
+    This is the single definition used by both the analysis helpers of this module
+    and by the plotting functions of `plotting_fcts.py` (which imports it from here,
+    since `plotting_fcts.py` already imports this module and not the other way around).
+
+    Parameters
+    ----------
+    x_array : np.ndarray
+        1d array of values (e.g. pressures or wavelengths).
+    x_range : sequence of 2 floats or None
+        `(min, max)` of the range to keep. If None, every element is selected.
+
+    Returns
+    -------
+    idx : np.ndarray or slice
+        Integer indices of the elements in the range (a full `slice` if `x_range`
+        is None). Integer indices (not a boolean mask) so that several ranges can
+        be concatenated, see `unpack_wv_norm_and_get_idx`.
+    """
     if x_range is None:
         idx = slice(None)
     else:
-        idx = (x_range[0] <= x_array) & (x_array <= x_range[-1])
+        cond = (x_range[0] <= x_array) & (x_array <= x_range[-1])
+        idx, = np.nonzero(cond)
 
     return idx
-
-
-def plot_p_profile_sample(pressures, sample_stats, line_color=None, region_color=None, p_range=(1e-6, 1e1), fig=None,
-                          ax=None, alpha=0.2, tight_range=True, show_2sig=True, **kwargs):
-    if show_2sig:
-        sigmas = ['1-sig', '2-sig']
-    else:
-        sigmas = ['1-sig']
-
-    fig, ax = _get_fig_and_ax_inputs(fig, ax)
-
-    idx = _get_idx_in_range(pressures, p_range)
-
-    (line,) = ax.semilogy(sample_stats['median'][idx], pressures[idx], color=line_color, **kwargs)
-
-    if region_color is None:
-        region_color = line.get_color()
-
-    for key in sigmas:
-        x1, x2 = sample_stats[key]
-        ax.fill_betweenx(pressures[idx], x1[idx], x2[idx], color=region_color, alpha=alpha)
-
-    if tight_range:
-        ax.set_ylim(np.min(pressures[idx]), np.max(pressures[idx]))
-
-    ylim = ax.get_ylim()
-    if ylim[-1] > ylim[0]:
-        ax.invert_yaxis()
-
-    return fig, ax
 
 
 # def print_abund_ratios_4mols_fast(logmaxs, H_scale=1., sol_ab=None, stellar_ab=None,

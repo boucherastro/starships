@@ -4,6 +4,7 @@ import numpy as np
 from . import homemade as hm
 from . import analysis as a
 from . import retrieval_utils as ru
+from .retrieval_utils import _get_idx_in_range  # single shared definition, also re-exported from here
 from . import ttest_fcts as nf
 from .orbite import rv_theo_nu
 from .mask_tools import interp1d_masked
@@ -2049,18 +2050,47 @@ def _get_fig_and_ax_inputs(fig, ax, nrows=1, ncols=1, **kwargs):
     return fig, ax
 
 
-def _get_idx_in_range(x_array, x_range):
-    if x_range is None:
-        idx = slice(None)
-    else:
-        cond = (x_range[0] <= x_array) & (x_array <= x_range[-1])
-        idx, = np.nonzero(cond)
-
-    return idx
+# NOTE: `_get_idx_in_range` is defined once in `retrieval_utils.py` and imported at the top of
+# this file (`from .retrieval_utils import _get_idx_in_range`), so it is still available as
+# `starships.plotting_fcts._get_idx_in_range` for the notebooks that import it from here.
 
 
 def plot_p_profile_sample(pressures, sample_stats, line_color=None, region_color=None, p_range=(1e-6, 1e1), fig=None,
-                          ax=None, alpha=0.2, tight_range=True, **kwargs):
+                          ax=None, alpha=0.2, tight_range=True, show_2sig=True, **kwargs):
+    """Plot the median and confidence intervals of a sample of profiles versus pressure.
+
+    Parameters
+    ----------
+    pressures : np.ndarray
+        1d array of pressures (bar), same length as the statistics.
+    sample_stats : dict
+        Output of `retrieval_utils.get_stats_from_profile`: needs the keys
+        'median', '1-sig' and (if `show_2sig`) '2-sig'.
+    line_color, region_color : str, optional
+        Color of the median line and of the shaded regions. By default the
+        matplotlib color cycle is used for both.
+    p_range : 2-tuple of float or None, default (1e-6, 1e1)
+        Pressure range to plot. None plots every level.
+    fig, ax : optional
+        Existing figure/axes to draw on. A new figure is made if none is given.
+    alpha : float, default 0.2
+        Transparency of the shaded regions.
+    tight_range : bool, default True
+        Restrict the y-axis to the plotted pressure range.
+    show_2sig : bool, default True
+        Also shade the 2-sigma interval (the 1-sigma one is always shaded).
+    **kwargs
+        Passed to `ax.semilogy` (e.g. `label`).
+
+    Returns
+    -------
+    fig, ax
+    """
+    if show_2sig:
+        sigmas = ['1-sig', '2-sig']
+    else:
+        sigmas = ['1-sig']
+
     fig, ax = _get_fig_and_ax_inputs(fig, ax)
 
     idx = _get_idx_in_range(pressures, p_range)
@@ -2070,7 +2100,7 @@ def plot_p_profile_sample(pressures, sample_stats, line_color=None, region_color
     if region_color is None:
         region_color = line.get_color()
 
-    for key in ['1-sig', '2-sig']:
+    for key in sigmas:
         x1, x2 = sample_stats[key]
         ax.fill_betweenx(pressures[idx], x1[idx], x2[idx], color=region_color, alpha=alpha)
 
@@ -2094,6 +2124,161 @@ def plot_tp_sample(pressures, temp_stats, line_color='forestgreen', region_color
     ax.set_ylabel('Pressure [bar]', fontsize=16)
 
     return fig, ax
+
+
+def plot_contributions(wv, spec_dict, kind_trans='emission', figsize=(8, 16), title=None):
+    """Six panels showing the contribution of each species to a model spectrum.
+
+    Parameters
+    ----------
+    wv : np.ndarray
+        Wavelengths of the spectra.
+    spec_dict : dict
+        Output of `retrieval_utils.get_contribution`: the spectra 'All', 'No Species' and, for each
+        species (or group of species) `X`, 'Without X' and 'X only'.
+    kind_trans : str, default 'emission'
+        'emission' or 'transmission', only used in the y-axis label.
+    figsize : 2-tuple, default (8, 16)
+    title : str, optional
+        Title of the figure (e.g. the name of the region).
+
+    Returns
+    -------
+    fig, ax
+        `ax` has the 6 panels: 0. spectra with all / without each species (ppm), 1. difference between
+        the spectrum with all the species and without each one (ppm), 2. same divided by the spectrum
+        with no species, 3. each species alone, 4. each species alone minus the spectrum with no species
+        (ppm), 5. same divided by the spectrum with no species.
+    """
+    fig, ax = plt.subplots(6, 1, sharex=True, figsize=figsize)
+
+    for key, spec in spec_dict.items():
+        if 'only' in key:
+            ax[3].plot(wv, spec, label=key)
+            spec = spec - spec_dict['No Species']
+            ax[4].plot(wv, spec * 1e6, label=key)
+
+            spec = spec / spec_dict['No Species']
+            ax[5].plot(wv, spec, label=key)
+        else:
+            ax[0].plot(wv, spec * 1e6, label=key)
+            if 'Without' in key:
+                spec = spec_dict['All'] - spec
+                ax[1].plot(wv, spec * 1e6, label=key)
+                spec = spec / spec_dict['No Species']
+                ax[2].plot(wv, spec * 1e6, label=key)
+
+    ax[0].set_ylabel(f"{kind_trans} spectrum [ppm]")
+
+    for ax_i in ax:
+        ax_i.legend()
+
+    if title is not None:
+        ax[0].set_title(title, loc='left')
+
+    return fig, ax
+
+
+def plot_profile_combined(pressures, stats_list, p_range=(1e-6, 1e2), stats_keys=('1-sig', '2-sig'),
+                          fig=None, ax=None, tight_range=True, colorsOrder=None):
+    """Overplot the confidence intervals of several profiles versus pressure, one color set per profile.
+
+    Useful to compare profiles that share the same axes: free chemistry versus chemical
+    equilibrium, the regions of a multi-region model, several retrievals, etc.
+    The colors are the pyGTC color sets (see `colorsDict`), the darker one for the
+    first statistic (1 sigma) and lighter ones for the next.
+
+    Parameters
+    ----------
+    pressures : np.ndarray or list of np.ndarray
+        Pressure grid (bar) of the profiles. One array shared by all the profiles, or a list
+        with one array per profile.
+    stats_list : list of dict
+        One dictionary per profile, as returned by `retrieval_utils.get_stats_from_profile`
+        (needs the keys in `stats_keys`). The first profile is drawn last, so on top.
+    p_range : 2-tuple of float or None, default (1e-6, 1e2)
+        Pressure range to plot. None plots everything.
+    stats_keys : sequence of str, default ('1-sig', '2-sig')
+        Statistics to shade, from the narrowest to the widest interval.
+    fig, ax : optional
+        Existing figure/axes to draw on.
+    tight_range : bool, default True
+        Restrict the y-axis to the plotted pressure range.
+    colorsOrder : list of str, optional
+        pyGTC color set of each profile (`colorsDict` keys). Default: `defaultColorsOrder`.
+
+    Returns
+    -------
+    fig, ax
+    handles : list
+        One shaded-region handle per profile (in the order of `stats_list`), e.g. to make a legend.
+    """
+    # Make sure there is a pressure array for each stats
+    n_profiles = len(stats_list)
+    if len(pressures) != n_profiles:
+        pressures = [pressures for _ in range(n_profiles)]
+    # Rename
+    pressure_list = pressures
+
+    if p_range is None:
+        p_range = (np.min(pressure_list), np.max(pressure_list))
+
+    # Use default color order from pyGTC
+    if colorsOrder is None:
+        colorsOrder = list(defaultColorsOrder[:n_profiles])
+
+    # Get pressure index
+    pressure_idx_list = [_get_idx_in_range(press, p_range) for press in pressure_list]
+
+    # Plot starts here
+
+    # Init figure and axes if needed
+    fig, ax = _get_fig_and_ax_inputs(fig, ax)
+
+    # Get colors and assign for each statistic in sample_stats (so each key)
+    color_region = [dict() for _ in range(n_profiles)]
+    for idx_pro, cs in enumerate(colorsOrder):
+        for idx_stat, key in enumerate(stats_keys):
+            try:
+                color_region[idx_pro][key] = colorsDict[cs][idx_stat]
+            except IndexError:
+                raise IndexError(f"To many satistics to plot for available colors (length = {len(defaultColorsOrder)})")
+
+    handles_for_legend = []
+    for idx_pro in reversed(range(n_profiles)):
+        stats = stats_list[idx_pro]
+        color_pro = color_region[idx_pro]
+        pressures = pressure_list[idx_pro]
+        idx_p = pressure_idx_list[idx_pro]
+        for key in reversed(stats_keys):
+            x1, x2 = stats[key]
+            handles = ax.fill_betweenx(pressures[idx_p], x1[idx_p], x2[idx_p], color=color_pro[key])
+        handles_for_legend.append(handles)
+
+    # Contour lines for all the profiles except the first one (on top of the others)
+    for idx_pro in reversed(range(1, n_profiles)):
+        stats = stats_list[idx_pro]
+        color_pro = color_region[idx_pro]
+        pressures = pressure_list[idx_pro]
+        idx_p = pressure_idx_list[idx_pro]
+        for key in reversed(stats_keys):
+            x1, x2 = stats[key]
+            ax.plot(x1[idx_p], pressures[idx_p], '-', color=color_pro[key])
+            ax.plot(x2[idx_p], pressures[idx_p], '-', color=color_pro[key])
+
+    if tight_range:
+        all_p = [pressures[idx_p] for pressures, idx_p in zip(pressure_list, pressure_idx_list)]
+        ax.set_ylim(np.min(all_p), np.max(all_p))
+
+    ax.set_yscale('log')
+
+    ylim = ax.get_ylim()
+    if ylim[-1] > ylim[0]:
+        ax.invert_yaxis()
+
+    ax.set_ylabel('Pressure [bar]', fontsize=16)
+
+    return fig, ax, list(reversed(handles_for_legend))
 
 
 def plot_spectra_sample(wave, spectra_stats, line_color='forestgreen', region_color='limegreen', wv_range=None,

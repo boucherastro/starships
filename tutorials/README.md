@@ -32,14 +32,20 @@ table of contents once these tutorials get built into a Sphinx/ReadTheDocs site 
    and math, no data or fitted products needed -- independent of the other folders here.
 3. `stellar_fit_examples/` — fit the stellar spectrum (`starships.stellar_fit`). Needed as an
    input for emission retrievals; independent of retrieval/logl-map machinery otherwise.
-4. *(planned)* `retrieval/` — run and inspect a retrieval (`starships.retrieval`). Not created yet
-   — Chantier A/C API still moving.
+4. *(planned)* `retrieval/` — run a retrieval (`starships.retrieval`). Not created yet — Chantier
+   A/C API still moving. (Inspecting the output is `retrieval_analysis/`, item 6 below, already
+   created since it only needs a finished/burn-in walker file, not this tutorial itself.)
 5. `retrieval_optimize_examples/` — find the best-fit (max of `lnprob`) from a burn-in with CMA-ES
    (`starships.retrieval_optimize`). Narrower scope than the retrieval API above (only reads
    `lnprob`/the priors, does not touch the still-moving parts), so documented here first even
    though `retrieval/` itself is not.
-6. `logl_grid_examples/` — log-likelihood / Kp-Vsys detection maps (`starships.logl_grid`),
-   typically run as a lighter-weight alternative or complement to a full retrieval.
+6. `retrieval_analysis/` — inspect a retrieval's walker output: profiles, spectra, abundance
+   ratios, species contributions, and the best-fit model saved for `logl_grid_examples/` below
+   (`starships.retrieval_analysis`). Optionally incorporates a `retrieval_optimize_examples/`
+   result. First pass, not yet polished with further feedback.
+7. `logl_grid_examples/` — log-likelihood / Kp-Vsys detection maps (`starships.logl_grid`),
+   typically run as a lighter-weight alternative or complement to a full retrieval. Its input
+   model usually comes from `retrieval_analysis/`'s "save for logl_grid" step.
 
 More folders (correlation/ttest, ...) will be added as their respective chantiers stabilize the
 underlying API — insert them in this list at the point where a user would actually reach for them,
